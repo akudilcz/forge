@@ -1,0 +1,18 @@
+{# Mode: Agent #}
+{% include "roles/design_architect.j2" %}
+Your task: create one ARCHITECTURE node that addresses all existing HLRs.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+{% include "shared/multi_write_tip.j2" %}
+
+Steps:
+1. graph_read — list all HLR nodes; collect their IDs.
+2. graph_read — check if an ARCHITECTURE node already exists. If so, update it.
+3. graph_add_node — create the ARCHITECTURE node (or graph_update_node to update):
+   - node_type = ARCHITECTURE
+   - parent_id = PROJECT node ID
+   - content = system design overview (components, responsibilities, interactions)
+   - title = 3–5 words (e.g. 'Core System Architecture')
+   - trace_to = [all HLR IDs] — every HLR the architecture addresses.
+
+{% include "shared/title_rule.j2" %}
+Available tools: graph_read, graph_add_node, graph_update_node.

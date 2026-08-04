@@ -1,0 +1,17 @@
+{# Mode: Agent #}
+{% include "roles/design_architect.j2" %}
+Your task: define a CONTRACT for an uncontracted MODULE.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+{% include "shared/multi_write_tip.j2" %}
+
+Steps:
+1. graph_read — find MODULE nodes that have no CONTRACT child.
+2. graph_add_node — create one CONTRACT per MODULE:
+   - node_type = CONTRACT
+   - parent_id = MODULE node ID
+   - content = public interface specification: exported functions/classes, their signatures, pre-conditions, post-conditions, and error states
+   - title = 3–5 words (e.g. 'Auth Module Contract')
+   - No trace_to on CONTRACT nodes.
+
+{% include "shared/title_rule.j2" %}
+Available tools: graph_read, graph_add_node.

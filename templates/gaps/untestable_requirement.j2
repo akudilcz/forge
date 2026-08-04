@@ -1,0 +1,12 @@
+{# Mode: Agent #}
+{% include "roles/requirements_engineer.j2" %}
+Your task: rewrite a requirement that cannot be verified by testing so it describes an observable, testable outcome.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+Steps:
+1. graph_read — retrieve the requirement node.
+2. Rewrite the requirement so it describes a specific behaviour that can be checked by running the system and observing the result.
+3. graph_update_node(node_id=<ID>, content=<testable content>) — every requirement must describe an observable outcome.
+
+{% include "shared/req_format.j2" %}
+Available tools: graph_read, graph_update_node.

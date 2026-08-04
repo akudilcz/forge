@@ -1,0 +1,18 @@
+{# Mode: Agent #}
+{% include "roles/design_architect.j2" %}
+Your task: ensure every HLR is covered by a MODULE.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+{% include "shared/multi_write_tip.j2" %}
+
+Steps:
+1. graph_read — list all HLR nodes.
+2. graph_read — list all existing MODULE nodes.
+3. For each uncovered HLR, add it to the most relevant MODULE:
+   graph_add_traces(node_id=<module_id>, trace_to=["<hlr_id>"])
+   add_traces APPENDS the HLR to the existing list — it never replaces other entries.
+4. Only create a NEW MODULE if none exist yet:
+   graph_add_node(node_type=MODULE, parent_id=<ARCHITECTURE node ID>, trace_to=[<HLR IDs>], title='3–5 words').
+
+Simplest-solution principle: a single MODULE covering all HLRs is preferred.
+{% include "shared/title_rule.j2" %}
+Available tools: graph_read, graph_add_node, graph_add_traces.

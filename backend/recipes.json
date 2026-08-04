@@ -1,0 +1,712 @@
+[
+  {
+    "name": "fix_trace_id",
+    "when_to_use": "When @traces decorators use HLR IDs instead of LLR IDs",
+    "steps": "1. Read the LLR docs to find valid LLR IDs\n2. Identify all @traces decorators with invalid IDs\n3. Replace HLR-XXXX with the corresponding LLR-XXXX using batch_patch\n4. Each @traces should use LLR IDs and case='CASE_LLR-XXXX'"
+  },
+  {
+    "name": "add_trace_decorator",
+    "when_to_use": "When a test function is missing a @traces decorator",
+    "steps": "1. Determine which LLR the function tests from its name and assertions\n2. Add @traces('LLR-XXXX', case='CASE_LLR-XXXX') above the function def\n3. Ensure 'from tracing import traces' is imported at the top"
+  },
+  {
+    "name": "write_minimal_test",
+    "when_to_use": "When a CASE node has no test file and one needs to be created",
+    "steps": "1. Read the CASE spec and the source API\n2. Write 1-2 test functions that verify the acceptance criteria\n3. Each test gets @traces('LLR-XXXX', case='CASE_...')\n4. Keep the file under 60 lines\n5. Use file_write in one call — do not run tests"
+  },
+  {
+    "name": "fix_failing_test_import",
+    "when_to_use": "When a test fails with ImportError or ModuleNotFoundError",
+    "steps": "1. Read the error to identify the missing import\n2. Check the source module for the correct import path\n3. Fix the import statement in the test file\n4. Common cause: module was renamed or moved"
+  },
+  {
+    "name": "fix_failing_test_api_mismatch",
+    "when_to_use": "When a test fails because the source API signature changed",
+    "steps": "1. Read the source function signature\n2. Read the test that calls it\n3. Update the test to match the current signature\n4. Never weaken the source to match the test"
+  },
+  {
+    "name": "fix_failing_test_assertion",
+    "when_to_use": "When a test fails on an assertion but the code is correct",
+    "steps": "1. Run the test and capture the actual vs expected values\n2. Determine if the assertion is wrong or the code is wrong\n3. If the assertion is wrong, update it to match the correct behavior\n4. If the code is wrong, fix the code not the test"
+  },
+  {
+    "name": "fix_failing_test_timeout",
+    "when_to_use": "When a test fails because it takes too long or hits a timeout",
+    "steps": "1. Identify what makes the test slow — large inputs, distant goals, tight loops\n2. Reduce input size — smaller maps, closer start/goal, fewer iterations\n3. Lower the timeout parameter if the test is testing timeout behavior\n4. If the algorithm itself is slow, consider whether the test inputs are realistic"
+  },
+  {
+    "name": "fix_stale_mock",
+    "when_to_use": "When a test fails because a mock doesn't match the current interface",
+    "steps": "1. Read the current interface of the mocked object\n2. Update the mock's return value or side_effect to match\n3. Check if the mock's spec needs updating\n4. Prefer spec=True mocks that auto-detect signature changes"
+  },
+  {
+    "name": "increase_branch_coverage",
+    "when_to_use": "When branch coverage is below target and specific branches are uncovered",
+    "steps": "1. Identify uncovered branches from the coverage report\n2. For each uncovered branch, understand what condition triggers it\n3. Write a test that exercises that specific condition\n4. Common uncovered branches: error paths, None checks, empty collections, boundary values"
+  },
+  {
+    "name": "increase_line_coverage_error_paths",
+    "when_to_use": "When uncovered lines are in error handling or validation code",
+    "steps": "1. Identify the uncovered error path\n2. Determine what input triggers the error\n3. Write a test using pytest.raises or asserting the error behavior\n4. Common: ValueError for bad inputs, TypeError for wrong types, edge cases"
+  },
+  {
+    "name": "increase_line_coverage_conditional",
+    "when_to_use": "When uncovered lines are inside if/elif/else branches",
+    "steps": "1. Read the condition guarding the uncovered code\n2. Construct an input that makes that condition true\n3. Write a test with that input and assert the expected output\n4. For nested conditions, you may need multiple tests"
+  },
+  {
+    "name": "increase_coverage_loop_body",
+    "when_to_use": "When uncovered lines are inside a loop that never executes",
+    "steps": "1. Determine why the loop doesn't execute — empty collection, condition never met\n2. Create test input that gives the collection at least one element\n3. Assert the loop's effect on the output"
+  },
+  {
+    "name": "increase_coverage_early_return",
+    "when_to_use": "When an early return statement is uncovered",
+    "steps": "1. Identify the condition that triggers the early return\n2. Create test input that satisfies that condition\n3. Assert the early return value\n4. Common: guard clauses like 'if not x: return None'"
+  },
+  {
+    "name": "fix_syntax_error",
+    "when_to_use": "When a Python file has a syntax error preventing import",
+    "steps": "1. Read the error message for the line number\n2. Read the file around that line\n3. Fix the syntax error — common: missing colon, unmatched brackets, bad indentation\n4. Verify the file parses correctly"
+  },
+  {
+    "name": "fix_indentation_error",
+    "when_to_use": "When a file has IndentationError or mixed tabs/spaces",
+    "steps": "1. Check if the file mixes tabs and spaces\n2. Convert everything to 4-space indentation\n3. Check for lines that are indented to the wrong level after an if/for/def"
+  },
+  {
+    "name": "fix_circular_import",
+    "when_to_use": "When imports fail with circular dependency errors",
+    "steps": "1. Identify the import cycle from the traceback\n2. Move the import inside the function that needs it (lazy import)\n3. Or restructure: extract the shared type/interface into a separate module\n4. Never solve circular imports by removing the import entirely"
+  },
+  {
+    "name": "remove_dead_code",
+    "when_to_use": "When static analysis reports unreachable or unused code",
+    "steps": "1. Verify the code is truly unreachable — check all callers\n2. Search for dynamic references (getattr, __import__, string-based dispatch)\n3. If truly dead, delete it — don't comment it out\n4. Run tests to confirm nothing breaks"
+  },
+  {
+    "name": "remove_unused_import",
+    "when_to_use": "When a linter reports an unused import",
+    "steps": "1. Verify the import isn't used dynamically or re-exported\n2. Check if it's in __all__ or used by type checkers (TYPE_CHECKING block)\n3. If truly unused, delete the import line\n4. If it's needed for side effects, add a noqa comment explaining why"
+  },
+  {
+    "name": "remove_unused_variable",
+    "when_to_use": "When a linter reports a variable is assigned but never read",
+    "steps": "1. Check if the variable is used in a return, assertion, or side effect\n2. If it captures a value for destructuring (a, b = ...) but b is unused, rename to _b\n3. If truly unused, remove the assignment\n4. If it's there for readability, add a noqa comment"
+  },
+  {
+    "name": "fix_type_error_none_check",
+    "when_to_use": "When code crashes with AttributeError on None or TypeError: NoneType",
+    "steps": "1. Trace back to where the None value originates\n2. Add an explicit None check before the failing line\n3. Decide the correct behavior: return early, raise ValueError, or provide a default\n4. Add a test that passes None to verify the fix"
+  },
+  {
+    "name": "fix_index_out_of_range",
+    "when_to_use": "When code crashes with IndexError: list index out of range",
+    "steps": "1. Identify which list access is failing\n2. Check if the list could be empty at that point\n3. Add a bounds check or handle the empty case\n4. Add a test with an empty or short list"
+  },
+  {
+    "name": "fix_key_error",
+    "when_to_use": "When code crashes with KeyError accessing a dict",
+    "steps": "1. Identify which dict key is missing\n2. Use dict.get(key, default) instead of dict[key]\n3. Or add an explicit check: if key in dict\n4. Add a test with a dict missing that key"
+  },
+  {
+    "name": "fix_off_by_one",
+    "when_to_use": "When a loop or range has an off-by-one error causing wrong results or IndexError",
+    "steps": "1. Check if the range should be inclusive or exclusive at the boundary\n2. Test with boundary values: 0, 1, len-1, len\n3. Common patterns: range(n) vs range(n+1), < vs <=, [0:n] vs [0:n+1]\n4. Add boundary tests to prevent regression"
+  },
+  {
+    "name": "fix_floating_point_comparison",
+    "when_to_use": "When a test fails because of floating point precision (e.g., 0.1 + 0.2 != 0.3)",
+    "steps": "1. Replace exact equality (==) with approximate comparison\n2. Use math.isclose(a, b, rel_tol=1e-9) or pytest.approx(expected, abs=1e-6)\n3. Choose tolerance based on the operation's expected precision\n4. For angles, consider wrapping: (a - b + pi) % (2*pi) - pi"
+  },
+  {
+    "name": "fix_race_condition_in_test",
+    "when_to_use": "When a test passes sometimes and fails other times (flaky)",
+    "steps": "1. Check for shared mutable state between tests (class vars, globals, singletons)\n2. Check for timing dependencies — sleep, timeout, order-dependent\n3. Isolate: ensure each test sets up and tears down its own state\n4. Use fixtures with autouse=True for cleanup"
+  },
+  {
+    "name": "fix_test_ordering_dependency",
+    "when_to_use": "When tests pass individually but fail when run together",
+    "steps": "1. Run the failing test in isolation to confirm it passes alone\n2. Find which earlier test leaves dirty state — shared singletons, files, env vars\n3. Add proper cleanup in fixtures or setUp/tearDown\n4. Run with pytest-randomly to catch more ordering issues"
+  },
+  {
+    "name": "split_large_function",
+    "when_to_use": "When a function exceeds 50 lines and is hard to test or understand",
+    "steps": "1. Identify logical sections within the function\n2. Extract each section into a named helper function\n3. Give each helper a clear name describing what it does\n4. The original function should now read like a sequence of named steps\n5. Test the helpers individually"
+  },
+  {
+    "name": "split_large_file",
+    "when_to_use": "When a file exceeds 500 lines",
+    "steps": "1. Identify logical groupings — data classes, business logic, I/O, utilities\n2. Extract each group into its own module\n3. Update imports in the original file to re-export if needed\n4. Move tests to match the new module structure"
+  },
+  {
+    "name": "extract_magic_numbers",
+    "when_to_use": "When code has unexplained numeric literals",
+    "steps": "1. Identify the number's meaning from context\n2. Replace it with a named constant at module level\n3. Use ALL_CAPS naming: MAX_RETRIES = 3, TIMEOUT_SECONDS = 30\n4. Add a brief comment if the meaning isn't obvious from the name"
+  },
+  {
+    "name": "add_missing_error_handling",
+    "when_to_use": "When a function can fail but has no try/except or validation",
+    "steps": "1. Identify what can go wrong — network, file I/O, bad input, None\n2. Add specific exception handling (not bare except)\n3. Validate inputs at function entry — fail fast with clear messages\n4. Add tests for each failure mode"
+  },
+  {
+    "name": "fix_resource_leak",
+    "when_to_use": "When a file, connection, or lock is opened but not properly closed",
+    "steps": "1. Use context managers (with statement) for all resources\n2. If a class manages resources, implement __enter__ and __exit__\n3. In async code, use async with\n4. Check that cleanup happens in finally blocks, not just the happy path"
+  },
+  {
+    "name": "fix_n_plus_one_query",
+    "when_to_use": "When code makes one query per item in a loop instead of one batch query",
+    "steps": "1. Identify the loop that makes individual queries\n2. Collect all IDs/keys first, then make one batch query\n3. Build a lookup dict from the batch result\n4. Replace the loop's individual queries with dict lookups"
+  },
+  {
+    "name": "optimize_hot_loop",
+    "when_to_use": "When profiling shows a loop consuming most of the execution time",
+    "steps": "1. Profile to confirm which loop is the bottleneck\n2. Check for unnecessary work inside the loop — repeated calculations, redundant allocations\n3. Hoist invariant computations out of the loop\n4. Consider using numpy vectorization if working with arrays\n5. Verify correctness after optimization"
+  },
+  {
+    "name": "replace_linear_search_with_dict",
+    "when_to_use": "When code iterates a list to find items by key (O(n) lookup)",
+    "steps": "1. Build a dict mapping the search key to the item\n2. Replace the loop with a direct dict lookup\n3. O(n) becomes O(1) per lookup\n4. If the list is built once and queried many times, this is always worth it"
+  },
+  {
+    "name": "add_caching",
+    "when_to_use": "When the same expensive computation is repeated with the same inputs",
+    "steps": "1. Identify the function whose results can be cached\n2. Use functools.lru_cache for pure functions with hashable args\n3. For non-hashable args, use a manual dict cache\n4. Consider cache invalidation — when should cached values expire?"
+  },
+  {
+    "name": "fix_quadratic_string_concat",
+    "when_to_use": "When code builds a string by repeated += in a loop",
+    "steps": "1. Replace += with appending to a list\n2. At the end, use ''.join(parts) or '\\n'.join(parts)\n3. For f-strings in loops, still collect parts in a list\n4. This changes O(n^2) to O(n)"
+  },
+  {
+    "name": "fix_memory_leak_growing_list",
+    "when_to_use": "When a list or dict grows without bound over time",
+    "steps": "1. Identify what keeps adding to the collection\n2. Add a size limit — deque(maxlen=N) or periodic trimming\n3. Or use a TTL-based cache that evicts old entries\n4. Check if old entries are still referenced elsewhere (preventing GC)"
+  },
+  {
+    "name": "add_input_validation",
+    "when_to_use": "When a public function has no parameter validation",
+    "steps": "1. Check each parameter for invalid values — None, wrong type, out of range\n2. Raise ValueError with a clear message for each case\n3. Validate at the top of the function (fail fast)\n4. Add tests for each validation case"
+  },
+  {
+    "name": "fix_test_that_tests_nothing",
+    "when_to_use": "When a test has no assertions or only asserts True/isinstance",
+    "steps": "1. Identify what behavior the test should verify\n2. Replace weak assertions with specific value checks\n3. assert isinstance(x, list) → assert x == [expected]\n4. assert result is True → assert result == expected_value"
+  },
+  {
+    "name": "fix_test_with_hardcoded_paths",
+    "when_to_use": "When a test uses absolute paths that break on other machines",
+    "steps": "1. Replace absolute paths with tmp_path fixture (pytest)\n2. Use pathlib.Path for path construction\n3. For test data, use Path(__file__).parent / 'fixtures' / 'data.json'\n4. Never hardcode /home/user or /tmp/specific_dir"
+  },
+  {
+    "name": "add_regression_test",
+    "when_to_use": "When a bug is fixed and needs a test to prevent recurrence",
+    "steps": "1. Write a test that reproduces the exact bug scenario\n2. Verify the test fails on the old code (or describe the scenario clearly)\n3. Run the test against the fix to confirm it passes\n4. Name the test descriptively: test_issue_123_null_input_no_crash"
+  },
+  {
+    "name": "fix_brittle_test",
+    "when_to_use": "When a test breaks on minor changes that don't affect correctness",
+    "steps": "1. Identify what the test is actually verifying vs what it's checking\n2. Assert behavior not implementation — test outputs not internals\n3. Use approximate comparisons for floating point\n4. Don't assert exact string messages — assert key substrings"
+  },
+  {
+    "name": "mock_external_dependency",
+    "when_to_use": "When a test calls an external service, database, or filesystem",
+    "steps": "1. Identify the I/O boundary\n2. Mock at the boundary — mock the client, not the HTTP library\n3. Use unittest.mock.patch or dependency injection\n4. Return realistic test data from the mock\n5. Test the real integration separately with integration tests"
+  },
+  {
+    "name": "fix_test_env_broken",
+    "when_to_use": "When tests can't run because of missing dependencies or broken config",
+    "steps": "1. Read the error message — missing package, wrong Python version, missing file\n2. Check BUILD.bazel or requirements.txt for missing dependencies\n3. Add the missing dependency\n4. Verify tests can at least start (even if they fail)"
+  },
+  {
+    "name": "reduce_test_duplication",
+    "when_to_use": "When multiple tests repeat the same setup or assertion pattern",
+    "steps": "1. Extract common setup into a pytest fixture\n2. Extract common assertions into a helper function\n3. Use pytest.mark.parametrize to collapse similar tests into one\n4. Keep each test focused on one behavior"
+  },
+  {
+    "name": "parametrize_test",
+    "when_to_use": "When multiple tests differ only in input values",
+    "steps": "1. Identify the tests that share the same structure\n2. Extract the varying parts as parameters\n3. Use @pytest.mark.parametrize('input,expected', [(...)]) \n4. Delete the individual tests\n5. One parametrized test replaces N similar tests"
+  },
+  {
+    "name": "fix_algorithm_correctness",
+    "when_to_use": "When an algorithm produces wrong results for some inputs",
+    "steps": "1. Reproduce with the smallest failing input\n2. Trace through the algorithm by hand with that input\n3. Find where actual diverges from expected\n4. Fix the logic at that point\n5. Add the failing input as a regression test"
+  },
+  {
+    "name": "fix_algorithm_edge_case",
+    "when_to_use": "When an algorithm works normally but fails on boundary inputs",
+    "steps": "1. Identify the boundary: empty input, single element, max size, zero, negative\n2. Trace the algorithm with the boundary input\n3. Add a guard clause or special case for the boundary\n4. Add tests for all identified boundaries"
+  },
+  {
+    "name": "fix_sorting_stability",
+    "when_to_use": "When sort order is wrong or inconsistent for equal elements",
+    "steps": "1. Check if the sort key function handles ties correctly\n2. Add a tiebreaker — e.g., sort by (priority, insertion_order)\n3. Use a stable sort (Python's sort is stable by default)\n4. Test with inputs that have identical sort keys"
+  },
+  {
+    "name": "fix_concurrency_issue",
+    "when_to_use": "When code behaves incorrectly under concurrent access",
+    "steps": "1. Identify shared mutable state\n2. Add a lock (threading.Lock) around read-modify-write sequences\n3. Or use atomic operations — queue.Queue, collections.deque\n4. Or make the shared state immutable and use copy-on-write"
+  },
+  {
+    "name": "add_retry_logic",
+    "when_to_use": "When an operation fails transiently (network, API rate limit)",
+    "steps": "1. Wrap the operation in a retry loop with exponential backoff\n2. Set a max retry count (3-5 is typical)\n3. Only retry on transient errors — not on 4xx client errors\n4. Log each retry attempt with the error"
+  },
+  {
+    "name": "fix_encoding_error",
+    "when_to_use": "When code fails with UnicodeDecodeError or UnicodeEncodeError",
+    "steps": "1. Identify the file or data source with encoding issues\n2. Specify encoding explicitly: open(f, encoding='utf-8')\n3. For binary data, use 'rb' mode not 'r'\n4. Use errors='replace' or errors='ignore' only as a last resort"
+  },
+  {
+    "name": "fix_path_separator",
+    "when_to_use": "When file paths break on different operating systems",
+    "steps": "1. Replace string concatenation with pathlib.Path / operator\n2. Never hardcode '/' or '\\\\' — use Path.joinpath or /\n3. Use Path.as_posix() when you need forward slashes for URLs or configs"
+  },
+  {
+    "name": "simplify_nested_conditionals",
+    "when_to_use": "When code has deeply nested if/else blocks (>3 levels)",
+    "steps": "1. Invert conditions and return early (guard clauses)\n2. Extract complex conditions into named boolean variables\n3. Use a dispatch dict instead of long if/elif chains\n4. Each level of nesting should be a separate concern"
+  },
+  {
+    "name": "replace_inheritance_with_composition",
+    "when_to_use": "When a class hierarchy is fragile or requires multiple inheritance",
+    "steps": "1. Identify what behavior the subclass actually needs from the parent\n2. Extract that behavior into a separate object\n3. Have the class hold a reference to the behavior object\n4. Delegate calls instead of inheriting"
+  },
+  {
+    "name": "extract_interface",
+    "when_to_use": "When code depends on a concrete class but should depend on an abstraction",
+    "steps": "1. Identify the methods the caller actually uses\n2. Create a Protocol (typing.Protocol) with those methods\n3. Have the concrete class implement the Protocol\n4. Change the caller's type hint to the Protocol"
+  },
+  {
+    "name": "fix_global_state",
+    "when_to_use": "When tests or code fail because of shared global/module-level mutable state",
+    "steps": "1. Identify the global variable or singleton\n2. Convert to a class that can be instantiated per-context\n3. Or add a reset() method for testing\n4. Pass instances through function parameters or dependency injection"
+  },
+  {
+    "name": "add_logging",
+    "when_to_use": "When a failure is hard to diagnose because there's no log output",
+    "steps": "1. Add structured logging at key decision points\n2. Log inputs/outputs at module boundaries\n3. Use appropriate levels: DEBUG for details, INFO for milestones, WARN for recoverable issues\n4. Include context: IDs, counts, durations"
+  },
+  {
+    "name": "diagnose_silent_failure",
+    "when_to_use": "When code silently does nothing instead of producing output or raising an error",
+    "steps": "1. Add print/log statements at function entry and exit\n2. Check if an early return or empty branch is swallowing the case\n3. Check if an exception is being caught and ignored (bare except)\n4. Add explicit assertions for expected invariants"
+  },
+  {
+    "name": "fix_empty_except",
+    "when_to_use": "When code has a bare except: pass that hides real errors",
+    "steps": "1. Replace except: with except SpecificException:\n2. At minimum, log the exception\n3. Re-raise if the caller needs to know\n4. Only suppress exceptions you understand and intentionally ignore"
+  },
+  {
+    "name": "fix_datetime_timezone",
+    "when_to_use": "When datetime comparisons fail because of timezone awareness mismatch",
+    "steps": "1. Check if datetimes are naive (no tz) or aware (with tz)\n2. Standardize on UTC internally: datetime.now(timezone.utc)\n3. Convert to local time only for display\n4. Never compare naive and aware datetimes"
+  },
+  {
+    "name": "fix_json_serialization",
+    "when_to_use": "When json.dumps fails with 'not JSON serializable'",
+    "steps": "1. Identify the non-serializable type (datetime, Decimal, set, dataclass)\n2. Add a custom encoder or convert before serializing\n3. For dataclasses: use dataclasses.asdict()\n4. For datetime: .isoformat()\n5. For sets: list()"
+  },
+  {
+    "name": "fix_async_not_awaited",
+    "when_to_use": "When a coroutine is called but not awaited, producing a RuntimeWarning",
+    "steps": "1. Add 'await' before the coroutine call\n2. Ensure the calling function is also async def\n3. If calling from sync code, use asyncio.run() or the project's run_async() helper\n4. Never ignore 'coroutine was never awaited' warnings"
+  },
+  {
+    "name": "reduce_function_parameters",
+    "when_to_use": "When a function has more than 5 parameters",
+    "steps": "1. Group related parameters into a dataclass or NamedTuple\n2. Use keyword-only arguments (after *) for optional params\n3. Consider builder pattern for complex configuration\n4. If many params are passed through unchanged, the function may be doing too much"
+  },
+  {
+    "name": "fix_requirements_conflict",
+    "when_to_use": "When pip/uv install fails with dependency resolution errors",
+    "steps": "1. Read which packages conflict\n2. Check if you can use a compatible version range\n3. Pin the conflicting package to a version that satisfies both\n4. If no compatible version exists, consider replacing one of the packages"
+  },
+  {
+    "name": "fix_test_performance",
+    "when_to_use": "When the test suite takes too long to run (>60s for unit tests)",
+    "steps": "1. Profile with pytest --durations=10 to find slow tests\n2. Mock expensive I/O in the slow tests\n3. Reduce input sizes — tests don't need production-scale data\n4. Mark truly slow tests as integration tests and exclude from fast suite"
+  },
+  {
+    "name": "fix_fixture_scope",
+    "when_to_use": "When a pytest fixture runs expensive setup for every test unnecessarily",
+    "steps": "1. Identify fixtures that create the same resource repeatedly\n2. Change scope to 'module' or 'session' if the resource is read-only\n3. Keep scope='function' (default) if each test modifies the resource\n4. Use yield fixtures for cleanup"
+  },
+  {
+    "name": "write_property_based_test",
+    "when_to_use": "When a function should hold an invariant for all inputs (not just specific examples)",
+    "steps": "1. Identify the property: f(f_inverse(x)) == x, sort(xs) is sorted, len(filter(xs)) <= len(xs)\n2. Use hypothesis.given() to generate random inputs\n3. Assert the property holds for all generated inputs\n4. Let hypothesis find the edge cases you didn't think of"
+  },
+  {
+    "name": "fix_missing_abstract_method",
+    "when_to_use": "When a subclass is missing required method implementations",
+    "steps": "1. Check the parent class or Protocol for abstract methods\n2. Implement each missing method in the subclass\n3. If the method shouldn't apply, raise NotImplementedError with explanation\n4. Add a test that instantiates the subclass to verify"
+  },
+  {
+    "name": "fix_event_loop_error",
+    "when_to_use": "When async code fails with 'no running event loop' or 'loop already running'",
+    "steps": "1. Check if you're calling async code from a sync context\n2. Use asyncio.run() for top-level calls\n3. Never nest asyncio.run() inside an already-running loop\n4. In tests, use @pytest.mark.asyncio or the project's run_async() helper"
+  },
+  {
+    "name": "fix_generator_exhaustion",
+    "when_to_use": "When a generator or iterator works the first time but is empty on reuse",
+    "steps": "1. Generators can only be iterated once\n2. If you need to iterate twice, convert to a list first\n3. Or restructure to use itertools.tee() for multiple passes\n4. Check if a function returns a generator when you expected a list"
+  },
+  {
+    "name": "fix_mutable_default_argument",
+    "when_to_use": "When a function has list or dict as a default parameter value",
+    "steps": "1. Replace def f(x=[]) with def f(x=None); x = x or []\n2. Same for dict: def f(d=None); d = d if d is not None else {}\n3. Mutable defaults are shared across all calls — a classic Python gotcha\n4. Add a test that calls the function twice to verify independence"
+  },
+  {
+    "name": "fix_class_vs_instance_variable",
+    "when_to_use": "When all instances of a class share a mutable attribute unexpectedly",
+    "steps": "1. Check if the mutable attribute is defined at class level instead of __init__\n2. Move mutable attributes (list, dict, set) into __init__\n3. Immutable class-level attributes (int, str, tuple) are fine\n4. Test with two instances to verify they don't share state"
+  },
+  {
+    "name": "fix_deepcopy_needed",
+    "when_to_use": "When modifying a copy of a nested data structure affects the original",
+    "steps": "1. Shallow copy (list.copy(), dict.copy()) only copies the outer container\n2. Use copy.deepcopy() for nested structures\n3. Or manually copy the inner structures\n4. Consider if immutable data structures would prevent this class of bug"
+  },
+  {
+    "name": "fix_regex_catastrophic_backtracking",
+    "when_to_use": "When a regex takes exponentially long on certain inputs",
+    "steps": "1. Look for nested quantifiers: (a+)+, (a|b+)*, (.*)*\n2. Make quantifiers possessive or use atomic groups if available\n3. Simplify the regex — often a simpler pattern avoids the issue\n4. Add a timeout to regex operations\n5. Test with adversarial inputs: long strings of near-matches"
+  },
+  {
+    "name": "fix_sql_injection",
+    "when_to_use": "When user input is concatenated directly into SQL queries",
+    "steps": "1. Replace string formatting with parameterized queries\n2. cursor.execute('SELECT * FROM t WHERE id = ?', (user_id,))\n3. Never use f-strings or .format() to build SQL\n4. For dynamic column/table names, use an allowlist — never interpolate directly"
+  },
+  {
+    "name": "fix_command_injection",
+    "when_to_use": "When user input is passed to shell commands via os.system or subprocess",
+    "steps": "1. Use subprocess.run with a list of args, not a string: subprocess.run(['ls', path])\n2. Never use shell=True with user input\n3. Use shlex.quote() if you must construct a shell command string\n4. Better: avoid shell entirely — use Python's built-in file/path operations"
+  },
+  {
+    "name": "add_backpressure",
+    "when_to_use": "When a producer creates work faster than a consumer can process it",
+    "steps": "1. Use a bounded queue: queue.Queue(maxsize=N)\n2. Producer blocks when queue is full instead of growing unbounded\n3. Or use semaphores to limit concurrent work\n4. Monitor queue depth to detect the imbalance"
+  },
+  {
+    "name": "implement_graceful_shutdown",
+    "when_to_use": "When a service needs to finish in-progress work before stopping",
+    "steps": "1. Register a signal handler for SIGTERM/SIGINT\n2. Set a shutdown flag that worker loops check\n3. Stop accepting new work\n4. Wait for in-progress work to complete (with a timeout)\n5. Close resources and exit"
+  },
+  {
+    "name": "fix_test_isolation_database",
+    "when_to_use": "When tests share a database and leave dirty state",
+    "steps": "1. Wrap each test in a transaction and rollback after\n2. Or use a fresh in-memory database per test\n3. Or truncate all tables in a fixture's teardown\n4. Never rely on test ordering for database state"
+  },
+  {
+    "name": "fix_flaky_test_timing",
+    "when_to_use": "When a test depends on wall-clock timing and fails under load",
+    "steps": "1. Replace time.sleep with event-based waiting\n2. Use unittest.mock.patch to freeze time (freezegun or manual mock)\n3. Assert on state transitions, not elapsed time\n4. If you must wait, use retry-with-timeout instead of fixed sleep"
+  },
+  {
+    "name": "fix_assertion_message",
+    "when_to_use": "When a test failure message doesn't explain what went wrong",
+    "steps": "1. Add a message to the assertion: assert x == y, f'Expected {y}, got {x}'\n2. For complex objects, format the diff clearly\n3. Include the input that caused the failure\n4. Use pytest's detailed assertion introspection (no message needed for simple asserts)"
+  },
+  {
+    "name": "convert_print_to_logging",
+    "when_to_use": "When production code uses print() instead of proper logging",
+    "steps": "1. Replace print() with logger.info() or logger.debug()\n2. Create a module-level logger: logger = logging.getLogger(__name__)\n3. Use structured format: logger.info('processed', extra={'count': n})\n4. Never use print() for anything that should be configurable"
+  },
+  {
+    "name": "fix_api_compatibility",
+    "when_to_use": "When a library upgrade breaks your code",
+    "steps": "1. Read the library's changelog for breaking changes\n2. Update your code to use the new API\n3. If the old API is still available but deprecated, update anyway\n4. Pin the library version in requirements until migration is complete\n5. Add a test that exercises the specific API you depend on"
+  },
+  {
+    "name": "fix_configuration_drift",
+    "when_to_use": "When dev/staging/prod configs diverge causing environment-specific bugs",
+    "steps": "1. Use a single config template with environment-specific overrides\n2. Validate config at startup — fail fast on missing required values\n3. Log the active config (redacting secrets) on startup\n4. Never have environment-specific code paths in business logic"
+  },
+  {
+    "name": "fix_missing_cleanup",
+    "when_to_use": "When resources (files, connections, threads) accumulate over time",
+    "steps": "1. Ensure every resource acquisition has a corresponding release\n2. Use context managers (with) for deterministic cleanup\n3. Implement __del__ only as a safety net, not primary cleanup\n4. Add monitoring for resource counts in production"
+  },
+  {
+    "name": "fix_boundary_value_bug",
+    "when_to_use": "When code works for typical values but fails at min/max boundaries",
+    "steps": "1. Test with: 0, 1, -1, MAX_INT, empty string, empty list, None\n2. Test with: just below threshold, at threshold, just above threshold\n3. Fix the boundary handling in the code\n4. Add all boundary tests permanently"
+  },
+  {
+    "name": "fix_state_machine_invalid_transition",
+    "when_to_use": "When an object reaches an invalid state due to wrong method call order",
+    "steps": "1. Enumerate all valid states and transitions\n2. Add a state check at the start of each method\n3. Raise InvalidStateError if the transition is not allowed\n4. Add tests for each valid transition AND each invalid one"
+  },
+  {
+    "name": "fix_numerical_instability",
+    "when_to_use": "When calculations with very large or small numbers produce NaN or Inf",
+    "steps": "1. Check for division by zero — add epsilon: x / (y + 1e-10)\n2. Check for overflow — use log-space arithmetic for products\n3. Check for catastrophic cancellation — rearrange formulas\n4. Use numpy's errstate to detect issues: with np.errstate(all='raise')"
+  },
+  {
+    "name": "fix_graph_cycle",
+    "when_to_use": "When a graph traversal loops infinitely due to cycles",
+    "steps": "1. Add a visited set to track already-processed nodes\n2. Skip nodes already in the visited set\n3. For trees, verify the tree invariant at construction time\n4. Add a test with a graph containing a cycle"
+  },
+  {
+    "name": "fix_recursion_depth",
+    "when_to_use": "When code hits RecursionError or stack overflow",
+    "steps": "1. Convert recursion to iteration using an explicit stack\n2. Or add memoization to avoid recomputing subproblems\n3. Or increase sys.setrecursionlimit (last resort)\n4. Test with the input size that triggers the error"
+  },
+  {
+    "name": "fix_test_data_too_large",
+    "when_to_use": "When tests use unnecessarily large datasets making them slow",
+    "steps": "1. Replace large datasets with minimal examples that test the same behavior\n2. 3-5 elements usually suffice for list/array operations\n3. Use a 3x3 grid instead of 100x100 for spatial algorithms\n4. The test should verify correctness, not performance"
+  },
+  {
+    "name": "add_type_hints",
+    "when_to_use": "When a function's parameters and return type are unclear",
+    "steps": "1. Add parameter type hints based on actual usage\n2. Add return type hint\n3. Run mypy to verify the hints are correct\n4. Use Optional[X] for parameters that can be None\n5. Use Union types sparingly — prefer protocols"
+  },
+  {
+    "name": "fix_inconsistent_return_types",
+    "when_to_use": "When a function sometimes returns a value and sometimes returns None implicitly",
+    "steps": "1. Add an explicit return statement to all code paths\n2. If the function can fail, return Optional[T] and document it\n3. Or raise an exception instead of returning None\n4. Be consistent: either always return a value or always raise on failure"
+  },
+  {
+    "name": "fix_test_that_modifies_source",
+    "when_to_use": "When a test writes to source files or changes the workspace",
+    "steps": "1. Tests must never modify the source tree\n2. Use tmp_path for files that need to be created\n3. Use monkeypatch for environment variables\n4. Use mock.patch for module-level changes\n5. After the test, the workspace should be unchanged"
+  },
+  {
+    "name": "debug_with_bisect",
+    "when_to_use": "When you know something worked before but don't know which change broke it",
+    "steps": "1. Use git bisect start, git bisect good <old>, git bisect bad <new>\n2. At each step, run the failing test\n3. Mark as good or bad until git identifies the culprit commit\n4. Read the diff of that commit to find the bug"
+  },
+  {
+    "name": "delete_failing_test_check_coverage",
+    "when_to_use": "When a test is failing and you suspect it may be redundant",
+    "steps": "1. Delete the failing test\n2. Run coverage to see if overall coverage dropped\n3. If coverage is unchanged, the test was redundant — leave it deleted\n4. If coverage dropped, the test was covering something unique — restore it and fix instead\n5. This is cheaper than debugging a test that might not be needed"
+  },
+  {
+    "name": "verify_test_adds_value",
+    "when_to_use": "Before spending time fixing a complex failing test",
+    "steps": "1. Check if any other test already covers the same requirement/LLR\n2. Check if deleting this test reduces coverage\n3. If another test covers the same thing and coverage is unchanged, delete this test\n4. Only fix tests that uniquely contribute to coverage or requirement traceability"
+  },
+  {
+    "name": "fix_test_timeout_small_inputs",
+    "when_to_use": "When a test using an algorithm times out because inputs are too large",
+    "steps": "1. The test probably uses inputs larger than needed (big grids, distant goals)\n2. Reduce to the smallest input that still exercises the behavior\n3. For search algorithms: smaller grid, closer start/goal, larger step size\n4. The test should verify correctness not performance — keep inputs minimal"
+  },
+  {
+    "name": "consolidate_duplicate_test_files",
+    "when_to_use": "When multiple test files test the same requirement with overlapping coverage",
+    "steps": "1. Run coverage and trace analysis to find which tests cover which requirements\n2. Identify overlapping test files (same LLRs, same CASE nodes)\n3. Keep the one with better assertions and delete the others\n4. One good test per requirement is better than five mediocre ones"
+  },
+  {
+    "name": "implement_algorithm_from_paper",
+    "when_to_use": "When implementing an algorithm described in an academic paper or specification",
+    "steps": "1. Read the algorithm's pseudocode/description and identify the core loop/recursion\n2. Map paper notation to code: the paper's variables become your data structures\n3. Implement the skeleton first — the main loop with stub functions for each step\n4. Fill in each stub one at a time, testing as you go\n5. The paper's 'given' section defines your function parameters\n6. The paper's 'output' section defines your return type\n7. Never implement the whole thing at once — build incrementally"
+  },
+  {
+    "name": "translate_pseudocode_to_python",
+    "when_to_use": "When converting pseudocode from a paper or spec into working Python",
+    "steps": "1. Pseudocode 'for each x in S' → Python 'for x in s:'\n2. Pseudocode 'if x ∈ S' → Python 'if x in s:'\n3. Pseudocode '∞' → Python 'float(\"inf\")'\n4. Pseudocode 'x ← value' → Python 'x = value'\n5. Pseudocode 'return ∅' → Python 'return None' or 'return []'\n6. Watch for 1-indexed vs 0-indexed — papers often use 1-indexed\n7. Replace mathematical operators with Python equivalents: ⌊x⌋ → math.floor(x), ‖v‖ → np.linalg.norm(v)"
+  },
+  {
+    "name": "implement_graph_search_algorithm",
+    "when_to_use": "When implementing BFS, DFS, Dijkstra, A*, or any graph search variant",
+    "steps": "1. Define the Node/State representation — what information does each node carry?\n2. Define the neighbor/successor function — how do you expand a node?\n3. Implement the frontier: list for DFS, deque for BFS, heapq for priority-based\n4. Add a visited/closed set to prevent revisiting\n5. Implement the goal check\n6. Reconstruct the path by following parent pointers from goal to start\n7. Test with: trivial case (start=goal), simple path, no path exists, cycles"
+  },
+  {
+    "name": "implement_heuristic_function",
+    "when_to_use": "When implementing a heuristic for A* or similar informed search",
+    "steps": "1. The heuristic must be admissible: never overestimate the true cost\n2. Common heuristics: Euclidean distance, Manhattan distance, Chebyshev distance\n3. For grid problems, diagonal distance is often best\n4. Test: h(goal) == 0, h(x) >= 0 for all x, h(x) <= actual_cost(x, goal)\n5. A better heuristic = fewer nodes expanded = faster search\n6. If heuristic is too expensive to compute, the speedup may not be worth it"
+  },
+  {
+    "name": "implement_optimization_algorithm",
+    "when_to_use": "When implementing gradient descent, simulated annealing, genetic algorithms, or similar",
+    "steps": "1. Define the objective function clearly — what are you minimizing/maximizing?\n2. Define the search space — what are the variables and their constraints?\n3. Implement the core iteration: evaluate → perturb → evaluate → accept/reject\n4. Add a convergence check: stop when improvement is below threshold\n5. Add a max iteration limit to prevent infinite loops\n6. Log the objective value at each iteration for debugging\n7. Test with a known-optimal problem to verify convergence"
+  },
+  {
+    "name": "implement_iterative_algorithm",
+    "when_to_use": "When implementing any algorithm that iterates until convergence",
+    "steps": "1. Initialize state\n2. Loop: compute_next_state → check_convergence → update_state\n3. Always add a max_iterations guard to prevent infinite loops\n4. Define convergence as: change < epsilon, or objective stopped improving\n5. Return both the result and the number of iterations taken\n6. Test: does it converge for simple cases? Does it respect max_iterations?"
+  },
+  {
+    "name": "implement_numerical_method",
+    "when_to_use": "When implementing numerical integration, root finding, interpolation, or similar",
+    "steps": "1. Start with the simplest version (Euler vs Runge-Kutta, bisection vs Newton)\n2. Use numpy arrays for vector operations — avoid Python loops over elements\n3. Watch for numerical stability: avoid subtracting nearly-equal numbers\n4. Add epsilon guards against division by zero\n5. Test against known analytical solutions\n6. Test with edge cases: zero input, very large input, near-singularities"
+  },
+  {
+    "name": "implement_data_structure",
+    "when_to_use": "When implementing a custom data structure (priority queue, trie, spatial index, etc.)",
+    "steps": "1. Define the interface first: what operations does the user need?\n2. Implement the simplest correct version — O(n) is fine initially\n3. Write tests for all operations before optimizing\n4. Test: empty structure, single element, many elements, duplicate keys\n5. Test: does it maintain its invariant after every operation?\n6. Only optimize after correctness is proven and profiling shows it matters"
+  },
+  {
+    "name": "verify_algorithm_invariant",
+    "when_to_use": "When an algorithm must maintain a property throughout execution (sorted order, heap property, etc.)",
+    "steps": "1. State the invariant precisely in a comment\n2. Write a check_invariant() function that verifies it\n3. Call check_invariant() after every mutation during testing\n4. Once confident, remove the checks from production (or keep behind a debug flag)\n5. Common invariants: sorted order, balanced tree, valid heap, connected graph"
+  },
+  {
+    "name": "handle_algorithm_degenerate_cases",
+    "when_to_use": "When implementing an algorithm that can receive degenerate input",
+    "steps": "1. List all degenerate inputs: empty, single element, all identical, all zeros\n2. For geometric algorithms: collinear points, coincident points, zero-length vectors\n3. For search: start equals goal, no path exists, infinite cost edges\n4. For numerical: zero denominator, negative inputs where positive expected\n5. Handle each explicitly at function entry — don't let them propagate into the core logic\n6. Add a test for each degenerate case"
+  },
+  {
+    "name": "implement_motion_planning",
+    "when_to_use": "When implementing path planning, trajectory generation, or robot motion algorithms",
+    "steps": "1. Define the configuration space: what are the degrees of freedom?\n2. Define obstacles in configuration space, not just workspace\n3. Implement collision checking first — this is the inner loop and must be fast\n4. Start with a simple planner (RRT, PRM, grid-based) before optimizing\n5. Use small test environments first — 10x10 grids, not 1000x1000\n6. Test: empty space (should find direct path), blocked path (should report failure), narrow passage"
+  },
+  {
+    "name": "implement_kinematic_constraints",
+    "when_to_use": "When an algorithm must respect physical constraints (turn radius, velocity limits, joint limits)",
+    "steps": "1. Express constraints as inequalities: curvature <= 1/min_radius\n2. Enforce constraints in the state expansion step, not after the fact\n3. If a motion primitive violates a constraint, don't generate it\n4. Test with: constraint at boundary (exactly at limit), just within, just outside\n5. Test that the path actually satisfies constraints end-to-end, not just per-step"
+  },
+  {
+    "name": "implement_collision_detection",
+    "when_to_use": "When implementing spatial collision or intersection checking",
+    "steps": "1. Start with the simplest check: point-in-cell for grid maps, AABB for general\n2. Convert continuous coordinates to grid indices carefully: int(round(x)) not int(x)\n3. Check bounds before array access — out-of-bounds is not a collision\n4. For inflation/safety margins, inflate obstacles before path planning, not during\n5. Test: point in obstacle, point in free space, point on boundary, point outside map"
+  },
+  {
+    "name": "implement_cost_function",
+    "when_to_use": "When defining a cost or distance metric for search or optimization",
+    "steps": "1. The cost function must be non-negative and zero only at the optimum\n2. It should be monotonic: moving closer to the goal reduces cost\n3. For multi-objective: combine with weighted sum, or use Pareto ranking\n4. Test: cost(start, goal) > 0, cost(x, x) == 0, triangle inequality holds\n5. The cost function's speed matters — it's called for every candidate"
+  },
+  {
+    "name": "implement_state_space_discretization",
+    "when_to_use": "When discretizing a continuous state space for search or planning",
+    "steps": "1. Choose resolution based on the problem — too fine is slow, too coarse misses solutions\n2. For angles: discretize into N bins, e.g., 72 bins of 5° each\n3. For positions: discretize to grid cells, round to nearest\n4. The discretized state must be hashable for use in visited sets and dicts\n5. Test that rounding doesn't place valid states into obstacles"
+  },
+  {
+    "name": "debug_algorithm_wrong_output",
+    "when_to_use": "When an algorithm runs without errors but produces incorrect results",
+    "steps": "1. Find the smallest input that produces wrong output\n2. Compute the correct answer by hand for that input\n3. Add print/log statements at each step of the algorithm\n4. Compare your hand trace with the algorithm's trace — find where they diverge\n5. The divergence point is your bug\n6. Common causes: off-by-one, wrong comparison operator, swapped arguments"
+  },
+  {
+    "name": "debug_algorithm_not_terminating",
+    "when_to_use": "When an algorithm runs forever or takes much longer than expected",
+    "steps": "1. Add a counter and print it every N iterations\n2. Check if the counter is growing — if so, the algorithm is working but slow\n3. Check if the same states are being revisited — missing visited set\n4. Check if the termination condition is ever reachable\n5. For search: is the goal reachable? Is the heuristic admissible?\n6. Add a hard max_iterations limit and return best-so-far"
+  },
+  {
+    "name": "debug_search_algorithm_suboptimal",
+    "when_to_use": "When a search algorithm finds a path but it's not the shortest/cheapest",
+    "steps": "1. Verify the heuristic is admissible (never overestimates)\n2. Check if you're using graph search (revisit allowed) vs tree search (no revisit)\n3. Verify the cost function is correct for each edge/transition\n4. Print the total cost and compare with known optimal\n5. Visualize the path to see where it takes unnecessary detours"
+  },
+  {
+    "name": "test_algorithm_with_known_solution",
+    "when_to_use": "When you need to verify an algorithm implementation is correct",
+    "steps": "1. Find or construct a test case with a known analytical solution\n2. For search: create a grid where the shortest path is obvious\n3. For optimization: use a convex function where the minimum is known\n4. For numerical: compare against scipy or numpy's implementation\n5. Assert the algorithm's answer matches within tolerance\n6. Keep these golden tests permanently — they're your correctness anchor"
+  },
+  {
+    "name": "test_algorithm_properties",
+    "when_to_use": "When testing that an algorithm satisfies theoretical guarantees",
+    "steps": "1. Completeness: if a solution exists, does the algorithm find one?\n2. Optimality: is the found solution actually optimal (or within bounds)?\n3. Soundness: does the solution satisfy all constraints?\n4. Monotonicity: does the cost decrease (or stay same) each iteration?\n5. Test each property independently with appropriate inputs"
+  },
+  {
+    "name": "implement_algorithm_timeout",
+    "when_to_use": "When an algorithm needs a time limit for real-time or interactive use",
+    "steps": "1. Record start time at function entry: t0 = time.monotonic()\n2. Check elapsed time in the inner loop: if time.monotonic() - t0 > timeout: break\n3. Return the best solution found so far, even if not optimal\n4. Use time.monotonic() not time.time() — it's immune to clock adjustments\n5. Test with: plenty of time (should find optimal), very short time (should return something)"
+  },
+  {
+    "name": "implement_algorithm_progress_reporting",
+    "when_to_use": "When a long-running algorithm needs to report progress",
+    "steps": "1. Define what 'progress' means: iterations/max, nodes_expanded, cost_so_far\n2. Report every N iterations, not every single one (I/O is expensive)\n3. Include estimated time remaining if possible\n4. Use a callback function for reporting — don't hardcode print/log"
+  },
+  {
+    "name": "implement_spatial_index",
+    "when_to_use": "When you need fast spatial queries (nearest neighbor, range search, collision)",
+    "steps": "1. For 2D grids: direct array indexing is O(1) — often the best choice\n2. For point clouds: use scipy.spatial.KDTree\n3. For axis-aligned boxes: use an R-tree or interval tree\n4. For collision detection: spatial hashing is simple and fast\n5. Don't build a complex spatial index for fewer than 1000 objects — linear scan is fine"
+  },
+  {
+    "name": "implement_coordinate_transform",
+    "when_to_use": "When converting between coordinate systems (world/local, grid/continuous, polar/cartesian)",
+    "steps": "1. Write both directions: world_to_grid and grid_to_world\n2. Test the round-trip: grid_to_world(world_to_grid(p)) ≈ p\n3. Be explicit about conventions: is (0,0) top-left or bottom-left? Is y up or down?\n4. For rotation: use rotation matrices, not ad-hoc trig\n5. Common bug: mixing up row/column with x/y"
+  },
+  {
+    "name": "implement_angle_arithmetic",
+    "when_to_use": "When working with angles that can wrap around (heading, rotation, bearing)",
+    "steps": "1. Normalize angles to [-π, π] or [0, 2π] — pick one and be consistent\n2. For difference: delta = (a - b + π) % (2π) - π gives the shortest rotation\n3. Never compare angles with == — use abs(delta) < epsilon\n4. For averaging angles, convert to unit vectors first, then back to angle\n5. Test with: 0, π, -π, just above π, just below -π, wrap-around cases"
+  },
+  {
+    "name": "implement_priority_queue_with_update",
+    "when_to_use": "When A* or Dijkstra needs to update priorities of existing nodes",
+    "steps": "1. Python's heapq doesn't support decrease-key natively\n2. Option A: lazy deletion — mark old entries as invalid, push new entry\n3. Option B: use a dict alongside the heap to track current best cost\n4. Option C: use a sorted container (sortedcontainers.SortedList)\n5. For most cases, lazy deletion with a dict is simplest and fast enough"
+  },
+  {
+    "name": "implement_convergence_test",
+    "when_to_use": "When an iterative algorithm needs to detect that it has converged",
+    "steps": "1. Track the objective value at each iteration\n2. Converged when: abs(f_new - f_old) < epsilon\n3. Or: relative change abs((f_new - f_old) / f_old) < epsilon\n4. Or: solution change norm(x_new - x_old) < epsilon\n5. Use a window of N iterations to smooth noise\n6. Always have a max_iterations fallback"
+  },
+  {
+    "name": "handle_algorithm_numerical_precision",
+    "when_to_use": "When floating-point arithmetic causes subtle bugs in geometric or numerical algorithms",
+    "steps": "1. Never compare floats with ==. Use abs(a - b) < epsilon\n2. Choose epsilon relative to the scale: 1e-9 for unit values, 1e-6 for large values\n3. For geometric predicates (left/right of line), use robust variants\n4. Accumulation errors grow with iteration count — reset periodically\n5. When in doubt, use numpy.float64 not float32"
+  },
+  {
+    "name": "implement_algorithm_visualization",
+    "when_to_use": "When debugging a spatial or graph algorithm by inspecting its behavior visually",
+    "steps": "1. Output the state as a simple text grid for quick inspection\n2. Mark key elements: S=start, G=goal, X=obstacle, .=free, *=path\n3. Print at each iteration during debugging, then remove for production\n4. For continuous spaces, discretize to a grid for display\n5. A 10-line print_grid() function catches more bugs than hours of log reading"
+  },
+  {
+    "name": "decompose_complex_algorithm",
+    "when_to_use": "When a paper describes a complex multi-phase algorithm",
+    "steps": "1. Identify the phases — most algorithms have: initialize, iterate, finalize\n2. Implement each phase as a separate function\n3. Define the data structure that flows between phases\n4. Test each phase independently with hand-crafted intermediate state\n5. Assemble the pipeline last, after each phase works in isolation\n6. This is the single most important technique for getting complex algorithms right"
+  },
+  {
+    "name": "implement_algorithm_fallback",
+    "when_to_use": "When an algorithm can fail and needs a graceful fallback",
+    "steps": "1. Define what failure looks like: timeout, no solution, divergence\n2. Detect failure explicitly — don't let it propagate as an exception\n3. Return a clear failure signal: (None, False), empty list, specific error\n4. The caller decides the fallback: retry with different params, use simpler algorithm, report error\n5. Log the failure reason for debugging"
+  },
+  {
+    "name": "benchmark_algorithm_implementation",
+    "when_to_use": "When you need to measure if an algorithm implementation is fast enough",
+    "steps": "1. Use time.monotonic() for wall-clock timing, not time.time()\n2. Run the algorithm multiple times and take the median (not mean — avoids GC spikes)\n3. Vary input size to confirm expected complexity: O(n), O(n log n), O(n²)\n4. Profile with cProfile to find the bottleneck function\n5. Optimize the bottleneck, not random code — measure first, optimize second"
+  },
+  {
+    "name": "validate_algorithm_output",
+    "when_to_use": "When an algorithm produces output that must satisfy constraints",
+    "steps": "1. Write a separate validation function that checks all output constraints\n2. For paths: every step is valid, no obstacles hit, start/end correct, constraints met\n3. For solutions: satisfies all equations, within bounds, no violations\n4. Run the validator after every algorithm call during development\n5. The validator is often easier to write than the algorithm itself — write it first"
+  },
+  {
+    "name": "map_requirement_to_algorithm_component",
+    "when_to_use": "When mapping a high-level requirement to specific algorithmic components",
+    "steps": "1. Each 'shall' in the requirement becomes a testable property\n2. 'The system shall generate a path' → test that output is non-empty\n3. 'respecting minimum turn radius' → test that curvature <= 1/radius\n4. 'does not intersect obstacles' → test that all waypoints are in free space\n5. One requirement may map to multiple algorithm components\n6. Trace each component back to its requirement with @traces"
+  },
+  {
+    "name": "implement_from_requirement_not_paper",
+    "when_to_use": "When you have both a paper and a requirement, and they disagree",
+    "steps": "1. The requirement is the specification — the paper is just a reference\n2. If the paper says X but the requirement says Y, implement Y\n3. The paper may describe a general algorithm; the requirement may need a specific variant\n4. Use the paper's algorithm as a starting point, then adapt to meet the requirement\n5. Trace the implementation to the requirement, not to the paper"
+  },
+  {
+    "name": "implement_algorithm_configuration",
+    "when_to_use": "When an algorithm has tunable parameters (step size, tolerance, max iterations)",
+    "steps": "1. Make all magic numbers into named parameters with sensible defaults\n2. Validate parameters at function entry: raise ValueError for invalid values\n3. Document what each parameter controls and reasonable ranges\n4. Never bury tuning constants deep in nested functions — surface them\n5. Test with: default values, extreme values, boundary values"
+  },
+  {
+    "name": "handle_algorithm_complexity_explosion",
+    "when_to_use": "When an algorithm works on small inputs but is too slow on realistic inputs",
+    "steps": "1. Profile to find the bottleneck — is it the algorithm or the implementation?\n2. Check algorithmic complexity: are you accidentally O(n³) when O(n²) is possible?\n3. Common fixes: add memoization, prune impossible branches, use a spatial index\n4. Consider if an approximate algorithm is acceptable\n5. Reduce the state space: coarser discretization, lower resolution, smaller search radius\n6. The fix is usually algorithmic, not micro-optimization"
+  },
+  {
+    "name": "fix_test_timeout_reduce_dimensionality",
+    "when_to_use": "When a test times out because the search space or input size is too large for the algorithm to handle within the timeout",
+    "steps": "1. Identify what makes the search space large: grid size, distance between start/goal, number of variables\n2. Reduce dimensionality while preserving the behaviour under test: use a 10x10 grid instead of 100x100, move start/goal closer together, reduce the number of iterations\n3. Keep the test meaningful: it should still exercise the same code paths and verify the same invariants\n4. If the algorithm genuinely can't handle the inputs, that's an algorithm bug not a test bug — consider whether the state space discretisation is too fine or the step size too small\n5. Verify the simplified test still passes and covers the requirement"
+  },
+  {
+    "name": "fix_test_timeout_search_algorithm",
+    "when_to_use": "When a search algorithm (A*, BFS, DFS, Dijkstra, hybrid A*) test times out",
+    "steps": "1. Check the state space size: how many unique states can the algorithm visit? If quantisation is too fine (0.01 resolution on a 100x100 grid = 100M states), coarsen it\n2. Check the step size: smaller steps = more iterations to reach the goal. Increase step size or reduce start-to-goal distance\n3. Check the heuristic: is it admissible but too loose? A tighter heuristic expands fewer nodes\n4. Check for state revisitation: is the visited/closed set working correctly? Missing or broken deduplication causes exponential blowup\n5. Reduce test inputs: use a smaller grid, closer start/goal, and fewer obstacles. The test verifies correctness, not scalability"
+  },
+  {
+    "name": "fix_test_timeout_iterative_algorithm",
+    "when_to_use": "When a test with an iterative or converging algorithm times out (optimization, simulation, numerical methods)",
+    "steps": "1. Reduce the number of iterations or convergence threshold: use max_iter=100 instead of 10000\n2. Use a simpler objective function that converges faster\n3. Start closer to the solution (warm start) to reduce iterations needed\n4. Check for oscillation or divergence — the algorithm may not be converging at all\n5. Add an explicit iteration counter with a hard cap and test that the algorithm terminates"
+  },
+  {
+    "name": "fix_test_negative_result_exhausts_space",
+    "when_to_use": "When a test for a negative result (not found, no solution, unreachable) times out because the algorithm must explore all possibilities before concluding failure",
+    "steps": "1. Reduce the search space so there are fewer states to exhaust — smaller inputs, tighter bounds\n2. Constrain the problem so the algorithm fails faster — place the blocker closer, reduce branching\n3. Add a max_iterations limit to the algorithm that returns a failure result when exceeded\n4. Set the test timeout generously enough for the algorithm to exhaust the reduced search space\n5. Verify the test still proves the requirement: the algorithm correctly reports failure"
+  },
+  {
+    "name": "fix_test_step_size_vs_problem_size",
+    "when_to_use": "When an iterative algorithm test times out because the step size is too small relative to the problem size, creating too many iterations",
+    "steps": "1. Check the ratio of step size to problem size: if each step covers 1% of the distance, you need 100+ steps with exponential branching at each\n2. Either increase the step size or reduce the problem size (closer start/end, smaller domain)\n3. Check discretisation resolution: finer resolution means more unique states to visit\n4. Coarser discretisation dramatically reduces the state space while preserving correctness\n5. The test should verify the algorithm works correctly, not stress-test its scalability"
+  }
+]

@@ -1,0 +1,11 @@
+TRACING:
+- `from tracing import traces` at the top of every file.
+- EVERY function/method (public + private) gets a @traces decorator.
+- Do NOT put @traces on classes — only on functions and methods.
+- Source: `@traces("LLR-XXXX")` — list all LLRs the function implements.
+- Tests:  `@traces("LLR-XXXX", case="CASE_XXX")` — include CASE ID.
+- Private helpers: trace to ALL LLRs they support.
+- Preserve existing @traces decorators.
+- NEVER trace dead code. Verify each function's implementation matches
+  the wording and intent of the LLR it traces to. If it does not
+  implement any requirement, remove it — false traces are a safety violation.

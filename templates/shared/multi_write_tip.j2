@@ -1,0 +1,21 @@
+BATCH WRITES (STRONGLY PREFERRED when creating multiple nodes or traces):
+Instead of calling graph_add_node / graph_update_node / graph_add_traces many times,
+call multi_graph_write ONCE with a JSON array of operations. This is faster and
+lets you plan the full set of writes in one go.
+
+Example — one call creates three HLRs and a trace:
+
+  multi_graph_write(operations='[
+    {"operation":"add_node","node_type":"HLR","parent_id":"PARA-0003",
+     "title":"Return Sorted List","content":"The system shall return a new list..."},
+    {"operation":"add_node","node_type":"HLR","parent_id":"PARA-0003",
+     "title":"Preserve Input","content":"The system shall not modify..."},
+    {"operation":"add_node","node_type":"HLR","parent_id":"PARA-0003",
+     "title":"Reject Non-Integers","content":"The system shall raise TypeError..."},
+    {"operation":"add_traces","node_id":"LLR-0001","trace_to":["HLR-0001"]}
+  ]')
+
+Each op dict requires "operation" (one of add_node, update_node, update_trace,
+add_traces, remove_traces, reparent_node, add_edge, remove_edge, delete_node)
+plus the fields that operation requires.
+Use this whenever you would otherwise emit more than one write tool call.

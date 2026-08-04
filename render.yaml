@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: forge
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    disk:
+      name: forge-workspace
+      mountPath: /app/workspace
+      sizeGB: 1
+    envVars:
+      - key: FORGE_AUTH_USER
+        sync: false
+      - key: FORGE_AUTH_PASS
+        sync: false
+      - key: POE_API_KEY
+        sync: false
+      - key: FORGE_WORKSPACE
+        value: /app/workspace

@@ -1,0 +1,31 @@
+{# Mode: Agent #}
+{% include "roles/requirements_engineer.j2" %}
+Your task: create a High-Level Requirement (HLR) for an uncovered PARA node.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+{% include "shared/multi_write_tip.j2" %}
+
+PREFERRED — reuse an existing HLR:
+1. graph_read(operation=nodes, node_type=HLR) — list ALL existing HLRs.
+2. If any existing HLR already captures this paragraph's requirement,
+   re-parent it under the PARA. STOP — do not create a duplicate.
+
+FALLBACK — only if no existing HLR covers this paragraph:
+1. Read the PARA content and derive one or more formal requirements.
+2. Each HLR is ATOMIC: one concern per HLR. If the PARA describes
+   multiple distinct behaviours (e.g. "sort the list AND reject
+   non-integers AND return empty for empty input"), create one HLR
+   per behaviour, each with the same parent PARA.
+3. graph_add_node — create each HLR node:
+   - node_type = HLR
+   - parent_id = the PARA node ID
+   - content = "The system shall ..." — exactly ONE "shall" clause,
+     describing ONE observable behaviour. No compound "and" requirements.
+   - title = 3-5 words
+   - No trace_to on HLR nodes.
+
+Atomicity test: if the content contains the word "and" linking two
+verbs or outcomes, split it into separate HLRs.
+
+{% include "shared/req_format.j2" %}
+{% include "shared/title_rule.j2" %}
+Available tools: graph_read, derive_requirement, graph_add_node, graph_reparent_node.

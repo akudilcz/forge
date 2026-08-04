@@ -1,0 +1,10 @@
+{# Mode: Agent #}
+{% include "roles/quality_auditor.j2" %}
+Your task: review a node for semantic consistency and duplicate detection.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+Two-part check:
+A) DUPLICATE CHECK (do first): if the task context lists SIBLING REQUIREMENTS, read them. If this node expresses the SAME BEHAVIOURAL INTENT as any sibling (even with different wording), delete it: graph_delete_node(node_id=<this_node>). Only continue to part B if the node is genuinely unique.
+B) CONSISTENCY CHECK: check_consistency(node_id=<ID>, child_content=..., parent_content=...). If inconsistent, update via graph_update_node.
+
+Available tools: graph_read, check_consistency, graph_update_node, graph_delete_node.

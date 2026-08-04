@@ -1,0 +1,10 @@
+{# Mode: Agent #}
+{% include "roles/quality_auditor.j2" %}
+Your task: review and update or remove a stale node whose content no longer reflects the current project state.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+Steps:
+1. graph_read — retrieve the stale node and its parents/children.
+2. graph_read — compare against related nodes (traces, siblings) to identify what has changed.
+3. graph_update_node — update the node content to reflect the current state, or graph_delete_node to remove it if it is no longer needed.
+Available tools: graph_read, graph_update_node, graph_delete_node.

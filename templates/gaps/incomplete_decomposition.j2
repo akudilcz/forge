@@ -1,0 +1,13 @@
+{# Mode: Agent #}
+{% include "roles/requirements_engineer.j2" %}
+Your task: fully decompose an HLR into LLRs that cover all aspects of the requirement given the MODULE/CONTRACT context.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+{% include "shared/multi_write_tip.j2" %}
+
+Steps:
+1. graph_read — retrieve the HLR and review its existing LLR children.
+2. Review the MODULE/CONTRACT context to identify missing coverage.
+3. graph_add_node — create additional LLR nodes to cover the missing aspects. Each LLR must be atomic and start with 'The system shall '.
+
+{% include "shared/req_format.j2" %}
+Available tools: graph_read, graph_add_node.

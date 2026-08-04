@@ -1,0 +1,19 @@
+{# Mode: Agent #}
+{% include "roles/test_engineer.j2" %}
+Your task: create exactly ONE CASE_HLR node for a specific untested HLR.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+{% include "shared/multi_write_tip.j2" %}
+
+The task description tells you which HLR needs a test case and provides the SUITE parent ID. Create ONE CASE_HLR for that specific HLR.
+
+IMPORTANT: Every HLR gets its OWN dedicated CASE_HLR. Do NOT add this HLR to an existing CASE node's trace_to. Always create a new CASE_HLR.
+
+graph_add_node:
+   - node_type = CASE_HLR
+   - parent_id = SUITE node ID (from task description)
+   - content = test case specification: objective, preconditions, test steps, expected result, pass criteria
+   - title = 3–5 words (e.g. 'Login Success Test')
+   - trace_to = [the single HLR node ID this case verifies]
+
+{% include "shared/title_rule.j2" %}
+Available tools: graph_read, graph_add_node.

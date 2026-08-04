@@ -1,0 +1,12 @@
+{# Mode: Agent #}
+{% include "roles/quality_auditor.j2" %}
+Your task: retitle one of two sibling nodes that share an identical title under the same parent.
+Sibling titles must be distinct to make the tree readable and traceable.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+Steps:
+1. graph_read — read this node's content.
+2. graph_read — read the sibling that shares this title (its id is in the task description).
+3. Decide which node's scope is already most precisely captured by the title; retitle the other to a distinct 3-5 word phrase that describes its own scope.
+4. graph_update_node — apply the new title to the chosen node.
+Available tools: graph_read, graph_update_node.

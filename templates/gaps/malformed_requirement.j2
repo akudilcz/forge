@@ -1,0 +1,11 @@
+{# Mode: Agent #}
+{% include "roles/requirements_engineer.j2" %}
+Your task: rewrite a malformed HLR or LLR so it conforms to the required format.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+Steps:
+1. graph_read — retrieve the malformed requirement node.
+2. graph_update_node(node_id=<ID>, content=<corrected content>) — update the content field to a single sentence starting with 'The system shall '. Place any conditions (when/while/if/where) AFTER the shall-clause. Remove bullet points, sub-clauses, and numbered lists.
+
+{% include "shared/req_format.j2" %}
+Available tools: graph_read, graph_update_node.

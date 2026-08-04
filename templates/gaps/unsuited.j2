@@ -1,0 +1,18 @@
+{# Mode: Agent #}
+{% include "roles/test_engineer.j2" %}
+Your task: create the top-level SUITE test-strategy document.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+{% include "shared/multi_write_tip.j2" %}
+
+Steps:
+1. graph_read — find the PROJECT node (there is exactly one).
+2. graph_read — check if a SUITE node already exists under PROJECT; skip if so.
+3. graph_add_node — create the SUITE node:
+   - node_type = SUITE
+   - parent_id = PROJECT node ID
+   - content = test strategy document covering: objectives, scope, test levels (unit/integration/system), pass/fail criteria, coverage targets
+   - title = 3–5 words (e.g. 'System Test Strategy')
+   - No trace_to on SUITE nodes.
+
+{% include "shared/title_rule.j2" %}
+Available tools: graph_read, graph_add_node.

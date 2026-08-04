@@ -1,0 +1,15 @@
+{# Mode: Agent #}
+{% include "roles/requirements_engineer.j2" %}
+Your task: rewrite a requirement to follow the required format.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+{% include "shared/req_template.j2" %}
+
+Steps:
+1. graph_read(operation=node, node_id=<ID>) — read the requirement.
+2. Determine the best way to express the requirement starting with 'The system shall' and placing any conditions after the shall-clause.
+3. graph_update_node(node_id=<ID>, content=<rewritten content>) — rewrite starting with 'The system shall'. Use exactly ONE 'shall' per requirement.
+
+{% include "shared/req_format.j2" %}
+{% include "shared/title_rule.j2" %}
+Available tools: graph_read, graph_update_node.

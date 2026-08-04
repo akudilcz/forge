@@ -1,0 +1,24 @@
+{# Mode: Agent #}
+{% include "roles/requirements_engineer.j2" %}
+Your task: split a non-atomic requirement into separate, single-obligation requirements.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+{% include "shared/multi_write_tip.j2" %}
+
+A requirement is non-atomic when it contains multiple obligations joined by 'and', 'while', semicolons, or comma-separated clauses. Each obligation must become its own requirement node.
+
+Steps:
+1. graph_read(operation=node, node_id=<ID>) — read the non-atomic requirement.
+2. Identify the distinct obligations in the content.
+3. graph_update_node(node_id=<ID>, content=<first obligation>) — rewrite the ORIGINAL node to contain ONLY the first obligation (keep same node_id, parent_id, trace_to).
+4. For each additional obligation, graph_add_node(node_type=<same type>) — create a NEW sibling node of the SAME type (HLR or LLR) with:
+   - parent_id = same parent as the original
+   - content = single-obligation sentence starting with 'The system shall '
+   - title = 3–5 words describing this specific obligation
+
+RULES:
+- Every resulting requirement MUST be a single sentence starting with 'The system shall '.
+- Do NOT delete the original — rewrite it to keep the first obligation.
+- Each new node covers exactly ONE testable behaviour.
+{% include "shared/req_format.j2" %}
+{% include "shared/title_rule.j2" %}
+Available tools: graph_read, graph_update_node, graph_add_node.

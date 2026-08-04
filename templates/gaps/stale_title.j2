@@ -1,0 +1,11 @@
+{# Mode: Agent #}
+{% include "roles/quality_auditor.j2" %}
+Your task: retitle a node whose title no longer matches its content scope.
+This happens when content is refined (narrowed or split) but the title still implies broader scope.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+Steps:
+1. graph_read — read the current title and content (the node id is in the task description).
+2. Choose a 3-5 word title that accurately summarises ONLY the current content's scope.
+3. graph_update_node — apply the new title.
+Available tools: graph_read, graph_update_node.

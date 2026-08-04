@@ -1,0 +1,176 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "forge-build"
+version = "1.1.0"
+description = "FORGE — Agentic Software Build System"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Andrew Kudilczak" }]
+keywords = ["agents", "llm", "code-generation", "langgraph", "traceability"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Software Development :: Build Tools",
+]
+
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.30.0",
+    "websockets>=12.0",
+    "aiofiles>=23.2.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.3.0",
+    "structlog>=24.1.0",
+    "httpx>=0.27.0",
+    "click>=8.1.0",
+    "rich>=13.7.0",
+    # Graph engine
+    "sqlalchemy[asyncio]>=2.0.0",
+    "aiosqlite>=0.20.0",
+    "networkx>=3.3",
+    # Agent orchestration — JSON function calling via LangGraph
+    "langgraph>=0.3.0",
+    "langchain-core>=0.3.0",
+    "langchain-openai>=0.3.0",
+    "litellm[proxy]>=1.30.0",
+    # Token counting
+    "tiktoken>=0.7.0",
+    # File watching
+    "watchfiles>=0.21.0",
+    # Markdown parsing
+    "mistune>=3.0.0",
+    # YAML parsing for agent profiles
+    "pyyaml>=6.0.0",
+    # Jinja2 for devtools prompt templates
+    "jinja2>=3.1.0",
+    # JSON Schema validation for contracts
+    "jsonschema>=4.22.0",
+    # Environment variable loading
+    "python-dotenv>=1.0.0",
+    "numpy>=2.4.3",
+    "scipy>=1.17.1",
+    # Code quality (used by python_lint tool at runtime)
+    "ruff>=0.15.0,<0.16.0",
+    "langchain-text-splitters>=1.1.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/akudilcz/forge"
+Repository = "https://github.com/akudilcz/forge"
+Issues = "https://github.com/akudilcz/forge/issues"
+
+[project.scripts]
+forge = "backend.main:cli"
+
+# Note: development tooling lives in [dependency-groups] dev below, which
+# `uv sync` installs by default. Keeping a second copy here as an extra would
+# mean `make check` silently lacks mypy unless you remember `--extra dev`.
+
+[tool.hatch.build.targets.wheel]
+packages = ["backend"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "PT"]
+ignore = ["E501", "UP042", "N817"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection idiom deliberately calls these in argument
+# defaults; the call is evaluated once at import and is the documented usage.
+extend-immutable-calls = [
+    "fastapi.Body",
+    "fastapi.Cookie",
+    "fastapi.Depends",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Header",
+    "fastapi.Path",
+    "fastapi.Query",
+    "fastapi.Security",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# E402: several test modules install stubs or tweak sys.path before importing
+#   the module under test, so imports legitimately follow executable statements.
+# PT019: mock arguments injected by @patch decorators are positional parameters,
+#   not pytest fixtures; ruff cannot tell the two apart from the signature alone.
+"backend/tests/**" = ["E402", "PT019"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "backend.contracts.validator",
+    "backend.context.composer",
+    "backend.context.manager",
+    "backend.tools.base",
+    "backend.tools.graph_read",
+    "backend.tools.graph_write",
+    "backend.tools.file_read",
+    "backend.tools.file_write",
+    "backend.tools.file_patch",
+    "backend.tools.code_search",
+    "backend.tools.git_ops",
+    "backend.tools.run_tests",
+    "backend.tools.shell_exec",
+    "backend.tools.web_fetch",
+    "backend.config.loader",
+    "backend.server.lifespan",
+    "backend.server.routers.control",
+    "backend.server.routers.graph",
+    "backend.server.routers.requirements",
+    "backend.server.routers.compliance",
+    "backend.contracts.negotiator",
+    "backend.contracts.registry",
+    "backend.crew.flow",
+    "backend.crew.callbacks",
+    "backend.agents.pool",
+    "backend.agents.factory",
+    "backend.architecture.analyser",
+    "backend.tools.send_message",
+    "backend.server.routers.agents",
+    "backend.server.routers.architecture",
+]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["backend/tests"]
+pythonpath = [".", "workspace"]
+addopts = "--cov=backend --cov-report=term-missing --import-mode=importlib -m 'not integration and not slow'"
+markers = [
+    "integration: end-to-end tests with real LLM agents (slow, requires API key)",
+    "slow: tests that run external subprocesses (bazel, docker, etc.) — opt in via -m slow",
+]
+
+[tool.coverage.run]
+source = ["backend"]
+omit = ["*/tests/*", "*/fixtures/*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-cov>=7.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-timeout>=2.3.0",
+    "pytest-xdist>=3.8.0",
+    "mypy>=1.10.0",
+    "types-aiofiles>=23.2.0",
+]

@@ -1,0 +1,15 @@
+{# Mode: Agent #}
+{% include "roles/requirements_engineer.j2" %}
+Your task: resolve a contradiction between sibling requirements.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+Steps:
+1. graph_read — retrieve the conflicting requirement node and review its siblings in context.
+2. Identify the specific conflict between the requirements.
+3. Resolve the contradiction by either:
+   a) Rewriting the requirement via graph_update_node to remove the conflict, OR
+   b) Deleting the requirement via graph_delete_node if it is a duplicate or incorrect.
+Preserve the intent of the more specific requirement.
+
+{% include "shared/req_format.j2" %}
+Available tools: graph_read, graph_update_node, graph_delete_node.

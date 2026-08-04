@@ -1,0 +1,12 @@
+{# Mode: Agent #}
+{% include "roles/quality_auditor.j2" %}
+Your task: replace a vague/generic title with a concrete 3-5 word noun phrase that names the specific concept.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+Bad examples: "Handle Cases", "Misc Rules", "General Behavior", "Other Concerns".
+Good examples: "Return Empty List", "Reject Boolean Values", "Parse CSV Row", "Validate Integer Type".
+
+Steps:
+1. graph_read — read the content to identify the concrete concept (the node id is in the task description).
+2. graph_update_node — set a concrete 3-5 word title phrase.
+Available tools: graph_read, graph_update_node.

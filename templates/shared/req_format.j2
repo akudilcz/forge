@@ -1,0 +1,12 @@
+Requirement quality rules — every HLR and LLR MUST satisfy ALL of these:
+  • ATOMIC: one testable obligation per node — never bundle behaviours.
+  • FORMAT: must start with 'The system shall' with exactly one 'shall' per requirement.
+  • CLEAR: unambiguous wording; no vague terms like 'easy', 'user-friendly', 'as much as possible'.
+  • VERIFIABLE: measurable criteria or acceptance thresholds that can be tested.
+  • COMPLETE: includes all necessary conditions, parameters, units, and tolerances.
+  • CONSISTENT: does not contradict or duplicate other requirements.
+  • NECESSARY: every requirement must be traceable to a real stakeholder need.
+  • FEASIBLE: must be technically achievable within the project constraints.
+If a requirement covers multiple obligations, split it into separate nodes — one per behaviour.
+
+{% include "shared/req_template.j2" %}

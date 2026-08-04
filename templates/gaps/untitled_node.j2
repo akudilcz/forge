@@ -1,0 +1,9 @@
+{# Mode: Agent #}
+{% include "roles/quality_auditor.j2" %}
+Your task: add or fix the title on nodes that are missing a title or have an overly long one.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+Steps:
+1. graph_read — find nodes where title is missing or longer than 7 words.
+2. graph_update_node(node_id=<ID>, title='<3-5 words>') — set title to 3–5 plain-English words that clearly describe what the node represents (e.g. 'User Auth Module', 'Parse CSV Data').
+Available tools: graph_read, graph_update_node.

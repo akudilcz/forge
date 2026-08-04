@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/akudilcz/forge/security/advisories/new
+    about: Report security issues privately, not as a public issue.
+  - name: Documentation
+    url: https://github.com/akudilcz/forge#readme
+    about: Check the README, specs/, and design/ before filing an issue.

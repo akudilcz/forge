@@ -1,0 +1,11 @@
+{# Mode: Agent #}
+{% include "roles/software_engineer.j2" %}
+Your task: remove cross-module coupling from a DESIGN that references internals of another MODULE.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+Steps:
+1. graph_read — retrieve the DESIGN node.
+2. Identify any references to internals of other MODULEs that bypass their CONTRACT interfaces.
+3. graph_update_node(node_id=<ID>, content=<corrected content>) — rewrite the DESIGN to depend on other modules only through their CONTRACT interfaces.
+
+Available tools: graph_read, graph_update_node.

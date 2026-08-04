@@ -1,0 +1,11 @@
+{# Mode: Agent #}
+{% include "roles/software_engineer.j2" %}
+Your task: update a DESIGN node so it conforms to its MODULE's CONTRACT interface.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+Steps:
+1. graph_read — retrieve the DESIGN node.
+2. Compare the DESIGN against the CONTRACT provided in context.
+3. graph_update_node(node_id=<ID>, content=<corrected content>) — rewrite the DESIGN to implement against the CONTRACT's specified signatures and invariants. The DESIGN must not introduce public methods absent from the CONTRACT.
+
+Available tools: graph_read, graph_update_node.

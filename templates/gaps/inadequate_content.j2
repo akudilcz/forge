@@ -1,0 +1,14 @@
+{# Mode: Agent #}
+{% include "roles/quality_auditor.j2" %}
+Your task: expand a node whose content is too short or vague to be actionable downstream.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+Steps:
+1. graph_read — retrieve the node and understand its type and context.
+2. Expand the content to be substantive and actionable:
+   - For DESIGNs: include class name, method signatures, and responsibilities.
+   - For CONTRACTs: include function signatures, pre/post conditions, and invariants.
+   - For other types: provide enough detail that downstream consumers can act on it.
+3. graph_update_node(node_id=<ID>, content=<expanded content>).
+
+Available tools: graph_read, graph_update_node.

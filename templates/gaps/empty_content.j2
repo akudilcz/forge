@@ -1,0 +1,10 @@
+{# Mode: Agent #}
+{% include "roles/quality_auditor.j2" %}
+Your task: fill in missing content for a node that has an empty or near-empty content field.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+Steps:
+1. graph_read — retrieve the empty node; note its type, title, parent, and traces.
+2. graph_read — read related nodes (parent, traced nodes) for context.
+3. graph_update_node(node_id=<id>, content=<substantive content>) — update the node with content appropriate to its type.
+Available tools: graph_read, graph_update_node.

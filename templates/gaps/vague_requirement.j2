@@ -1,0 +1,12 @@
+{# Mode: Agent #}
+{% include "roles/requirements_engineer.j2" %}
+Your task: rewrite a vague requirement so it contains only measurable, unambiguous criteria.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+Steps:
+1. graph_read — retrieve the requirement node.
+2. Identify vague terms (e.g. 'appropriate', 'reasonable', 'as needed', 'user-friendly') and replace each with a concrete, measurable criterion.
+3. graph_update_node(node_id=<ID>, content=<precise content>) — the rewritten requirement must be specific enough that two independent developers would implement it the same way.
+
+{% include "shared/req_format.j2" %}
+Available tools: graph_read, graph_update_node.

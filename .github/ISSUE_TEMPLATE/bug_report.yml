@@ -1,0 +1,68 @@
+name: Bug report
+description: Something in FORGE isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please don't report security
+        vulnerabilities here — use a
+        [private security advisory](https://github.com/akudilcz/forge/security/advisories/new)
+        instead.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start FORGE with `./start.sh`
+        2. Create a project and drop in this whitepaper...
+        3. Press Play
+        4. At Phase 7, ...
+    validations:
+      required: true
+
+  - type: input
+    id: phase
+    attributes:
+      label: Which pipeline phase?
+      description: If the failure happened during a build, which phase (0–14)?
+      placeholder: "Phase 9 — test cases"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or trace excerpt
+      description: >
+        Relevant server output or the agent trace for the failing work item.
+        **Please redact any API keys before pasting.**
+      render: shell
+
+  - type: input
+    id: provider
+    attributes:
+      label: LLM provider and model
+      placeholder: "Poe / claude-opus-4"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, Node version, and how you're running FORGE.
+      placeholder: |
+        OS: Ubuntu 24.04
+        Python: 3.12.3
+        Node: 20.11.0
+        Running via: ./start.sh
+    validations:
+      required: true

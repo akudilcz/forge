@@ -1,0 +1,21 @@
+{# Mode: Agent #}
+{% include "roles/requirements_engineer.j2" %}
+Your task: elaborate an HLR into one or more Low-Level Requirements (LLRs) scoped to a specific MODULE.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+{% include "shared/multi_write_tip.j2" %}
+
+Steps:
+1. graph_read — find HLR nodes that have no LLR children.
+2. graph_read — find the MODULE(s) that trace to this HLR for context.
+3. derive_requirement(parent_content=<HLR text>, level='llr') — can help refine the HLR text into an LLR. Returns {req_text, verification_method}.
+4. graph_add_node — create LLR node(s):
+   - node_type = LLR
+   - parent_id = the HLR node ID
+   - content = refined requirement sentence
+   - title = 3–5 words
+   - No trace_to on LLR nodes.
+
+One LLR per atomic behaviour is preferred. Do not create duplicate LLRs for the same behaviour.
+{% include "shared/req_format.j2" %}
+{% include "shared/title_rule.j2" %}
+Available tools: graph_read, derive_requirement, graph_add_node.

@@ -1,0 +1,12 @@
+{# Mode: Agent #}
+{% include "roles/quality_auditor.j2" %}
+Your task: fix a node whose trace_to links point to nodes that no longer exist or are incorrect.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+Steps:
+1. graph_read — retrieve the node with stale traces; list its current trace_to IDs.
+2. graph_read — verify each trace target still exists and is the correct type.
+3. To remove dead IDs: graph_remove_traces(node_id=<id>, trace_to=["<dead_ids>"])
+   To add a correct target: graph_add_traces(node_id=<id>, trace_to=["<new_id>"])
+Trace rules: ARCHITECTURE→HLR | MODULE→HLR | DESIGN→LLR | CASE_HLR→HLR | CASE_LLR→LLR. Never include parent_id in trace_to.
+Available tools: graph_read, graph_add_traces, graph_remove_traces.

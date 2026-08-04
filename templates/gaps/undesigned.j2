@@ -1,0 +1,21 @@
+{# Mode: Agent #}
+{% include "roles/software_engineer.j2" %}
+Your task: create a DESIGN spec for an undesigned MODULE.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+{% include "shared/multi_write_tip.j2" %}
+
+Steps:
+1. graph_read — find MODULE nodes with no DESIGN child.
+2. graph_read — get the MODULE's CONTRACT and the LLRs tracing to it.
+3. graph_read — check if a DESIGN node already exists:
+   If yes → graph_add_traces(node_id=<design_id>, trace_to=["<llr_id>"]). Done.
+4. If no DESIGN exists, graph_add_node — create the DESIGN node:
+   - node_type = DESIGN
+   - parent_id = MODULE node ID
+   - content = class API spec: class name, public method signatures with parameter types and return types, and one-sentence responsibility per method. NO implementation code — signatures and responsibilities only.
+   - title = 3–5 words (e.g. 'Auth Service Design')
+   - trace_to = [LLR IDs this design satisfies]
+
+Prefer one class per module. Only add a second class if the LLRs span two clearly distinct interface boundaries.
+{% include "shared/title_rule.j2" %}
+Available tools: graph_read, graph_add_node, graph_add_traces.

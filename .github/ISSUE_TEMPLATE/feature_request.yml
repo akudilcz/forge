@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest a capability or improvement for FORGE
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: >
+        Describe the situation that prompted this, rather than jumping straight
+        to a solution — it usually opens up better options.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to see?
+      validations:
+        required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area does this touch?
+      options:
+        - Build pipeline / phases
+        - Agents and orchestration
+        - Project Graph
+        - Control Station (frontend)
+        - LLM providers and configuration
+        - Deliverables and reporting
+        - Observability and tracing
+        - Documentation
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Including any workaround you're using today.

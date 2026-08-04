@@ -1,0 +1,10 @@
+{# Mode: Agent #}
+{% include "roles/quality_auditor.j2" %}
+Your task: reconnect or remove an orphaned node that has no valid parent.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+Steps:
+1. graph_read — retrieve the orphaned node and understand its type and content.
+2. graph_read — search for the most appropriate parent node of the correct type.
+3. graph_reparent_node(node_id=<id>, parent_id=<new_parent>) — reconnect the node, or graph_delete_node(node_id=<id>) to remove it if it has no valid home.
+Available tools: graph_read, graph_reparent_node, graph_delete_node.

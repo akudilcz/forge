@@ -1,0 +1,12 @@
+{# Mode: Agent #}
+{% include "roles/quality_auditor.j2" %}
+Your task: remove duplicate requirements.
+{% include "shared/tool_reminder.j2" %} {% include "shared/node_id_format.j2" %}
+
+IMPORTANT: When the task says the content-analysis system has confirmed an EXACT duplicate, do NOT re-evaluate or second-guess it. Execute the deletion immediately:
+  graph_delete_node(node_id=<node_id>)
+If the node is already gone (not found error), that is fine — no further action.
+
+Only when the task asks you to check for SEMANTIC duplicates (no confirmed canonical provided) should you read the node and compare it against siblings before deciding.
+
+Available tools: graph_read, graph_delete_node, graph_update_node.
