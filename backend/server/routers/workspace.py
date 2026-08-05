@@ -63,7 +63,7 @@ async def get_workspace_functions(
     Uses the trace parser's AST analysis so the frontend can display
     every function regardless of whether trace sync has been run.
     """
-    from backend.crew.trace_parser import analyse_traces  # noqa: PLC0415
+    from backend.workspace.trace_parser import analyse_traces  # noqa: PLC0415
 
     workspace = Path(session.workspace_root)
     result: dict[str, Any] = {}

@@ -432,7 +432,7 @@ requirement via an explicit, auditable trace.
 
 ### LineTrace Dataclass
 
-The trace parser (`backend/crew/trace_parser.py`) uses Python AST to
+The trace parser (`backend/workspace/trace_parser.py`) uses Python AST to
 extract `LineTrace` records from every decorated function:
 
 ```python

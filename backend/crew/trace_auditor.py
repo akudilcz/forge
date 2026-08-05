@@ -22,8 +22,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from backend.crew.trace_parser import LineTrace, analyse_traces
 from backend.server.forge_logger import forge_logger
+from backend.workspace.trace_parser import LineTrace, analyse_traces
 
 logger = logging.getLogger(__name__)
 

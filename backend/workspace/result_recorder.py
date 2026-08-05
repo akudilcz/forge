@@ -108,7 +108,7 @@ def run_and_parse_tests(workspace: Path) -> list[SingleTestResult]:
     if not tests_dir.exists() or not any(tests_dir.glob("test_*.py")):
         return []
 
-    from backend.crew.test_parsers import extract_error_summary, parse_bazel_testlogs
+    from backend.workspace.test_reports import extract_error_summary, parse_bazel_testlogs
 
     init_bazel_workspace(workspace)
     purge_stale_test_artifacts(workspace)

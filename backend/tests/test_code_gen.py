@@ -21,11 +21,11 @@ from backend.crew.codegen_helpers import (
     strip_markdown_fences as _strip_markdown_fences,
 )
 from backend.crew.naming import slugify as _slugify
-from backend.crew.trace_parser import (
+from backend.workspace.trace_parser import (
     LineTrace,
     parse_llr_traces,
 )
-from backend.crew.trace_parser import (
+from backend.workspace.trace_parser import (
     find_untraced_functions as _find_untraced_functions,
 )
 
@@ -133,7 +133,7 @@ def test_parse_traces_non_python_returns_empty() -> None:
 
 def test_analyse_traces_counts() -> None:
     """analyse_traces correctly counts decorator-traced functions."""
-    from backend.crew.trace_parser import analyse_traces
+    from backend.workspace.trace_parser import analyse_traces
     code = (
         '@traces("LLR-0001")\n'
         "def traced():\n"
@@ -150,7 +150,7 @@ def test_analyse_traces_counts() -> None:
 
 def test_analyse_traces_non_python_returns_empty() -> None:
     """analyse_traces on non-Python code returns zeroed result."""
-    from backend.crew.trace_parser import analyse_traces
+    from backend.workspace.trace_parser import analyse_traces
     result = analyse_traces("not valid python {{{")
     assert result.total_functions == 0
     assert result.traced_functions == 0
@@ -250,7 +250,7 @@ def test_find_untraced_includes_private() -> None:
 async def test_run_code_gen_empty_graph(mock_close_gaps: MagicMock, tmp_path: Path) -> None:
     """No DESIGN nodes → empty plan → no files generated."""
     from backend.crew.mission_agent import MissionStats
-    from backend.crew.workspace_scanner import WorkspaceState
+    from backend.workspace.scanner import WorkspaceState
     mock_close_gaps.return_value = (WorkspaceState(), MissionStats())
     graph: Any = MagicMock()
     graph.all_nodes.return_value = []
@@ -278,7 +278,7 @@ async def test_run_code_gen_gaps_resolved_true(
 ) -> None:
     """gaps_resolved is True when final scan finds zero gaps."""
     from backend.crew.mission_agent import MissionStats
-    from backend.crew.workspace_scanner import WorkspaceState
+    from backend.workspace.scanner import WorkspaceState
     mock_close_gaps.return_value = (WorkspaceState(), MissionStats())
     graph: Any = MagicMock()
     graph.all_nodes.return_value = []
@@ -803,7 +803,7 @@ async def test_persist_traces_skips_non_design_case() -> None:
 def test_compute_value_includes_mcdc() -> None:
     """MC/DC (branch coverage) is a gating dimension in compute_value."""
     from backend.crew.mission_agent import compute_value
-    from backend.crew.workspace_scanner import FileState, WorkspaceState
+    from backend.workspace.scanner import FileState, WorkspaceState
 
     ws = WorkspaceState(
         source_files={
@@ -829,7 +829,7 @@ def test_compute_value_includes_mcdc() -> None:
 def test_compute_value_all_100_returns_1() -> None:
     """All dimensions at 100% yields score 1.0."""
     from backend.crew.mission_agent import compute_value
-    from backend.crew.workspace_scanner import FileState, WorkspaceState
+    from backend.workspace.scanner import FileState, WorkspaceState
 
     ws = WorkspaceState(
         source_files={

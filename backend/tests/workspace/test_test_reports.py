@@ -1,11 +1,11 @@
-"""Tests for backend.crew.test_parsers — JUnit/LCOV/bazel-testlog parsing."""
+"""Tests for backend.workspace.test_reports — JUnit/LCOV/bazel-testlog parsing."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from backend.crew.result_recorder import SingleTestResult
-from backend.crew.test_parsers import (
+from backend.workspace.result_recorder import SingleTestResult
+from backend.workspace.test_reports import (
     _LcovCounters,
     extract_error_summary,
     merge_test_results,

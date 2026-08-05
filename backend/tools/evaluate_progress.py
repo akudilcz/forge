@@ -74,12 +74,12 @@ class EvaluateProgressTool(ForgeTool):
             compute_value,
             format_gaps,
         )
-        from backend.crew.workspace_scanner import (
+        from backend.server.forge_logger import forge_logger
+        from backend.workspace.scanner import (
             WorkspaceState,
             _run_tests_and_coverage,
             scan_files,
         )
-        from backend.server.forge_logger import forge_logger
 
         workspace = Path(self._workspace)
         forge_logger.emit("INFO", "EVAL ", f"Evaluating workspace: {workspace}")

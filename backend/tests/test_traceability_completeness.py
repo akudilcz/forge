@@ -160,8 +160,8 @@ class TestCoverageMetrics:
         """Pin the contract so the two modules cannot drift apart again."""
         import inspect
 
-        from backend.crew import result_recorder
         from backend.rendering import deliverables
+        from backend.workspace import result_recorder
 
         recorder_src = inspect.getsource(result_recorder)
         assert '"passed"' in recorder_src or "'passed'" in recorder_src

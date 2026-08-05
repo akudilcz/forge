@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.analysis.gaps import Gap, GapType
-from backend.crew.workspace_sync import (
+from backend.workspace.sync import (
     _find_child_of_type,
     _hash,
     _sync_code_nodes,
@@ -156,7 +156,7 @@ async def test_test_sync_refreshes_and_updates_test_functions(tmp_path: Path) ->
     f.write_text("def test_new(): pass", encoding="utf-8")
 
     gaps: list[Gap] = []
-    with patch("backend.crew.workspace_sync.analyse_traces") as at:
+    with patch("backend.workspace.sync.analyse_traces") as at:
         at.return_value = MagicMock(traces=[MagicMock(symbol="test_new")])
         created, refreshed = await _sync_test_nodes(graph, tmp_path, gaps)
     assert created == 0

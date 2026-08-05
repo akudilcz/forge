@@ -20,7 +20,7 @@ from backend.crew.trace_auditor import (
     audit_traces,
     persist_audit_results,
 )
-from backend.crew.trace_parser import LineTrace
+from backend.workspace.trace_parser import LineTrace
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 

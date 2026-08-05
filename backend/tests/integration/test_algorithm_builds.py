@@ -37,7 +37,6 @@ from typing import Any
 import pytest
 
 from backend.config.models import ForgeConfig
-from backend.crew.workspace_scanner import WorkspaceState, scan_workspace
 from backend.forge_builder import ForgeBuilder
 from backend.graph.models import NodeType
 from backend.tests.integration.oracles import (
@@ -58,6 +57,7 @@ from backend.tests.integration.oracles import (
     union_find,
 )
 from backend.tests.integration.oracles._base import Oracle, OracleResult, run_oracle
+from backend.workspace.scanner import WorkspaceState, scan_workspace
 
 WHITEPAPER_DIR = Path(__file__).parent / "whitepapers"
 
@@ -386,7 +386,7 @@ async def test_every_llr_is_traced_into_code(built: BuildResult) -> None:
     generated source. An LLR that reaches phase 12 and never lands in code is a
     silently dropped requirement.
     """
-    from backend.crew.trace_parser import analyse_traces
+    from backend.workspace.trace_parser import analyse_traces
 
     built.require_phase(13)
     llr_ids = {n.node_id for n in built.nodes(NodeType.LLR)}
@@ -405,7 +405,7 @@ async def test_every_llr_is_traced_into_code(built: BuildResult) -> None:
 @_parametrize()
 async def test_no_untraced_functions(built: BuildResult) -> None:
     """A function with no ``@traces`` implements no requirement — dead weight."""
-    from backend.crew.trace_parser import analyse_traces
+    from backend.workspace.trace_parser import analyse_traces
 
     built.require_phase(13)
     orphans: list[str] = []

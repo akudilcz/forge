@@ -27,10 +27,10 @@ from typing import Any
 import pytest
 
 from backend.config.models import ForgeConfig
-from backend.crew.trace_parser import analyse_traces
-from backend.crew.workspace_scanner import WorkspaceState, scan_workspace
 from backend.forge_builder import ForgeBuilder
 from backend.graph.models import GraphNode, LifecycleState, NodeType
+from backend.workspace.scanner import WorkspaceState, scan_workspace
+from backend.workspace.trace_parser import analyse_traces
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.timeout(3600)]
 

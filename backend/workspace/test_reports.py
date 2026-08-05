@@ -11,8 +11,8 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from backend.crew.result_recorder import SingleTestResult
 from backend.server.forge_logger import forge_logger
+from backend.workspace.result_recorder import SingleTestResult
 
 # ── Data models ─────────────────────────────────────────────────────────────
 

@@ -19,9 +19,9 @@ from pathlib import Path
 
 import pytest
 
-from backend.crew.workspace_sync import _sync_test_nodes
 from backend.graph.engine import ProjectGraph
 from backend.graph.models import GraphNode, LifecycleState, NodeType
+from backend.workspace.sync import _sync_test_nodes
 
 
 @pytest.fixture
@@ -151,7 +151,7 @@ async def test_code_and_test_sync_are_symmetric() -> None:
     """
     import inspect
 
-    from backend.crew import workspace_sync
+    from backend.workspace import sync as workspace_sync
 
     code_src = inspect.getsource(workspace_sync._sync_code_nodes)
     test_src = inspect.getsource(workspace_sync._sync_test_nodes)

@@ -60,8 +60,8 @@ class CheckTraceQualityTool(ForgeTool):
     async def _async_check(self, file_path: str) -> str:
         """Build the prompt, call the LLM, return the raw text verdict."""
         from backend.agents.factory import build_llm
-        from backend.crew.trace_parser import analyse_traces
         from backend.server.forge_logger import forge_logger
+        from backend.workspace.trace_parser import analyse_traces
 
         workspace = Path(self._workspace)
         full_path = workspace / file_path

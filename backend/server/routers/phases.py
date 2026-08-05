@@ -519,7 +519,7 @@ async def sync_traces(
     if graph is None:
         raise HTTPException(status_code=503, detail="Graph not available")
     workspace = Path(getattr(request.app.state, "workspace", "."))
-    from backend.crew.trace_manager import sync_traces as _sync
+    from backend.workspace.trace_manager import sync_traces as _sync
     return await _sync(graph, workspace)
 
 

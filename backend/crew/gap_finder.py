@@ -16,8 +16,8 @@ from backend.crew.naming import slugify as _slugify
 from backend.server.forge_logger import forge_logger
 
 if TYPE_CHECKING:
-    from backend.crew.workspace_scanner import FileState
     from backend.graph.engine import ProjectGraph
+    from backend.workspace.scanner import FileState
 
 
 # ── Data models ──────────────────────────────────────────────────────────────

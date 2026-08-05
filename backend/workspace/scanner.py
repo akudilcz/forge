@@ -12,8 +12,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from backend.crew.bazel_gen import init_bazel_workspace
-from backend.crew.result_recorder import SingleTestResult, purge_stale_test_artifacts
-from backend.crew.test_parsers import (
+from backend.server.forge_logger import forge_logger
+from backend.workspace.result_recorder import SingleTestResult, purge_stale_test_artifacts
+from backend.workspace.test_reports import (
     LcovResult,
     extract_error_summary,
     merge_test_results,
@@ -21,8 +22,12 @@ from backend.crew.test_parsers import (
     parse_junit_xml,
     parse_lcov_file,
 )
-from backend.crew.trace_parser import LineTrace, TraceAnalysis, UntracedFunction, analyse_traces
-from backend.server.forge_logger import forge_logger
+from backend.workspace.trace_parser import (
+    LineTrace,
+    TraceAnalysis,
+    UntracedFunction,
+    analyse_traces,
+)
 
 # Re-export for backwards compatibility
 __all__ = ["FileState", "WorkspaceState", "LcovResult", "scan_files", "scan_workspace"]

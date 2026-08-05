@@ -20,9 +20,9 @@ from backend.crew.gap_finder import (
     find_gaps,
 )
 from backend.crew.naming import slugify as _slugify
-from backend.crew.result_recorder import SingleTestResult
-from backend.crew.trace_parser import LineTrace, UntracedFunction
-from backend.crew.workspace_scanner import FileState
+from backend.workspace.result_recorder import SingleTestResult
+from backend.workspace.scanner import FileState
+from backend.workspace.trace_parser import LineTrace, UntracedFunction
 
 if TYPE_CHECKING:
     from backend.graph.engine import ProjectGraph

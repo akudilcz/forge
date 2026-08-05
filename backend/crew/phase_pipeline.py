@@ -27,8 +27,8 @@ from backend.crew.phase_steps import (
     semantic,
     structural,
 )
-from backend.crew.workspace_sync import workspace_sync
 from backend.server.forge_logger import forge_logger
+from backend.workspace.sync import workspace_sync
 
 logger = logging.getLogger(__name__)
 

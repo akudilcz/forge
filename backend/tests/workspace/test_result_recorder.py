@@ -1,4 +1,4 @@
-"""Tests for backend.crew.result_recorder."""
+"""Tests for backend.workspace.result_recorder."""
 
 from __future__ import annotations
 
@@ -6,13 +6,13 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
-from backend.crew.result_recorder import (
+from backend.workspace.result_recorder import (
     SingleTestResult,
     _find_trace_targets,
     _resolve_requirement_traces,
     _result_node_id,
 )
-from backend.crew.test_parsers import parse_junit_xml as _parse_junit_xml
+from backend.workspace.test_reports import parse_junit_xml as _parse_junit_xml
 
 # ── _parse_junit_xml ────────────────────────────────────────────────────────
 
@@ -216,7 +216,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from backend.crew.result_recorder import record_results
+from backend.workspace.result_recorder import record_results
 
 
 @pytest.mark.asyncio
@@ -242,7 +242,7 @@ async def test_record_results_uses_cached_test_results() -> None:
     graph.node_sync.side_effect = lambda nid: case if nid == "CASE_LLR-001" else None
     graph.add_node = AsyncMock()
 
-    with patch("backend.crew.result_recorder.run_and_parse_tests") as mock_run:
+    with patch("backend.workspace.result_recorder.run_and_parse_tests") as mock_run:
         results = await record_results(workspace=MagicMock(), graph=graph, last_state=last_state)
 
     # Should NOT have called run_and_parse_tests
@@ -364,7 +364,7 @@ async def test_record_results_no_last_state_calls_run_and_parse() -> None:
     graph.all_nodes.return_value = []
     graph.add_node = AsyncMock()
 
-    with patch("backend.crew.result_recorder.run_and_parse_tests", return_value=[tr]) as mock_run:
+    with patch("backend.workspace.result_recorder.run_and_parse_tests", return_value=[tr]) as mock_run:
         results = await record_results(workspace=MagicMock(), graph=graph, last_state=None)
 
     mock_run.assert_called_once()
@@ -380,7 +380,7 @@ async def test_record_results_last_state_without_test_results_attr() -> None:
     graph.all_nodes.return_value = []
     graph.add_node = AsyncMock()
 
-    with patch("backend.crew.result_recorder.run_and_parse_tests", return_value=[]) as mock_run:
+    with patch("backend.workspace.result_recorder.run_and_parse_tests", return_value=[]) as mock_run:
         results = await record_results(workspace=MagicMock(), graph=graph, last_state=last_state)
 
     mock_run.assert_called_once()
@@ -534,7 +534,7 @@ async def test_record_results_parent_id_set_from_first_candidate() -> None:
 
 # ── run_and_parse_tests: fresh evidence guarantee ──────────────────────────
 
-from backend.crew.result_recorder import (
+from backend.workspace.result_recorder import (
     purge_stale_test_artifacts,
     run_and_parse_tests,
 )
@@ -579,8 +579,8 @@ def test_purge_stale_test_artifacts_empty_workspace(tmp_path: Path) -> None:
     purge_stale_test_artifacts(tmp_path)
 
 
-@patch("backend.crew.result_recorder.init_bazel_workspace")
-@patch("backend.crew.result_recorder.subprocess.run")
+@patch("backend.workspace.result_recorder.init_bazel_workspace")
+@patch("backend.workspace.result_recorder.subprocess.run")
 def test_run_and_parse_tests_stale_xml_after_failed_bazel_raises(
     mock_run: MagicMock, mock_init: MagicMock, tmp_path: Path,
 ) -> None:
@@ -597,8 +597,8 @@ def test_run_and_parse_tests_stale_xml_after_failed_bazel_raises(
         run_and_parse_tests(tmp_path)
 
 
-@patch("backend.crew.result_recorder.init_bazel_workspace")
-@patch("backend.crew.result_recorder.subprocess.run")
+@patch("backend.workspace.result_recorder.init_bazel_workspace")
+@patch("backend.workspace.result_recorder.subprocess.run")
 def test_run_and_parse_tests_regenerates_build_and_parses_fresh(
     mock_run: MagicMock, mock_init: MagicMock, tmp_path: Path,
 ) -> None:
@@ -628,8 +628,8 @@ def test_run_and_parse_tests_regenerates_build_and_parses_fresh(
     assert [r.function_name for r in results] == ["test_fresh"]
 
 
-@patch("backend.crew.result_recorder.init_bazel_workspace")
-@patch("backend.crew.result_recorder.subprocess.run")
+@patch("backend.workspace.result_recorder.init_bazel_workspace")
+@patch("backend.workspace.result_recorder.subprocess.run")
 def test_run_and_parse_tests_nonzero_exit_with_fresh_results_returns_them(
     mock_run: MagicMock, mock_init: MagicMock, tmp_path: Path,
 ) -> None:
@@ -655,8 +655,8 @@ def test_run_and_parse_tests_nonzero_exit_with_fresh_results_returns_them(
     assert results[0].status == "failed"
 
 
-@patch("backend.crew.result_recorder.init_bazel_workspace")
-@patch("backend.crew.result_recorder.subprocess.run")
+@patch("backend.workspace.result_recorder.init_bazel_workspace")
+@patch("backend.workspace.result_recorder.subprocess.run")
 def test_run_and_parse_tests_no_test_files_returns_empty(
     mock_run: MagicMock, mock_init: MagicMock, tmp_path: Path,
 ) -> None:

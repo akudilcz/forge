@@ -24,10 +24,10 @@ from langgraph.prebuilt import create_react_agent
 from backend.agents.factory import build_llm
 from backend.agents.streaming import iter_agent_turns
 from backend.crew.gap_finder import Gap, find_gaps
-from backend.crew.result_recorder import is_passed
-from backend.crew.workspace_scanner import WorkspaceState, scan_workspace
 from backend.server.forge_logger import forge_logger
 from backend.work_queue import work_queue
+from backend.workspace.result_recorder import is_passed
+from backend.workspace.scanner import WorkspaceState, scan_workspace
 
 if TYPE_CHECKING:
     from backend.config.models import ForgeConfig

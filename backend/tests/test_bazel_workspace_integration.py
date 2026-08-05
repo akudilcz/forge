@@ -26,9 +26,9 @@ import pytest
 
 from backend.crew.bazel_gen import init_bazel_workspace
 from backend.crew.gap_finder import GapKind, find_gaps
-from backend.crew.trace_parser import analyse_traces
-from backend.crew.workspace_scanner import scan_files
 from backend.graph.models import GraphNode
+from backend.workspace.scanner import scan_files
+from backend.workspace.trace_parser import analyse_traces
 
 if TYPE_CHECKING:
     from backend.graph.engine import ProjectGraph

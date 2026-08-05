@@ -22,9 +22,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from backend.analysis.gaps import Gap, GapPriority, GapType
-from backend.crew.trace_parser import analyse_traces
 from backend.graph.models import GraphNode, NodeType
 from backend.server.forge_logger import forge_logger
+from backend.workspace.trace_parser import analyse_traces
 
 if TYPE_CHECKING:
     from backend.crew.phase_steps import StepResult

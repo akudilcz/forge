@@ -88,7 +88,7 @@ class TestCheckTraceQualityTool:
 
         graph = _make_graph({})
         tool = CheckTraceQualityTool(workspace=str(tmp_path), graph=graph, config=MagicMock())
-        with patch("backend.crew.trace_parser.analyse_traces") as mock_analyse:
+        with patch("backend.workspace.trace_parser.analyse_traces") as mock_analyse:
             trace = MagicMock()
             trace.symbol = "plan"
             trace.start = 3
@@ -116,7 +116,7 @@ class TestCheckTraceQualityTool:
 
         tool = CheckTraceQualityTool(workspace=str(tmp_path), graph=graph, config=config)
         with (
-            patch("backend.crew.trace_parser.analyse_traces") as mock_analyse,
+            patch("backend.workspace.trace_parser.analyse_traces") as mock_analyse,
             patch("backend.agents.factory.build_llm", return_value=mock_llm),
         ):
             trace = MagicMock()

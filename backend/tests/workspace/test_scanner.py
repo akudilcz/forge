@@ -5,20 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from backend.crew.result_recorder import SingleTestResult
-from backend.crew.test_parsers import (
-    merge_test_results as _merge_test_results,
-)
-from backend.crew.test_parsers import (
-    parse_bazel_testlogs as _parse_bazel_testlogs,
-)
-from backend.crew.test_parsers import (
-    parse_junit_xml as _parse_junit_xml,
-)
-from backend.crew.test_parsers import (
-    parse_lcov_coverage as _parse_lcov_coverage,
-)
-from backend.crew.workspace_scanner import (
+from backend.workspace.result_recorder import SingleTestResult
+from backend.workspace.scanner import (
     LcovResult,
     WorkspaceState,
     _analyse_file,
@@ -26,6 +14,18 @@ from backend.crew.workspace_scanner import (
     _run_tests_and_coverage,
     scan_files,
     scan_workspace,
+)
+from backend.workspace.test_reports import (
+    merge_test_results as _merge_test_results,
+)
+from backend.workspace.test_reports import (
+    parse_bazel_testlogs as _parse_bazel_testlogs,
+)
+from backend.workspace.test_reports import (
+    parse_junit_xml as _parse_junit_xml,
+)
+from backend.workspace.test_reports import (
+    parse_lcov_coverage as _parse_lcov_coverage,
 )
 
 # ── _discover_py_files ───────────────────────────────────────────────────────
@@ -181,9 +181,9 @@ def test_parse_junit_xml_bazel_stub_format(tmp_path: Path) -> None:
 
 # ── _run_tests_and_coverage ─────────────────────────────────────────────────
 
-@patch("backend.crew.workspace_scanner._run_coverage_py")
-@patch("backend.crew.workspace_scanner.init_bazel_workspace")
-@patch("backend.crew.workspace_scanner.subprocess.run")
+@patch("backend.workspace.scanner._run_coverage_py")
+@patch("backend.workspace.scanner.init_bazel_workspace")
+@patch("backend.workspace.scanner.subprocess.run")
 def test_run_tests_parses_bazel_testlogs(
     mock_run: MagicMock, mock_init: MagicMock, mock_cov: MagicMock, tmp_path: Path,
 ) -> None:
@@ -217,9 +217,9 @@ def test_run_tests_parses_bazel_testlogs(
     assert cmd[0] == "bazel"
 
 
-@patch("backend.crew.workspace_scanner._run_coverage_py")
-@patch("backend.crew.workspace_scanner.init_bazel_workspace")
-@patch("backend.crew.workspace_scanner.subprocess.run")
+@patch("backend.workspace.scanner._run_coverage_py")
+@patch("backend.workspace.scanner.init_bazel_workspace")
+@patch("backend.workspace.scanner.subprocess.run")
 def test_run_tests_stale_xml_after_failed_bazel_is_error(
     mock_run: MagicMock, mock_init: MagicMock, mock_cov: MagicMock, tmp_path: Path,
 ) -> None:
@@ -287,7 +287,7 @@ def test_run_tests_no_tests_dir(tmp_path: Path) -> None:
 
 # ── scan_workspace ───────────────────────────────────────────────────────────
 
-@patch("backend.crew.workspace_scanner._run_tests_and_coverage")
+@patch("backend.workspace.scanner._run_tests_and_coverage")
 async def test_scan_workspace_returns_complete_state(
     mock_tests: MagicMock, tmp_path: Path,
 ) -> None:
@@ -306,8 +306,8 @@ async def test_scan_workspace_returns_complete_state(
     assert state.test_results == []
 
 
-@patch("backend.crew.workspace_scanner.init_bazel_workspace")
-@patch("backend.crew.workspace_scanner.subprocess.run")
+@patch("backend.workspace.scanner.init_bazel_workspace")
+@patch("backend.workspace.scanner.subprocess.run")
 def test_run_tests_nonzero_exit_no_results_is_error(
     mock_run: MagicMock, mock_init: MagicMock, tmp_path: Path,
 ) -> None:
@@ -336,7 +336,7 @@ def test_coverage_binary_missing_raises_instead_of_stale_lcov(
     """Missing coverage binary raises loudly — never parses leftover LCOV."""
     import pytest
 
-    from backend.crew.workspace_scanner import _run_coverage_py
+    from backend.workspace.scanner import _run_coverage_py
 
     # Leftover LCOV report from a prior run — must NOT be silently reused
     lcov_dir = tmp_path / "bazel-out" / "_coverage"
@@ -347,8 +347,8 @@ def test_coverage_binary_missing_raises_instead_of_stale_lcov(
         _run_coverage_py(tmp_path)
 
 
-@patch("backend.crew.workspace_scanner._run_coverage_with_progress")
-@patch("backend.crew.workspace_scanner.subprocess.run")
+@patch("backend.workspace.scanner._run_coverage_with_progress")
+@patch("backend.workspace.scanner.subprocess.run")
 @patch("shutil.which", return_value="/usr/bin/coverage")
 def test_coverage_lcov_not_created_raises(
     mock_which: MagicMock, mock_run: MagicMock, mock_progress: MagicMock,
@@ -359,7 +359,7 @@ def test_coverage_lcov_not_created_raises(
 
     import pytest
 
-    from backend.crew.workspace_scanner import _run_coverage_py
+    from backend.workspace.scanner import _run_coverage_py
 
     tests = tmp_path / "tests"
     tests.mkdir()
@@ -432,7 +432,7 @@ def test_parse_lcov_coverage_empty_project(tmp_path: Path) -> None:
     assert lcov.line_pct is None
 
 
-@patch("backend.crew.workspace_scanner._run_tests_and_coverage")
+@patch("backend.workspace.scanner._run_tests_and_coverage")
 async def test_scan_workspace_captures_error(
     mock_tests: MagicMock, tmp_path: Path,
 ) -> None:
@@ -576,9 +576,9 @@ def test_merge_drops_bazel_file_stubs_when_coverage_has_results() -> None:
 
 # ── _parse_lcov_file (direct) ──────────────────────────────────────────────
 
-from backend.crew.test_parsers import extract_error_summary as _extract_error_summary
-from backend.crew.test_parsers import parse_lcov_file as _parse_lcov_file
-from backend.crew.test_parsers import read_log_tail as _read_log_tail
+from backend.workspace.test_reports import extract_error_summary as _extract_error_summary
+from backend.workspace.test_reports import parse_lcov_file as _parse_lcov_file
+from backend.workspace.test_reports import read_log_tail as _read_log_tail
 
 
 def test_parse_lcov_file_tracks_uncovered_lines(tmp_path: Path) -> None:

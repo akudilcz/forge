@@ -1,6 +1,6 @@
-"""Tests for backend.crew.trace_parser — LLR/CASE trace extraction."""
+"""Tests for backend.workspace.trace_parser — LLR/CASE trace extraction."""
 
-from backend.crew.trace_parser import analyse_traces, find_untraced_functions, parse_llr_traces
+from backend.workspace.trace_parser import analyse_traces, find_untraced_functions, parse_llr_traces
 
 
 def test_traced_function_found() -> None:
@@ -214,7 +214,7 @@ def test_walker_descends_nested_module_nodes() -> None:
     """The AST walker recurses through Module children of synthetic wrappers."""
     import ast
 
-    from backend.crew.trace_parser import _ScopedFunc, _walk_ast
+    from backend.workspace.trace_parser import _ScopedFunc, _walk_ast
 
     class _Wrapper(ast.AST):
         _fields = ("body",)

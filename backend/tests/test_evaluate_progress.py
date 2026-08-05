@@ -8,10 +8,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.crew.result_recorder import SingleTestResult
-from backend.crew.test_parsers import LcovResult
-from backend.crew.workspace_scanner import FileState
 from backend.tools.evaluate_progress import EvaluateProgressTool
+from backend.workspace.result_recorder import SingleTestResult
+from backend.workspace.scanner import FileState
+from backend.workspace.test_reports import LcovResult
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -81,8 +81,8 @@ def test_execute_happy_path(mock_run_async: MagicMock) -> None:
 # ── _async_evaluate with no gaps ─────────────────────────────────────────────
 
 @pytest.mark.asyncio
-@patch("backend.crew.workspace_scanner.scan_files")
-@patch("backend.crew.workspace_scanner._run_tests_and_coverage")
+@patch("backend.workspace.scanner.scan_files")
+@patch("backend.workspace.scanner._run_tests_and_coverage")
 @patch("backend.crew.gap_finder.find_gaps", return_value=[])
 @patch("backend.crew.mission_agent.compute_value", return_value=1.0)
 @patch("backend.crew.mission_agent._score_breakdown", return_value="Tests: 1/1 pass")
@@ -131,8 +131,8 @@ async def test_async_evaluate_no_gaps(
 # ── _async_evaluate with gaps ────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-@patch("backend.crew.workspace_scanner.scan_files")
-@patch("backend.crew.workspace_scanner._run_tests_and_coverage")
+@patch("backend.workspace.scanner.scan_files")
+@patch("backend.workspace.scanner._run_tests_and_coverage")
 @patch("backend.crew.gap_finder.find_gaps")
 @patch("backend.crew.mission_agent.compute_value", return_value=0.5)
 @patch("backend.crew.mission_agent._score_breakdown", return_value="Tests: 1/2 pass")
@@ -181,8 +181,8 @@ async def test_async_evaluate_with_gaps(
 # ── _async_evaluate with None coverage ───────────────────────────────────────
 
 @pytest.mark.asyncio
-@patch("backend.crew.workspace_scanner.scan_files")
-@patch("backend.crew.workspace_scanner._run_tests_and_coverage")
+@patch("backend.workspace.scanner.scan_files")
+@patch("backend.workspace.scanner._run_tests_and_coverage")
 @patch("backend.crew.gap_finder.find_gaps", return_value=[])
 @patch("backend.crew.mission_agent.compute_value", return_value=0.0)
 @patch("backend.crew.mission_agent._score_breakdown", return_value="Tests: 0/0")
@@ -221,8 +221,8 @@ async def test_async_evaluate_none_coverage(
 # ── _async_evaluate with empty workspace ─────────────────────────────────────
 
 @pytest.mark.asyncio
-@patch("backend.crew.workspace_scanner.scan_files")
-@patch("backend.crew.workspace_scanner._run_tests_and_coverage")
+@patch("backend.workspace.scanner.scan_files")
+@patch("backend.workspace.scanner._run_tests_and_coverage")
 @patch("backend.crew.gap_finder.find_gaps", return_value=[])
 @patch("backend.crew.mission_agent.compute_value", return_value=0.0)
 @patch("backend.crew.mission_agent._score_breakdown", return_value="Tests: 0/0")
@@ -256,7 +256,7 @@ async def test_async_evaluate_empty_workspace(
 # ── Error handling if scan_files raises ──────────────────────────────────────
 
 @pytest.mark.asyncio
-@patch("backend.crew.workspace_scanner.scan_files")
+@patch("backend.workspace.scanner.scan_files")
 @patch("backend.server.forge_logger.forge_logger")
 async def test_async_evaluate_scan_files_error(
     _mock_logger: MagicMock,
@@ -273,8 +273,8 @@ async def test_async_evaluate_scan_files_error(
 # ── JSON output has all expected keys ────────────────────────────────────────
 
 @pytest.mark.asyncio
-@patch("backend.crew.workspace_scanner.scan_files")
-@patch("backend.crew.workspace_scanner._run_tests_and_coverage")
+@patch("backend.workspace.scanner.scan_files")
+@patch("backend.workspace.scanner._run_tests_and_coverage")
 @patch("backend.crew.gap_finder.find_gaps", return_value=[])
 @patch("backend.crew.mission_agent.compute_value", return_value=0.85)
 @patch("backend.crew.mission_agent._score_breakdown", return_value="ok")
@@ -330,8 +330,8 @@ def test_execute_via_run(
 # ── Score rounding ───────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-@patch("backend.crew.workspace_scanner.scan_files")
-@patch("backend.crew.workspace_scanner._run_tests_and_coverage")
+@patch("backend.workspace.scanner.scan_files")
+@patch("backend.workspace.scanner._run_tests_and_coverage")
 @patch("backend.crew.gap_finder.find_gaps", return_value=[])
 @patch("backend.crew.mission_agent.compute_value", return_value=0.33333333)
 @patch("backend.crew.mission_agent._score_breakdown", return_value="ok")
@@ -360,8 +360,8 @@ async def test_score_is_rounded_to_3_decimals(
 # ── Test summary counts failed and error statuses ───────────────────────────
 
 @pytest.mark.asyncio
-@patch("backend.crew.workspace_scanner.scan_files")
-@patch("backend.crew.workspace_scanner._run_tests_and_coverage")
+@patch("backend.workspace.scanner.scan_files")
+@patch("backend.workspace.scanner._run_tests_and_coverage")
 @patch("backend.crew.gap_finder.find_gaps", return_value=[])
 @patch("backend.crew.mission_agent.compute_value", return_value=0.0)
 @patch("backend.crew.mission_agent._score_breakdown", return_value="ok")

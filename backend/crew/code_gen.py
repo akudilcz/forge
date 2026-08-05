@@ -42,9 +42,9 @@ from backend.crew.codegen_helpers import (
 )
 from backend.crew.gap_finder import Gap, GapKind, find_gaps
 from backend.crew.naming import slugify as _slugify
-from backend.crew.result_recorder import is_failure, is_not_passing, is_passed
-from backend.crew.trace_parser import LineTrace, UntracedFunction, analyse_traces
 from backend.server.forge_logger import forge_logger
+from backend.workspace.result_recorder import is_failure, is_not_passing, is_passed
+from backend.workspace.trace_parser import LineTrace, UntracedFunction, analyse_traces
 
 logger = logging.getLogger(__name__)
 
@@ -635,7 +635,7 @@ async def _record_test_results(
     last_state: Any | None = None,
 ) -> None:
     """Record test RESULT nodes and persist coverage metrics."""
-    from backend.crew.result_recorder import record_results  # noqa: PLC0415
+    from backend.workspace.result_recorder import record_results  # noqa: PLC0415
 
     results = await record_results(workspace, graph, last_state)
     passed = sum(1 for r in results if is_passed(r.status))

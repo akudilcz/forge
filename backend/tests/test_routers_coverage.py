@@ -456,7 +456,7 @@ class TestPhasesRouter:
 
     def test_sync_traces(self) -> None:
         with patch(
-            "backend.crew.trace_manager.sync_traces",
+            "backend.workspace.trace_manager.sync_traces",
             new_callable=AsyncMock,
             return_value={"synced": 5},
         ):

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.crew.trace_manager import sync_traces
+from backend.workspace.trace_manager import sync_traces
 
 
 def _make_node(node_id: str, node_type: str, title: str,

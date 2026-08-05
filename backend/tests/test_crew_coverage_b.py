@@ -732,19 +732,19 @@ class TestReadFile:
     """_read_file returns content or None."""
 
     def test_file_exists(self, tmp_path: Path) -> None:
-        from backend.crew.workspace_sync import _read_file
+        from backend.workspace.sync import _read_file
 
         f = tmp_path / "hello.py"
         f.write_text("print('hello')", encoding="utf-8")
         assert _read_file(f) == "print('hello')"
 
     def test_file_missing(self, tmp_path: Path) -> None:
-        from backend.crew.workspace_sync import _read_file
+        from backend.workspace.sync import _read_file
 
         assert _read_file(tmp_path / "nope.py") is None
 
     def test_file_unreadable(self, tmp_path: Path) -> None:
-        from backend.crew.workspace_sync import _read_file
+        from backend.workspace.sync import _read_file
 
         # A directory path raises OSError when read_text is called
         assert _read_file(tmp_path) is None
@@ -754,7 +754,7 @@ class TestFindChildOfType:
     """_find_child_of_type returns the matching child or None."""
 
     def test_child_found(self) -> None:
-        from backend.crew.workspace_sync import _find_child_of_type
+        from backend.workspace.sync import _find_child_of_type
 
         parent = _make_node("p1", node_type="DESIGN", content="Design")
         child = _make_node("c1", node_type="CODE", content="Code", parent_id="p1")
@@ -764,7 +764,7 @@ class TestFindChildOfType:
         assert found.node_id == "c1"
 
     def test_child_not_found(self) -> None:
-        from backend.crew.workspace_sync import _find_child_of_type
+        from backend.workspace.sync import _find_child_of_type
 
         parent = _make_node("p1", node_type="DESIGN", content="Design")
         graph = _make_graph({"p1": parent})
@@ -776,7 +776,7 @@ class TestSyncCodeNodes:
 
     @pytest.mark.asyncio
     async def test_design_with_file(self, tmp_path: Path) -> None:
-        from backend.crew.workspace_sync import _sync_code_nodes
+        from backend.workspace.sync import _sync_code_nodes
 
         f = tmp_path / "src" / "module.py"
         f.parent.mkdir(parents=True, exist_ok=True)
@@ -800,7 +800,7 @@ class TestSyncCodeNodes:
 
     @pytest.mark.asyncio
     async def test_design_without_file_path(self, tmp_path: Path) -> None:
-        from backend.crew.workspace_sync import _sync_code_nodes
+        from backend.workspace.sync import _sync_code_nodes
 
         design = _make_node(
             "des-1",
@@ -818,7 +818,7 @@ class TestSyncCodeNodes:
     async def test_design_file_missing_emits_gap(self, tmp_path: Path) -> None:
         """Missing workspace file emits a MISSING_CODE gap rather than silently skipping."""
         from backend.analysis.gaps import GapType
-        from backend.crew.workspace_sync import _sync_code_nodes
+        from backend.workspace.sync import _sync_code_nodes
 
         design = _make_node(
             "des-1",
@@ -836,7 +836,7 @@ class TestSyncCodeNodes:
     @pytest.mark.asyncio
     async def test_design_already_has_code_child(self, tmp_path: Path) -> None:
         """When a CODE child exists and file content is unchanged, sync is a no-op."""
-        from backend.crew.workspace_sync import _sync_code_nodes
+        from backend.workspace.sync import _sync_code_nodes
 
         f = tmp_path / "x.py"
         f.write_text("pass", encoding="utf-8")
@@ -863,7 +863,7 @@ class TestSyncTestNodes:
 
     @pytest.mark.asyncio
     async def test_case_with_file(self, tmp_path: Path) -> None:
-        from backend.crew.workspace_sync import _sync_test_nodes
+        from backend.workspace.sync import _sync_test_nodes
 
         f = tmp_path / "tests" / "test_foo.py"
         f.parent.mkdir(parents=True, exist_ok=True)
@@ -878,7 +878,7 @@ class TestSyncTestNodes:
         )
         graph = _make_graph({"case-1": case})
 
-        with patch("backend.crew.workspace_sync.analyse_traces") as mock_at:
+        with patch("backend.workspace.sync.analyse_traces") as mock_at:
             mock_at.return_value = MagicMock(traces=[MagicMock(symbol="test_foo")])
             gaps: list[Gap] = []
             count, refreshed = await _sync_test_nodes(graph, tmp_path, gaps)
@@ -889,7 +889,7 @@ class TestSyncTestNodes:
 
     @pytest.mark.asyncio
     async def test_case_without_file_path(self, tmp_path: Path) -> None:
-        from backend.crew.workspace_sync import _sync_test_nodes
+        from backend.workspace.sync import _sync_test_nodes
 
         case = _make_node(
             "case-1",
@@ -904,7 +904,7 @@ class TestSyncTestNodes:
 
     @pytest.mark.asyncio
     async def test_case_already_has_test_child(self, tmp_path: Path) -> None:
-        from backend.crew.workspace_sync import _sync_test_nodes
+        from backend.workspace.sync import _sync_test_nodes
 
         f = tmp_path / "test.py"
         f.write_text("pass", encoding="utf-8")
@@ -921,7 +921,7 @@ class TestSyncTestNodes:
         )
         graph = _make_graph({"case-1": case, "test-1": test})
         gaps: list[Gap] = []
-        with patch("backend.crew.workspace_sync.analyse_traces") as mock_at:
+        with patch("backend.workspace.sync.analyse_traces") as mock_at:
             mock_at.return_value = MagicMock(traces=[])
             count, refreshed = await _sync_test_nodes(graph, tmp_path, gaps)
         assert count == 0
@@ -933,7 +933,7 @@ class TestWorkspaceSync:
 
     @pytest.mark.asyncio
     async def test_delegates_to_sync_helpers(self, tmp_path: Path) -> None:
-        from backend.crew.workspace_sync import workspace_sync
+        from backend.workspace.sync import workspace_sync
 
         flow = MagicMock()
         flow.graph = _make_graph({})
@@ -941,12 +941,12 @@ class TestWorkspaceSync:
 
         with (
             patch(
-                "backend.crew.workspace_sync._sync_code_nodes",
+                "backend.workspace.sync._sync_code_nodes",
                 new_callable=AsyncMock,
                 return_value=(2, 0),
             ) as mc,
             patch(
-                "backend.crew.workspace_sync._sync_test_nodes",
+                "backend.workspace.sync._sync_test_nodes",
                 new_callable=AsyncMock,
                 return_value=(3, 0),
             ) as mt,
