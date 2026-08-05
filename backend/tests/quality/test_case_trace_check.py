@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.crew.case_trace_check import (
+from backend.quality.case_trace_check import (
     _remove_bad_traces,
     create_case_trace_checker,
 )

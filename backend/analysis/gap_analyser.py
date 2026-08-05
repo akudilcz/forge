@@ -862,7 +862,7 @@ class GapAnalyser:
         """Emit CONTRACT_VIOLATION when a DESIGN declares functions the
         owning MODULE's CONTRACT has never mentioned.
         """
-        from backend.crew.signature_validator import (  # noqa: PLC0415
+        from backend.quality.signature_validator import (  # noqa: PLC0415
             find_design_contract_mismatches,
         )
         designs = [n for n in all_nodes if n.node_type == "DESIGN" and n.content]

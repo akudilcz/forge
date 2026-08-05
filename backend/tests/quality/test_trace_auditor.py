@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.crew.trace_auditor import (
+from backend.quality.trace_auditor import (
     FileAuditResult,
     InvalidTrace,
     SuggestedTrace,
@@ -547,7 +547,7 @@ class TestAuditTraces:
         llr_b = _make_node("LLR-0002", "LLR", title="Second")
         graph = _make_graph([llr_a, llr_b])
 
-        with patch("backend.crew.trace_auditor.forge_logger"):
+        with patch("backend.quality.trace_auditor.forge_logger"):
             results = await audit_traces(tmp_path, ["src/a.py"], graph)
 
         assert len(results) == 1
@@ -581,7 +581,7 @@ class TestAuditTraces:
         mock_llm.ainvoke = AsyncMock(return_value=llm_response)
 
         with (
-            patch("backend.crew.trace_auditor.forge_logger"),
+            patch("backend.quality.trace_auditor.forge_logger"),
             patch("backend.agents.factory.build_llm", return_value=mock_llm),
             patch("backend.config.loader.load_config", return_value={}),
         ):
@@ -606,7 +606,7 @@ class TestAuditTraces:
         # Graph has no LLR-9999
         graph = _make_graph([])
 
-        with patch("backend.crew.trace_auditor.forge_logger"):
+        with patch("backend.quality.trace_auditor.forge_logger"):
             results = await audit_traces(tmp_path, ["src/c.py"], graph)
 
         assert len(results) == 1
@@ -619,7 +619,7 @@ class TestAuditTraces:
         """Non-existent files should be silently skipped."""
         graph = _make_graph([])
 
-        with patch("backend.crew.trace_auditor.forge_logger"):
+        with patch("backend.quality.trace_auditor.forge_logger"):
             results = await audit_traces(tmp_path, ["does_not_exist.py"], graph)
 
         assert results == []
@@ -638,7 +638,7 @@ class TestAuditTraces:
         mock_llm.ainvoke = AsyncMock(side_effect=RuntimeError("LLM down"))
 
         with (
-            patch("backend.crew.trace_auditor.forge_logger"),
+            patch("backend.quality.trace_auditor.forge_logger"),
             patch("backend.agents.factory.build_llm", return_value=mock_llm),
             patch("backend.config.loader.load_config", return_value={}),
         ):

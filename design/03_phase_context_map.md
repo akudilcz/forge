@@ -166,7 +166,7 @@ Hard cap: 40,000 chars (`builder.py:32`). DOCUMENT content skipped in ancestor w
 2. **[FIXED] No sibling CONTRACT visibility**: if other modules already have CONTRACTs, theirs define API conventions (naming, error types, pagination shape). Writing each CONTRACT in isolation is why API drift gets flagged in Phase 13 CROSS_MODULE_COUPLING — preventable.
 3. **[FIXED] No LLR hint**: if LLRs already exist (they shouldn't yet at Phase 6, but in a re-run they may), they would sharpen the function signatures the CONTRACT needs to declare. Not consulted.
 4. **[FIXED] No Tech Stack pull-through**: ARCHITECTURE has a Tech Stack section, but it's embedded in the full ARCHITECTURE block, so error-handling/auth conventions may be ignored.
-5. **[FIXED] No validation that CONTRACT signatures match later DESIGNs**: Phase 13 has `CONTRACT_VIOLATION` but detection depends on the auditor noticing drift. _(Deterministic detector in `backend/crew/signature_validator.py` now emits `CONTRACT_VIOLATION` automatically.)_
+5. **[FIXED] No validation that CONTRACT signatures match later DESIGNs**: Phase 13 has `CONTRACT_VIOLATION` but detection depends on the auditor noticing drift. _(Deterministic detector in `backend/quality/signature_validator.py` now emits `CONTRACT_VIOLATION` automatically.)_
 
 ### Potential solutions
 1. Deduplicate ARCHITECTURE (check if it's already in the ancestor walk before appending). Trivial.
@@ -217,7 +217,7 @@ Hard cap: 40,000 chars (`builder.py:32`). DOCUMENT content skipped in ancestor w
 2. **[FIXED] MODULE/CONTRACT 2000-char cap** is consistent but may cut CONTRACT mid-signature on large modules.
 3. **[FIXED] No SUITE / CASE awareness**: DESIGNs are generated blind to test strategy and any existing CASE_HLRs on the parent HLR. Test-testable-ness of a DESIGN is never checked until Phase 10 writes a CASE against an implementable API.
 4. **No existing workspace code context**: on re-runs after code has been generated, the DESIGN is regenerated as if greenfield — causing Phase 11/12 churn. _(Available via DESIGN.properties.file_path; not yet wired into batch_phase8.)_
-5. **[FIXED] `#DESIGNs ≤ #classes` stated in prompt but not enforced in code** — relies on agent compliance. Easier to reject at `graph_add_node` time. _(Runtime validator in `backend/crew/module_validators.py`; rejects via `graph_add_node`.)_
+5. **[FIXED] `#DESIGNs ≤ #classes` stated in prompt but not enforced in code** — relies on agent compliance. Easier to reject at `graph_add_node` time. _(Runtime validator in `backend/quality/module_validators.py`; rejects via `graph_add_node`.)_
 6. **[FIXED] Fast-path is a win but only runs once, pre-loop** — if deletions in subsequent cycles create new LLRs, they don't get fast-path eligibility checks. _(Fast-path now runs at the start of every attempt inside the cycle loop.)_
 
 ### Potential solutions

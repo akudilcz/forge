@@ -128,7 +128,7 @@ async def case_trace_coverage(flow: Any, phase: int) -> StepResult:
     )
 
     from backend.agents.factory import build_llm  # noqa: PLC0415
-    from backend.crew.case_trace_check import create_case_trace_checker  # noqa: PLC0415
+    from backend.quality.case_trace_check import create_case_trace_checker  # noqa: PLC0415
 
     # Determine which CASEs are new since the last trace check
     only_ids: set[str] | None = getattr(flow, "_last_checked_case_ids", None)

@@ -568,7 +568,7 @@ All plain LLM calls are constructed through the single `build_llm` factory, whic
 
 What actually caches (verified against langchain-core 1.5.x): only non-streaming `.invoke`/`.ainvoke` calls go through `_generate_with_cache`/`_agenerate_with_cache` and hit the cache — i.e. the direct plain-LLM callers (quality checkers, trace auditor, consolidators) and repeated runs over unchanged inputs. Agent streaming paths (`astream_events`) bypass the LangChain cache entirely; this is accepted — the cache primarily serves the direct `.ainvoke` checkers.
 
-**Independence exemption.** The semantic duplicate checker (`backend/crew/semantic_duplicate_check.py`) deletes a node only when two *independent* LLM calls both return a DUPLICATE verdict. Both calls send byte-identical prompts, so a response cache would turn the second call into a replay of the first and make the double confirmation vacuous. That construction site therefore passes `cacheable=False`; every other `build_llm` site passes `cacheable=True`.
+**Independence exemption.** The semantic duplicate checker (`backend/quality/semantic_duplicate_check.py`) deletes a node only when two *independent* LLM calls both return a DUPLICATE verdict. Both calls send byte-identical prompts, so a response cache would turn the second call into a replay of the first and make the double confirmation vacuous. That construction site therefore passes `cacheable=False`; every other `build_llm` site passes `cacheable=True`.
 
 ### 7.5 Style Guide
 

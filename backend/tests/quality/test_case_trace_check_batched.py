@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.crew.case_trace_check import _check_case_traces
+from backend.quality.case_trace_check import _check_case_traces
 
 
 def _node(

@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from backend.analysis.gaps import GapType
-from backend.crew.combined_quality_check import (
+from backend.quality.combined_check import (
     UnjudgedQualityError,
     _parse_verdicts,
     create_combined_quality_checker,

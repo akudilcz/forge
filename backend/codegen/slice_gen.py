@@ -606,7 +606,7 @@ async def _run_trace_audit(
     graph: ProjectGraph,
 ) -> None:
     """Run LLM trace audit on generated files and persist results."""
-    from backend.crew.trace_auditor import audit_traces, persist_audit_results  # noqa: PLC0415
+    from backend.quality.trace_auditor import audit_traces, persist_audit_results  # noqa: PLC0415
 
     all_files = result.source_files + result.test_files
     file_paths = [gf.file_path for gf in all_files]

@@ -59,7 +59,7 @@ def _count_nodes(flow: ForgeFlow, type_set: set[str]) -> int:
 
 def create_qual_check_graph(flow: ForgeFlow) -> Any:
     """Return a compiled LangGraph for the quality-check stability loop."""
-    from backend.crew.quality import QUALITY_GAP_TYPES
+    from backend.quality.checks import QUALITY_GAP_TYPES
 
     async def scan_gaps(state: QualCheckState) -> dict[str, Any]:
         """Collect quality gaps for all matching nodes and queue them for dispatch."""
@@ -158,7 +158,7 @@ def create_qual_check_graph(flow: ForgeFlow) -> Any:
             # phases' gap analysers will re-surface structural issues if any
             # cascade applies. Wholesale reset of phase..13 during a late phase
             # causes SUITE/DESIGN/CASE rework cascades mid-codegen.
-            from backend.crew.quality import NODE_TYPE_TO_PHASE  # noqa: PLC0415
+            from backend.quality.checks import NODE_TYPE_TO_PHASE  # noqa: PLC0415
             owner_phases = {
                 NODE_TYPE_TO_PHASE[nt]
                 for nt in state["node_types"]

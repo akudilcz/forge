@@ -141,7 +141,7 @@ async def test_graph_add_node_emits_graph_write(capture: _CaptureSink, tmp_path:
 
 @pytest.mark.asyncio
 async def test_semantic_check_emits_decision(capture: _CaptureSink) -> None:
-    from backend.crew.semantic_duplicate_check import create_semantic_checker
+    from backend.quality.semantic_duplicate_check import create_semantic_checker
 
     llm = MagicMock()
     resp = MagicMock()

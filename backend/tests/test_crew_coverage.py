@@ -83,7 +83,7 @@ class TestDesignConsolidation:
     @pytest.mark.asyncio
     async def test_consolidate_single_design_returns_zero(self) -> None:
         """No merging when only one DESIGN exists."""
-        from backend.crew.design_consolidation import create_design_consolidator
+        from backend.quality.design_consolidation import create_design_consolidator
 
         llm = AsyncMock()
         graph = _make_graph()
@@ -98,7 +98,7 @@ class TestDesignConsolidation:
     @pytest.mark.asyncio
     async def test_consolidate_no_merge_needed(self) -> None:
         """LLM responds NO_MERGE_NEEDED — no deletions."""
-        from backend.crew.design_consolidation import create_design_consolidator
+        from backend.quality.design_consolidation import create_design_consolidator
 
         llm = AsyncMock()
         response = MagicMock()
@@ -117,7 +117,7 @@ class TestDesignConsolidation:
     @pytest.mark.asyncio
     async def test_consolidate_llm_failure_returns_zero(self) -> None:
         """LLM exception is caught and returns 0."""
-        from backend.crew.design_consolidation import create_design_consolidator
+        from backend.quality.design_consolidation import create_design_consolidator
 
         llm = AsyncMock()
         llm.ainvoke.side_effect = RuntimeError("boom")
@@ -134,7 +134,7 @@ class TestDesignConsolidation:
     @pytest.mark.asyncio
     async def test_consolidate_merges_designs(self) -> None:
         """LLM responds with KEEP/MERGE directives — designs merged and deleted."""
-        from backend.crew.design_consolidation import create_design_consolidator
+        from backend.quality.design_consolidation import create_design_consolidator
 
         llm = AsyncMock()
         response = MagicMock()
@@ -160,7 +160,7 @@ class TestDesignConsolidation:
     @pytest.mark.asyncio
     async def test_execute_merges_skip_unknown_keep_id(self) -> None:
         """Skip merge block if keep_id is not in the designs list."""
-        from backend.crew.design_consolidation import _execute_merges
+        from backend.quality.design_consolidation import _execute_merges
 
         graph = _make_graph()
         designs = [
@@ -175,7 +175,7 @@ class TestDesignConsolidation:
     @pytest.mark.asyncio
     async def test_execute_merges_skip_missing_keep_merge(self) -> None:
         """Skip block when KEEP or MERGE is missing from block."""
-        from backend.crew.design_consolidation import _execute_merges
+        from backend.quality.design_consolidation import _execute_merges
 
         graph = _make_graph()
         designs = [{"node_id": "D1", "trace_to": [], "content": "a"}]
@@ -187,7 +187,7 @@ class TestDesignConsolidation:
     @pytest.mark.asyncio
     async def test_execute_merges_keep_node_is_none(self) -> None:
         """Skip if keep_id node no longer exists in graph."""
-        from backend.crew.design_consolidation import _execute_merges
+        from backend.quality.design_consolidation import _execute_merges
 
         graph = _make_graph()  # node_sync returns None for everything
         designs = [
@@ -206,7 +206,7 @@ class TestDesignConsolidation:
         of trace_to was inside `if merged_content:` but the delete loop was not,
         so D2's requirement links were destroyed rather than transferred.
         """
-        from backend.crew.design_consolidation import _execute_merges
+        from backend.quality.design_consolidation import _execute_merges
 
         d1 = _mock_node("D1", "DESIGN", trace_to=["LLR-1"])
         d2 = _mock_node("D2", "DESIGN", trace_to=["LLR-2"])
@@ -226,7 +226,7 @@ class TestDesignConsolidation:
     @pytest.mark.asyncio
     async def test_execute_merges_keeps_multiline_content(self) -> None:
         """MERGED_CONTENT is a block; truncating it to one line loses the design."""
-        from backend.crew.design_consolidation import _execute_merges
+        from backend.quality.design_consolidation import _execute_merges
 
         d1 = _mock_node("D1", "DESIGN", trace_to=["LLR-1"])
         d2 = _mock_node("D2", "DESIGN", trace_to=["LLR-2"])
@@ -259,7 +259,7 @@ class TestDesignConsolidation:
     @pytest.mark.asyncio
     async def test_execute_merges_merge_node_gone(self) -> None:
         """When the merge target no longer exists, skip deletion."""
-        from backend.crew.design_consolidation import _execute_merges
+        from backend.quality.design_consolidation import _execute_merges
 
         d1 = _mock_node("D1", "DESIGN", trace_to=["LLR-1"])
         # D2 exists for trace lookup but not for deletion check
@@ -278,7 +278,7 @@ class TestDesignConsolidation:
     @pytest.mark.asyncio
     async def test_consolidate_response_without_content_attr(self) -> None:
         """When response lacks .content attribute, falls back to str()."""
-        from backend.crew.design_consolidation import create_design_consolidator
+        from backend.quality.design_consolidation import create_design_consolidator
 
         llm = AsyncMock()
         response = "NO_MERGE_NEEDED"
@@ -304,7 +304,7 @@ class TestSemanticDuplicateCheck:
 
     @pytest.mark.asyncio
     async def test_unique_response_does_not_delete(self) -> None:
-        from backend.crew.semantic_duplicate_check import create_semantic_checker
+        from backend.quality.semantic_duplicate_check import create_semantic_checker
 
         llm = AsyncMock()
         response = MagicMock()
@@ -321,7 +321,7 @@ class TestSemanticDuplicateCheck:
     @pytest.mark.asyncio
     async def test_duplicate_response_deletes_node(self) -> None:
         """Both the initial and the confirmation call return DUPLICATE."""
-        from backend.crew.semantic_duplicate_check import create_semantic_checker
+        from backend.quality.semantic_duplicate_check import create_semantic_checker
 
         llm = AsyncMock()
         response = MagicMock()
@@ -338,7 +338,7 @@ class TestSemanticDuplicateCheck:
 
     @pytest.mark.asyncio
     async def test_duplicate_case_insensitive(self) -> None:
-        from backend.crew.semantic_duplicate_check import create_semantic_checker
+        from backend.quality.semantic_duplicate_check import create_semantic_checker
 
         llm = AsyncMock()
         response = MagicMock()
@@ -354,7 +354,7 @@ class TestSemanticDuplicateCheck:
     @pytest.mark.asyncio
     async def test_response_without_content_attr(self) -> None:
         """Falls back to str(response) when no .content attribute."""
-        from backend.crew.semantic_duplicate_check import create_semantic_checker
+        from backend.quality.semantic_duplicate_check import create_semantic_checker
 
         llm = AsyncMock()
         llm.ainvoke.return_value = "UNIQUE - plain string"
@@ -801,14 +801,14 @@ class TestSemanticGapsForType:
     """Tests for semantic_gaps_for_type."""
 
     def test_no_nodes_returns_empty(self) -> None:
-        from backend.crew.quality import semantic_gaps_for_type
+        from backend.quality.checks import semantic_gaps_for_type
 
         graph = _make_graph()
         gaps = semantic_gaps_for_type(graph, "HLR")
         assert gaps == []
 
     def test_single_node_no_gaps(self) -> None:
-        from backend.crew.quality import semantic_gaps_for_type
+        from backend.quality.checks import semantic_gaps_for_type
 
         hlr = _mock_node("HLR-1", "HLR")
         graph = _make_graph([hlr])
@@ -816,7 +816,7 @@ class TestSemanticGapsForType:
         assert gaps == []
 
     def test_two_nodes_second_is_candidate(self) -> None:
-        from backend.crew.quality import semantic_gaps_for_type
+        from backend.quality.checks import semantic_gaps_for_type
 
         hlr1 = _mock_node("HLR-1", "HLR")
         hlr2 = _mock_node("HLR-2", "HLR")
@@ -827,7 +827,7 @@ class TestSemanticGapsForType:
         assert gaps[0].type == GapType.DUPLICATE_NODE
 
     def test_only_node_ids_filter(self) -> None:
-        from backend.crew.quality import semantic_gaps_for_type
+        from backend.quality.checks import semantic_gaps_for_type
 
         hlr1 = _mock_node("HLR-1", "HLR")
         hlr2 = _mock_node("HLR-2", "HLR")
@@ -840,7 +840,7 @@ class TestSemanticGapsForType:
         assert gaps[0].node_id == "HLR-3"
 
     def test_only_node_ids_excludes_all(self) -> None:
-        from backend.crew.quality import semantic_gaps_for_type
+        from backend.quality.checks import semantic_gaps_for_type
 
         hlr1 = _mock_node("HLR-1", "HLR")
         hlr2 = _mock_node("HLR-2", "HLR")
@@ -850,7 +850,7 @@ class TestSemanticGapsForType:
         assert gaps == []
 
     def test_ignores_other_node_types(self) -> None:
-        from backend.crew.quality import semantic_gaps_for_type
+        from backend.quality.checks import semantic_gaps_for_type
 
         hlr = _mock_node("HLR-1", "HLR")
         llr = _mock_node("LLR-1", "LLR")
@@ -864,14 +864,14 @@ class TestModulesNeedingConsolidation:
     """Tests for modules_needing_consolidation."""
 
     def test_no_modules(self) -> None:
-        from backend.crew.quality import modules_needing_consolidation
+        from backend.quality.checks import modules_needing_consolidation
 
         graph = _make_graph()
         result = modules_needing_consolidation(graph, [])
         assert result == []
 
     def test_module_with_one_design(self) -> None:
-        from backend.crew.quality import modules_needing_consolidation
+        from backend.quality.checks import modules_needing_consolidation
 
         mod = _mock_node("MOD-1", "MODULE")
         des = _mock_node("DES-1", "DESIGN")
@@ -881,7 +881,7 @@ class TestModulesNeedingConsolidation:
         assert result == []
 
     def test_module_with_two_designs(self) -> None:
-        from backend.crew.quality import modules_needing_consolidation
+        from backend.quality.checks import modules_needing_consolidation
 
         mod = _mock_node("MOD-1", "MODULE")
         des1 = _mock_node("DES-1", "DESIGN")
@@ -898,14 +898,14 @@ class TestFindContract:
     """Tests for find_contract."""
 
     def test_no_contract_returns_empty(self) -> None:
-        from backend.crew.quality import find_contract
+        from backend.quality.checks import find_contract
 
         graph = _make_graph()
         graph.children_sync.return_value = []
         assert find_contract(graph, "MOD-1") == ""
 
     def test_contract_found(self) -> None:
-        from backend.crew.quality import find_contract
+        from backend.quality.checks import find_contract
 
         con = _mock_node("CON-1", "CONTRACT", content="interface spec")
         graph = _make_graph([con])
@@ -913,7 +913,7 @@ class TestFindContract:
         assert find_contract(graph, "MOD-1") == "interface spec"
 
     def test_contract_without_content(self) -> None:
-        from backend.crew.quality import find_contract
+        from backend.quality.checks import find_contract
 
         con = _mock_node("CON-1", "CONTRACT", content="")
         graph = _make_graph([con])
@@ -921,7 +921,7 @@ class TestFindContract:
         assert find_contract(graph, "MOD-1") == ""
 
     def test_non_contract_children_ignored(self) -> None:
-        from backend.crew.quality import find_contract
+        from backend.quality.checks import find_contract
 
         des = _mock_node("DES-1", "DESIGN", content="design content")
         graph = _make_graph([des])
@@ -933,7 +933,7 @@ class TestQualityGapsForTypes:
     """Tests for quality_gaps_for_types."""
 
     def test_no_gaps(self) -> None:
-        from backend.crew.quality import quality_gaps_for_types
+        from backend.quality.checks import quality_gaps_for_types
 
         graph = _make_graph()
         analyser = MagicMock()
@@ -942,7 +942,7 @@ class TestQualityGapsForTypes:
         assert result == {}
 
     def test_filters_non_quality_gaps(self) -> None:
-        from backend.crew.quality import quality_gaps_for_types
+        from backend.quality.checks import quality_gaps_for_types
 
         hlr = _mock_node("HLR-1", "HLR")
         graph = _make_graph([hlr])
@@ -960,7 +960,7 @@ class TestQualityGapsForTypes:
         assert result == {}
 
     def test_filters_duplicate_node_gaps(self) -> None:
-        from backend.crew.quality import quality_gaps_for_types
+        from backend.quality.checks import quality_gaps_for_types
 
         hlr = _mock_node("HLR-1", "HLR")
         graph = _make_graph([hlr])
@@ -977,7 +977,7 @@ class TestQualityGapsForTypes:
         assert result == {}
 
     def test_includes_quality_gap_for_matching_type(self) -> None:
-        from backend.crew.quality import quality_gaps_for_types
+        from backend.quality.checks import quality_gaps_for_types
 
         hlr = _mock_node("HLR-1", "HLR")
         graph = _make_graph([hlr])
@@ -995,7 +995,7 @@ class TestQualityGapsForTypes:
         assert len(result["HLR-1"]) == 1
 
     def test_excludes_gap_for_wrong_node_type(self) -> None:
-        from backend.crew.quality import quality_gaps_for_types
+        from backend.quality.checks import quality_gaps_for_types
 
         llr = _mock_node("LLR-1", "LLR")
         graph = _make_graph([llr])
@@ -1013,7 +1013,7 @@ class TestQualityGapsForTypes:
         assert result == {}
 
     def test_excludes_gap_for_missing_node(self) -> None:
-        from backend.crew.quality import quality_gaps_for_types
+        from backend.quality.checks import quality_gaps_for_types
 
         graph = _make_graph()  # No nodes
         analyser = MagicMock()
@@ -1029,7 +1029,7 @@ class TestQualityGapsForTypes:
         assert result == {}
 
     def test_multiple_gaps_per_node(self) -> None:
-        from backend.crew.quality import quality_gaps_for_types
+        from backend.quality.checks import quality_gaps_for_types
 
         hlr = _mock_node("HLR-1", "HLR")
         graph = _make_graph([hlr])

@@ -11,7 +11,7 @@ from backend.analysis.phase_auditor import (
     PhaseAuditor,
     PhaseAuditResult,
 )
-from backend.crew.quality import QUALITY_GAP_TYPES
+from backend.quality.checks import QUALITY_GAP_TYPES
 
 
 def _make_gap(gap_type: GapType) -> Gap:

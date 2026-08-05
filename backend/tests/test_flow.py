@@ -19,7 +19,7 @@ from backend.crew.flow import (
     ForgeFlow,
     _SingleStepDone,
 )
-from backend.crew.quality import NODE_TYPE_TO_PHASE, PHASE_TO_NODE_TYPES
+from backend.quality.checks import NODE_TYPE_TO_PHASE, PHASE_TO_NODE_TYPES
 
 # (pool, graph, config, broadcaster, phase_store)
 MockDeps = tuple[MagicMock, MagicMock, MagicMock, MagicMock, MagicMock]

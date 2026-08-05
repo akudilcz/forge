@@ -432,7 +432,7 @@ async def scan_phase_gaps(
         raise HTTPException(status_code=503, detail="Graph not available")
 
     # _QUALITY_GAP_TYPES is a deliberate private re-export in flow, which tests
-    # monkeypatch there — so it must be read from flow, not backend.crew.quality.
+    # monkeypatch there — so it must be read from flow, not backend.quality.checks.
     # Strict mypy cannot treat an underscore-aliased import as re-exported.
     from backend.analysis.gap_analyser import GapAnalyser
     from backend.crew.flow import (  # type: ignore[attr-defined]

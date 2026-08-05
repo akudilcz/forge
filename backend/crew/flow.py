@@ -28,21 +28,21 @@ from backend.crew.dispatch import (
     try_fast_trace as _try_fast_trace_impl,
 )
 from backend.crew.phase_context import phase_context
-from backend.crew.quality import NODE_TYPE_TO_PHASE as _NODE_TYPE_TO_PHASE  # noqa: F401
-from backend.crew.quality import PHASE_TO_NODE_TYPES as _PHASE_TO_NODE_TYPES  # noqa: F401
-from backend.crew.quality import QUALITY_GAP_TYPES as _QUALITY_GAP_TYPES  # noqa: F401
-from backend.crew.quality import (
+from backend.prompting.builder import (
+    build_ancestor_context,
+    build_task_description,
+    find_suite_id,
+)
+from backend.quality.checks import NODE_TYPE_TO_PHASE as _NODE_TYPE_TO_PHASE  # noqa: F401
+from backend.quality.checks import PHASE_TO_NODE_TYPES as _PHASE_TO_NODE_TYPES  # noqa: F401
+from backend.quality.checks import QUALITY_GAP_TYPES as _QUALITY_GAP_TYPES  # noqa: F401
+from backend.quality.checks import (
     quality_gaps_for_types,
     run_combined_quality_check,
     run_design_consolidation,
     run_semantic_check,
     scan_qual_detect,
     semantic_gaps_for_type,
-)
-from backend.prompting.builder import (
-    build_ancestor_context,
-    build_task_description,
-    find_suite_id,
 )
 from backend.server.forge_logger import forge_logger
 
@@ -551,22 +551,22 @@ class ForgeFlow:
     # ── Backward-compatible shims ────────────────────────────────────────────
 
     def _build_semantic_checker(self) -> Any:
-        from backend.crew.quality import _build_semantic_checker
+        from backend.quality.checks import _build_semantic_checker
 
         return _build_semantic_checker(self)
 
     def _build_design_consolidator(self) -> Any:
-        from backend.crew.quality import _build_design_consolidator
+        from backend.quality.checks import _build_design_consolidator
 
         return _build_design_consolidator(self)
 
     def _modules_needing_consolidation(self, modules: list[Any]) -> list[tuple[Any, list[Any]]]:
-        from backend.crew.quality import modules_needing_consolidation
+        from backend.quality.checks import modules_needing_consolidation
 
         return modules_needing_consolidation(self.graph, modules)
 
     def _find_contract(self, module_id: str) -> str:
-        from backend.crew.quality import find_contract
+        from backend.quality.checks import find_contract
 
         return find_contract(self.graph, module_id)
 

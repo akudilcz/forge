@@ -341,19 +341,19 @@ def scripted(graph: ProjectGraph, flow: ForgeFlow) -> Iterator[ScriptedAgent]:
     with (
         patch("backend.crew.dispatch.run_agent_task", new=agent),
         patch(
-            "backend.crew.semantic_duplicate_check.create_semantic_checker",
+            "backend.quality.semantic_duplicate_check.create_semantic_checker",
             return_value=_not_a_duplicate,
         ),
         patch(
-            "backend.crew.combined_quality_check.create_combined_quality_checker",
+            "backend.quality.combined_check.create_combined_quality_checker",
             return_value=_clean_combined_verdict,
         ),
         patch(
-            "backend.crew.case_trace_check.create_case_trace_checker",
+            "backend.quality.case_trace_check.create_case_trace_checker",
             return_value=_all_traces_valid,
         ),
         patch(
-            "backend.crew.design_consolidation.create_design_consolidator",
+            "backend.quality.design_consolidation.create_design_consolidator",
             return_value=_no_consolidation,
         ),
     ):

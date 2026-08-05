@@ -24,7 +24,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.crew.semantic_duplicate_check import create_semantic_checker
+from backend.quality.semantic_duplicate_check import create_semantic_checker
 
 
 def _llm(content: Any) -> MagicMock:

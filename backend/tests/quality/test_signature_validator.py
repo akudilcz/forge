@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from backend.crew.signature_validator import (
+from backend.quality.signature_validator import (
     extract_function_names,
     find_design_contract_mismatches,
 )

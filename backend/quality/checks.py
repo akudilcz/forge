@@ -289,7 +289,7 @@ async def run_combined_quality_check(flow: Any, phase: int) -> list[Gap]:
         return []
 
     from backend.agents.factory import build_llm
-    from backend.crew.combined_quality_check import (
+    from backend.quality.combined_check import (
         UnjudgedQualityError,
         create_combined_quality_checker,
     )
@@ -494,7 +494,7 @@ def quality_gaps_for_types(
 
 def _build_semantic_checker(flow: Any) -> Any:
     from backend.agents.factory import build_llm
-    from backend.crew.semantic_duplicate_check import create_semantic_checker
+    from backend.quality.semantic_duplicate_check import create_semantic_checker
 
     # The verdict cache lives on the flow (initialised in ForgeFlow.__init__)
     # so sticky UNIQUE verdicts survive across pipeline cycles even though
@@ -510,6 +510,6 @@ def _build_semantic_checker(flow: Any) -> Any:
 
 def _build_design_consolidator(flow: Any) -> Any:
     from backend.agents.factory import build_llm
-    from backend.crew.design_consolidation import create_design_consolidator
+    from backend.quality.design_consolidation import create_design_consolidator
 
     return create_design_consolidator(build_llm(flow.config, cacheable=True), flow.graph)

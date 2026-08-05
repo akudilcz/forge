@@ -1133,7 +1133,7 @@ class TestCaseTraceCoverageStep:
         with (
             patch("backend.agents.factory.build_llm", return_value=MagicMock()),
             patch(
-                "backend.crew.case_trace_check.create_case_trace_checker", return_value=mock_checker
+                "backend.quality.case_trace_check.create_case_trace_checker", return_value=mock_checker
             ) as mock_create,
         ):
             result = await case_trace_coverage(flow, 10)
@@ -1150,7 +1150,7 @@ class TestCaseTraceCoverageStep:
         flow = _make_flow()  # empty graph
         flow._last_checked_case_ids = None
         with patch(
-            "backend.crew.case_trace_check.create_case_trace_checker"
+            "backend.quality.case_trace_check.create_case_trace_checker"
         ) as mock_create:
             result = await case_trace_coverage(flow, 10)
         mock_create.assert_not_called()

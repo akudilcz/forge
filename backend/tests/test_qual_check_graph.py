@@ -16,7 +16,7 @@ from backend.crew.qual_check_graph import (
     _count_nodes,
     create_qual_check_graph,
 )
-from backend.crew.quality import PHASE_TO_NODE_TYPES
+from backend.quality.checks import PHASE_TO_NODE_TYPES
 
 # (pool, graph, config, broadcaster, phase_store)
 MockDeps = tuple[MagicMock, MagicMock, MagicMock, MagicMock, MagicMock]

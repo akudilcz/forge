@@ -337,7 +337,7 @@ async def test_tidy_up_detects_orphans(tmp_path: Path) -> None:
 
 def test_validate_trace_ids_all_valid() -> None:
     """No invalid traces when all LLR IDs exist in the graph."""
-    from backend.crew.trace_auditor import _validate_trace_ids
+    from backend.quality.trace_auditor import _validate_trace_ids
 
     traces = [LineTrace(start=1, end=5, llr_ids=["LLR-0001"], symbol="foo")]
     valid_ids = {"LLR-0001", "LLR-0002"}
@@ -346,7 +346,7 @@ def test_validate_trace_ids_all_valid() -> None:
 
 def test_validate_trace_ids_unknown() -> None:
     """Unknown LLR IDs are flagged as invalid."""
-    from backend.crew.trace_auditor import _validate_trace_ids
+    from backend.quality.trace_auditor import _validate_trace_ids
 
     traces = [
         LineTrace(start=1, end=5, llr_ids=["LLR-0001", "LLR-9999"], symbol="bar"),
@@ -361,7 +361,7 @@ def test_validate_trace_ids_unknown() -> None:
 
 def test_validate_trace_ids_empty_graph() -> None:
     """All traces are invalid when the graph has no LLR nodes."""
-    from backend.crew.trace_auditor import _validate_trace_ids
+    from backend.quality.trace_auditor import _validate_trace_ids
 
     traces = [LineTrace(start=1, end=3, llr_ids=["LLR-0001"], symbol="baz")]
     invalid = _validate_trace_ids(traces, set())
@@ -1430,11 +1430,11 @@ async def test_run_trace_audit_audits_and_persists(tmp_path: Path) -> None:
     graph = MagicMock()
     with (
         patch(
-            "backend.crew.trace_auditor.audit_traces",
+            "backend.quality.trace_auditor.audit_traces",
             new_callable=AsyncMock, return_value=[audit],
         ) as audit_mock,
         patch(
-            "backend.crew.trace_auditor.persist_audit_results",
+            "backend.quality.trace_auditor.persist_audit_results",
             new_callable=AsyncMock,
         ) as persist_mock,
     ):

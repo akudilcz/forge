@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from backend.crew.module_validators import (
+from backend.quality.module_validators import (
     check_design_count_allowed,
     count_planned_classes,
 )

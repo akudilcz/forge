@@ -1,4 +1,4 @@
-"""Coverage-focused tests for backend.crew.quality code paths that weren't
+"""Coverage-focused tests for backend.quality.checks code paths that weren't
 otherwise exercised. Mocks the flow object and its collaborators at the boundary."""
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.analysis.gaps import Gap, GapPriority, GapType
-from backend.crew.quality import (
+from backend.quality.checks import (
     run_combined_quality_check,
     run_design_consolidation,
     run_semantic_check,
@@ -68,7 +68,7 @@ async def test_combined_quality_check_returns_checker_gaps() -> None:
     with (
         patch("backend.agents.factory.build_llm", return_value=MagicMock()),
         patch(
-            "backend.crew.combined_quality_check.create_combined_quality_checker",
+            "backend.quality.combined_check.create_combined_quality_checker",
             return_value=checker,
         ),
     ):
@@ -91,7 +91,7 @@ async def test_combined_quality_check_retries_once_then_succeeds() -> None:
     with (
         patch("backend.agents.factory.build_llm", return_value=MagicMock()),
         patch(
-            "backend.crew.combined_quality_check.create_combined_quality_checker",
+            "backend.quality.combined_check.create_combined_quality_checker",
             return_value=checker,
         ),
     ):
@@ -109,7 +109,7 @@ async def test_combined_quality_check_double_failure_propagates() -> None:
     with (
         patch("backend.agents.factory.build_llm", return_value=MagicMock()),
         patch(
-            "backend.crew.combined_quality_check.create_combined_quality_checker",
+            "backend.quality.combined_check.create_combined_quality_checker",
             return_value=checker,
         ),
     ):
@@ -134,8 +134,8 @@ async def test_run_semantic_check_no_candidates() -> None:
 async def test_run_combined_quality_check_propagates_unjudged_error() -> None:
     """UnjudgedQualityError must not be swallowed into an empty gap list —
     an unverified batch is a loud failure, not a clean sweep."""
-    from backend.crew.combined_quality_check import UnjudgedQualityError
-    from backend.crew.quality import run_combined_quality_check
+    from backend.quality.checks import run_combined_quality_check
+    from backend.quality.combined_check import UnjudgedQualityError
 
     flow = _flow([_node("HLR-1", "HLR", title="T", content="the system shall X.")])
 
@@ -143,7 +143,7 @@ async def test_run_combined_quality_check_propagates_unjudged_error() -> None:
     with (
         patch("backend.agents.factory.build_llm", return_value=MagicMock()),
         patch(
-            "backend.crew.combined_quality_check.create_combined_quality_checker",
+            "backend.quality.combined_check.create_combined_quality_checker",
             return_value=failing_checker,
         ),
     ):
@@ -167,7 +167,7 @@ async def test_scan_qual_detect_unknown_phase() -> None:
 
 
 def test_build_semantic_checker_wires_llm_graph_and_flow_scoped_cache() -> None:
-    from backend.crew.quality import _build_semantic_checker
+    from backend.quality.checks import _build_semantic_checker
 
     flow = MagicMock()
     flow.config = MagicMock()
@@ -176,7 +176,7 @@ def test_build_semantic_checker_wires_llm_graph_and_flow_scoped_cache() -> None:
     with (
         patch("backend.agents.factory.build_llm", return_value="llm-sentinel"),
         patch(
-            "backend.crew.semantic_duplicate_check.create_semantic_checker",
+            "backend.quality.semantic_duplicate_check.create_semantic_checker",
             return_value="checker-sentinel",
         ) as ctor,
     ):
@@ -188,7 +188,7 @@ def test_build_semantic_checker_wires_llm_graph_and_flow_scoped_cache() -> None:
 
 
 def test_build_design_consolidator_wires_llm_and_graph() -> None:
-    from backend.crew.quality import _build_design_consolidator
+    from backend.quality.checks import _build_design_consolidator
 
     flow = MagicMock()
     flow.config = MagicMock()
@@ -196,7 +196,7 @@ def test_build_design_consolidator_wires_llm_and_graph() -> None:
     with (
         patch("backend.agents.factory.build_llm", return_value="llm-sentinel"),
         patch(
-            "backend.crew.design_consolidation.create_design_consolidator",
+            "backend.quality.design_consolidation.create_design_consolidator",
             return_value="cons-sentinel",
         ) as ctor,
     ):
@@ -245,7 +245,7 @@ def test_semantic_checker_llm_is_not_cacheable() -> None:
     """The dedup double-confirmation sends byte-identical prompts twice; a
     response cache would replay the first verdict and make the second call
     vacuous. This site must construct its LLM with cacheable=False."""
-    from backend.crew.quality import _build_semantic_checker
+    from backend.quality.checks import _build_semantic_checker
 
     flow = MagicMock()
     flow._semantic_verdict_cache = {}
@@ -256,7 +256,7 @@ def test_semantic_checker_llm_is_not_cacheable() -> None:
 
 def test_design_consolidator_llm_is_cacheable() -> None:
     """Ordinary single-shot judgment sites opt into the response cache."""
-    from backend.crew.quality import _build_design_consolidator
+    from backend.quality.checks import _build_design_consolidator
 
     flow = MagicMock()
     with patch("backend.agents.factory.build_llm", return_value=MagicMock()) as build:

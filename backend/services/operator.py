@@ -165,7 +165,7 @@ class OperatorService:
         """Run the gap analyser for *phase* and broadcast results."""
         from backend.analysis.gap_analyser import GapAnalyser
         from backend.crew.flow import GAP_TYPE_TO_PHASE
-        from backend.crew.quality import QUALITY_GAP_TYPES
+        from backend.quality.checks import QUALITY_GAP_TYPES
         from backend.server.forge_logger import forge_logger
 
         all_gaps = GapAnalyser().analyse(self._graph)
