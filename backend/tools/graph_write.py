@@ -190,8 +190,8 @@ class GraphWriteTool(ForgeTool):
     # ------------------------------------------------------------------
 
     async def _op_add_node(self, graph: object, **kwargs: Any) -> str:
-        from backend.crew.phase_constraints import check_create_allowed
         from backend.graph.models import GraphNode, LifecycleState
+        from backend.pipeline.phase_constraints import check_create_allowed
         from backend.quality.module_validators import check_design_count_allowed
 
         node_type_req = kwargs.get("node_type", "")

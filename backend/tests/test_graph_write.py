@@ -185,7 +185,7 @@ def test_unknown_operation_lists_valid_ops(tool: GraphWriteTool) -> None:
 
 def test_add_node_blocked_by_phase_constraint(mock_graph: MagicMock) -> None:
     from backend.analysis.gaps import GapType
-    from backend.crew.phase_constraints import (
+    from backend.pipeline.phase_constraints import (
         reset_phase_constraints,
         set_phase_constraints,
     )

@@ -134,7 +134,7 @@ module = [
     "backend.server.routers.graph",
     "backend.server.routers.requirements",
     "backend.server.routers.compliance",
-    "backend.crew.flow",
+    "backend.pipeline.flow",
     "backend.agents.pool",
     "backend.agents.factory",
     "backend.tools.send_message",

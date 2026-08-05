@@ -6,7 +6,7 @@ only inside ``test_full_pipeline.py``, which is ``@pytest.mark.integration``,
 needs live API keys, and takes hours. In practice CI asserted nothing about them.
 
 The trick that makes them testable offline is that **only one function actually
-talks to an LLM**: ``backend.crew.dispatch.run_agent_task``. Patch it and
+talks to an LLM**: ``backend.pipeline.dispatch.run_agent_task``. Patch it and
 everything else stays real — the gap analyser decides what work exists, the
 quality and semantic steps run, ``PhaseAuditor`` gates completion, and a genuine
 ``ProjectGraph`` on SQLite records the result. The fake simply plays the part of
@@ -33,9 +33,9 @@ from backend.analysis.gap_analyser import GapAnalyser
 from backend.analysis.gaps import Gap, GapType
 from backend.config.models import ForgeConfig, ProjectConfig
 from backend.core.phase_store import PhaseStore
-from backend.crew.flow import ForgeFlow
 from backend.graph.engine import ProjectGraph
 from backend.graph.models import GraphNode, LifecycleState, NodeType
+from backend.pipeline.flow import ForgeFlow
 
 # ── Scripted agent ───────────────────────────────────────────────────────────
 
@@ -339,7 +339,7 @@ def scripted(graph: ProjectGraph, flow: ForgeFlow) -> Iterator[ScriptedAgent]:
         return 0
 
     with (
-        patch("backend.crew.dispatch.run_agent_task", new=agent),
+        patch("backend.pipeline.dispatch.run_agent_task", new=agent),
         patch(
             "backend.quality.semantic_duplicate_check.create_semantic_checker",
             return_value=_not_a_duplicate,

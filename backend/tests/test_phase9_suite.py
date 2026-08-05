@@ -3,7 +3,7 @@
 Phase 9 runs the default pipeline (structural loop → per-gap dispatch) driven
 by the single UNSUITED gap on the PROJECT; the Test Engineer answers it by
 writing the SUITE node. Following ``test_phase_contracts_llm.py``, the only
-LLM seam — ``backend.crew.dispatch.run_agent_task`` — is patched with a
+LLM seam — ``backend.pipeline.dispatch.run_agent_task`` — is patched with a
 scripted agent while gap analysis, dispatch routing, the quality steps, and a
 real ``ProjectGraph`` on SQLite all stay live. The tests assert the machinery,
 not model intelligence: the gap dispatches to the Test Engineer role, a SUITE
@@ -25,9 +25,9 @@ from backend.analysis.gap_analyser import GapAnalyser
 from backend.analysis.gaps import Gap, GapType
 from backend.config.models import ForgeConfig, ProjectConfig
 from backend.core.phase_store import PhaseStore
-from backend.crew.flow import ForgeFlow
 from backend.graph.engine import ProjectGraph
 from backend.graph.models import GraphNode, LifecycleState, NodeType
+from backend.pipeline.flow import ForgeFlow
 from backend.prompting.builder import (
     build_context_for_gap,
     build_task_description,
@@ -282,7 +282,7 @@ def scripted(graph: ProjectGraph, flow: ForgeFlow) -> Iterator[ScriptedAgent]:
         return 0
 
     with (
-        patch("backend.crew.dispatch.run_agent_task", new=agent),
+        patch("backend.pipeline.dispatch.run_agent_task", new=agent),
         patch(
             "backend.quality.semantic_duplicate_check.create_semantic_checker",
             return_value=_not_a_duplicate,
@@ -325,7 +325,7 @@ class TestPhase09Routing:
         assert PHASE_TO_NODE_TYPES[9] == ["SUITE"]
 
     def test_phase_9_runs_the_default_pipeline(self) -> None:
-        from backend.crew.phase_pipeline import get_steps
+        from backend.pipeline.runner import get_steps
 
         assert [s.__name__ for s in get_steps(9)] == [
             "structural",

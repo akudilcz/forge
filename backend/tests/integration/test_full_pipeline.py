@@ -24,10 +24,10 @@ import pytest
 
 from backend.analysis.gap_analyser import GapAnalyser
 from backend.config.models import ForgeConfig
-from backend.crew.flow import ForgeFlow
 from backend.forge_builder import ForgeBuilder
 from backend.graph.engine import ProjectGraph
 from backend.graph.models import NodeType
+from backend.pipeline.flow import ForgeFlow
 
 # ── Graph query helpers ──────────────────────────────────────────────────────
 

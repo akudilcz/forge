@@ -14,7 +14,7 @@ import pytest
 
 from backend.analysis.gaps import Gap, GapPriority, GapType
 from backend.analysis.phase_auditor import PhaseAuditResult
-from backend.crew.flow import (
+from backend.pipeline.flow import (
     GAP_TYPE_TO_PHASE,
     ForgeFlow,
     _SingleStepDone,
@@ -93,7 +93,7 @@ def test_gap_phase_quality_routing(
 @pytest.mark.asyncio
 async def test_kickoff_resets_phase_context(flow: ForgeFlow, mock_deps: MockDeps) -> None:
     """kickoff_async resets phase context at start and per phase."""
-    with patch("backend.crew.flow.phase_context") as mock_ctx:
+    with patch("backend.pipeline.flow.phase_context") as mock_ctx:
         with patch("backend.codegen.slice_gen.run_code_gen", new_callable=AsyncMock) as mock_cg:
             mock_cg.return_value = MagicMock(gaps_resolved=True, source_files=[], test_files=[])
             await flow.kickoff_async()
@@ -104,7 +104,7 @@ async def test_kickoff_resets_phase_context(flow: ForgeFlow, mock_deps: MockDeps
 @pytest.mark.asyncio
 async def test_run_phase_resets_phase_context(flow: ForgeFlow, mock_deps: MockDeps) -> None:
     """run_phase resets phase context before running the pipeline."""
-    with patch("backend.crew.flow.phase_context") as mock_ctx:
+    with patch("backend.pipeline.flow.phase_context") as mock_ctx:
         await flow.run_phase(0)
     mock_ctx.reset_phase.assert_called_once_with(0)
 
@@ -278,7 +278,7 @@ async def test_kickoff_quota_error_halts_run_with_error_status(
 ) -> None:
     """A DispatchQuotaError during a pipeline phase halts kickoff_async loudly:
     loop_status becomes 'error', not 'complete'."""
-    from backend.crew.dispatch import DispatchQuotaError
+    from backend.pipeline.dispatch import DispatchQuotaError
 
     flow.state.start_phase = 3
     quota = AsyncMock(side_effect=DispatchQuotaError("quota exhausted"))
@@ -467,7 +467,7 @@ async def test_run_phase_pipeline_success_returns_summary(
     """run_phase returns the pipeline summary and does not reset phases on success."""
     summary = {"phase": 5, "cycles": 2, "total_deletions": 3}
     with patch(
-        "backend.crew.phase_pipeline.run_phase_pipeline",
+        "backend.pipeline.runner.run_phase_pipeline",
         new=AsyncMock(return_value=summary),
     ):
         result = await flow.run_phase(5)
@@ -488,7 +488,7 @@ async def test_run_phase_exception_resets_active_phase(
         {"phase_number": 4, "status": "complete"},
     ]
     with patch(
-        "backend.crew.phase_pipeline.run_phase_pipeline",
+        "backend.pipeline.runner.run_phase_pipeline",
         new=AsyncMock(side_effect=RuntimeError("pipeline exploded")),
     ):
         with pytest.raises(RuntimeError, match="pipeline exploded"):
@@ -1319,7 +1319,7 @@ async def test_run_combined_quality_check_broadcasts_running_then_idle(
 ) -> None:
     broadcaster = mock_deps[3]
     with patch(
-        "backend.crew.flow.run_combined_quality_check",
+        "backend.pipeline.flow.run_combined_quality_check",
         new_callable=AsyncMock, return_value=[],
     ):
         result = await flow.run_combined_quality_check(7)
@@ -1336,7 +1336,7 @@ async def test_run_combined_quality_check_broadcasts_running_then_idle(
 async def test_scan_qual_detect_delegates_to_quality_module(flow: ForgeFlow) -> None:
     findings = [{"node_id": "LLR-1", "gap_type": "vague_title", "description": "d"}]
     with patch(
-        "backend.crew.flow.scan_qual_detect",
+        "backend.pipeline.flow.scan_qual_detect",
         new_callable=AsyncMock, return_value=findings,
     ) as scan:
         assert await flow.scan_qual_detect(7) == findings
@@ -1373,7 +1373,7 @@ async def test_code_gen_phase_warns_when_gaps_unresolved(flow: ForgeFlow) -> Non
             "backend.codegen.slice_gen.run_code_gen",
             new_callable=AsyncMock, return_value=result,
         ),
-        patch("backend.crew.flow.forge_logger") as logger_mock,
+        patch("backend.pipeline.flow.forge_logger") as logger_mock,
     ):
         await flow._run_code_gen_phase()
     warnings = [
@@ -1394,7 +1394,7 @@ async def test_run_agent_task_shim_delegates(flow: ForgeFlow) -> None:
     )
     agent = MagicMock()
     with patch(
-        "backend.crew.flow._run_agent_task_impl",
+        "backend.pipeline.flow._run_agent_task_impl",
         new_callable=AsyncMock, return_value="output",
     ) as impl:
         assert await flow._run_agent_task(agent, gap) == "output"

@@ -23,10 +23,10 @@ import pytest
 from backend.analysis.gaps import GapType
 from backend.config.models import ForgeConfig, ProjectConfig
 from backend.core.phase_store import PhaseStore
-from backend.crew.flow import ForgeFlow
-from backend.crew.structural_loop_graph import _MAX_GAP_ATTEMPTS
 from backend.graph.engine import ProjectGraph
 from backend.graph.models import GraphNode, LifecycleState, NodeType
+from backend.pipeline.flow import ForgeFlow
+from backend.pipeline.structural_loop import _MAX_GAP_ATTEMPTS
 
 
 class NoProgressAgent:
@@ -111,7 +111,7 @@ async def test_unresolvable_gap_does_not_retry_without_limit(
     agent = NoProgressAgent()
     flow.pool.get_agent_for_gap.return_value = agent
 
-    with patch("backend.crew.dispatch.run_agent_task", new=agent):
+    with patch("backend.pipeline.dispatch.run_agent_task", new=agent):
         await flow.run_phase(2)
 
     # The outer pipeline may retry the step across cycles, so the bound is not
@@ -138,7 +138,7 @@ async def test_the_gap_stays_open_so_the_phase_fails_loudly(
     agent = NoProgressAgent()
     flow.pool.get_agent_for_gap.return_value = agent
 
-    with patch("backend.crew.dispatch.run_agent_task", new=agent):
+    with patch("backend.pipeline.dispatch.run_agent_task", new=agent):
         await flow.run_phase(2)
 
     remaining = {g.type for g in GapAnalyser().analyse(graph)}
@@ -207,7 +207,7 @@ async def test_a_gap_that_resolves_is_not_abandoned(
         return False
 
     with (
-        patch("backend.crew.dispatch.run_agent_task", new=agent),
+        patch("backend.pipeline.dispatch.run_agent_task", new=agent),
         patch.object(flow, "_build_semantic_checker", return_value=_no_dup_checker),
     ):
         await flow.run_phase(2)
@@ -236,7 +236,7 @@ async def test_dispatch_outcomes_are_recorded_in_the_work_queue_history(
     agent = NoProgressAgent()
     flow.pool.get_agent_for_gap.return_value = agent
 
-    with patch("backend.crew.dispatch.run_agent_task", new=agent):
+    with patch("backend.pipeline.dispatch.run_agent_task", new=agent):
         await flow.run_phase(2)
 
     recorded = work_queue.all_history[before:]

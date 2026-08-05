@@ -421,7 +421,7 @@ class AgentFactory:
         A ``pre_model_hook`` is attached to trim oldest messages when the
         accumulated conversation exceeds the context window budget.
         """
-        from backend.crew.phase_context import make_trim_hook
+        from backend.pipeline.phase_context import make_trim_hook
 
         tools = (
             allowed_tools

@@ -8,13 +8,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.crew.dispatch import DispatchQuotaError
-from backend.crew.phase_pipeline import (
+from backend.pipeline.dispatch import DispatchQuotaError
+from backend.pipeline.runner import (
     _DEFAULT_STEPS,
     get_steps,
     run_phase_pipeline,
 )
-from backend.crew.phase_steps import StepResult
+from backend.pipeline.steps import StepResult
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -108,7 +108,7 @@ async def test_pipeline_runs_all_steps(mock_flow: MagicMock) -> None:
         return StepResult(step_name="test", deletions=0)
 
     with patch(
-        "backend.crew.phase_pipeline.get_steps",
+        "backend.pipeline.runner.get_steps",
         return_value=[stub_step, stub_step],
     ):
         result = await run_phase_pipeline(mock_flow, 5)
@@ -130,7 +130,7 @@ async def test_pipeline_cycles_on_deletions(mock_flow: MagicMock) -> None:
         return StepResult(step_name="deleter", deletions=deletions)
 
     with patch(
-        "backend.crew.phase_pipeline.get_steps",
+        "backend.pipeline.runner.get_steps",
         return_value=[deletion_step],
     ):
         result = await run_phase_pipeline(mock_flow, 5)
@@ -148,7 +148,7 @@ async def test_pipeline_stable_on_first_cycle(mock_flow: MagicMock) -> None:
         return StepResult(step_name="stable", deletions=0)
 
     with patch(
-        "backend.crew.phase_pipeline.get_steps",
+        "backend.pipeline.runner.get_steps",
         return_value=[no_deletions],
     ):
         result = await run_phase_pipeline(mock_flow, 5)
@@ -167,7 +167,7 @@ async def test_pipeline_forces_exit_at_max_cycles(mock_flow: MagicMock) -> None:
         return StepResult(step_name="deleter", deletions=1)
 
     with patch(
-        "backend.crew.phase_pipeline.get_steps",
+        "backend.pipeline.runner.get_steps",
         return_value=[always_deleting],
     ):
         result = await run_phase_pipeline(mock_flow, 5)
@@ -186,7 +186,7 @@ async def test_pipeline_marks_phase_active_on_start(mock_flow: MagicMock) -> Non
         return StepResult(step_name="stable", deletions=0)
 
     with patch(
-        "backend.crew.phase_pipeline.get_steps",
+        "backend.pipeline.runner.get_steps",
         return_value=[no_deletions],
     ):
         await run_phase_pipeline(mock_flow, 5)
@@ -208,7 +208,7 @@ async def test_pipeline_propagates_dispatch_quota_error(mock_flow: MagicMock) ->
         raise DispatchQuotaError("quota exhausted")
 
     with patch(
-        "backend.crew.phase_pipeline.get_steps",
+        "backend.pipeline.runner.get_steps",
         return_value=[quota_step],
     ):
         with pytest.raises(DispatchQuotaError):
@@ -234,7 +234,7 @@ async def test_pipeline_step_exception_fails_phase_loudly(mock_flow: MagicMock) 
         raise AssertionError("steps after a failed step must not run")
 
     with patch(
-        "backend.crew.phase_pipeline.get_steps",
+        "backend.pipeline.runner.get_steps",
         return_value=[broken_step, later_step],
     ):
         with pytest.raises(RuntimeError, match="LLM call failed"):
@@ -250,13 +250,13 @@ async def test_pipeline_single_step_done_propagates_without_failure(
 ) -> None:
     """_SingleStepDone is control flow, not a failure — it propagates without
     marking the phase awaiting_approval."""
-    from backend.crew.flow import _SingleStepDone
+    from backend.pipeline.flow import _SingleStepDone
 
     async def single_step(flow: Any, phase: int) -> StepResult:
         raise _SingleStepDone()
 
     with patch(
-        "backend.crew.phase_pipeline.get_steps",
+        "backend.pipeline.runner.get_steps",
         return_value=[single_step],
     ):
         with pytest.raises(_SingleStepDone):

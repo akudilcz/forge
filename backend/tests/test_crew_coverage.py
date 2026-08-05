@@ -375,7 +375,7 @@ class TestTryFastTrace:
 
     @pytest.mark.asyncio
     async def test_non_undesigned_gap_returns_false(self) -> None:
-        from backend.crew.dispatch import try_fast_trace
+        from backend.pipeline.dispatch import try_fast_trace
 
         flow = _make_flow()
         gap = Gap(
@@ -389,7 +389,7 @@ class TestTryFastTrace:
 
     @pytest.mark.asyncio
     async def test_node_not_found_returns_false(self) -> None:
-        from backend.crew.dispatch import try_fast_trace
+        from backend.pipeline.dispatch import try_fast_trace
 
         flow = _make_flow()
         gap = Gap(
@@ -403,7 +403,7 @@ class TestTryFastTrace:
 
     @pytest.mark.asyncio
     async def test_node_without_parent_returns_false(self) -> None:
-        from backend.crew.dispatch import try_fast_trace
+        from backend.pipeline.dispatch import try_fast_trace
 
         llr = _mock_node("LLR-1", "LLR", parent_id=None)
         flow = _make_flow(nodes=[llr])
@@ -419,7 +419,7 @@ class TestTryFastTrace:
 
     @pytest.mark.asyncio
     async def test_no_module_ids_returns_false(self) -> None:
-        from backend.crew.dispatch import try_fast_trace
+        from backend.pipeline.dispatch import try_fast_trace
 
         llr = _mock_node("LLR-1", "LLR", parent_id="HLR-1")
         flow = _make_flow(nodes=[llr])
@@ -435,7 +435,7 @@ class TestTryFastTrace:
 
     @pytest.mark.asyncio
     async def test_no_designs_returns_false(self) -> None:
-        from backend.crew.dispatch import try_fast_trace
+        from backend.pipeline.dispatch import try_fast_trace
 
         llr = _mock_node("LLR-1", "LLR", parent_id="HLR-1")
         mod = _mock_node("MOD-1", "MODULE")
@@ -453,7 +453,7 @@ class TestTryFastTrace:
 
     @pytest.mark.asyncio
     async def test_already_traced_returns_true(self) -> None:
-        from backend.crew.dispatch import try_fast_trace
+        from backend.pipeline.dispatch import try_fast_trace
 
         llr = _mock_node("LLR-1", "LLR", parent_id="HLR-1")
         design = _mock_node("DES-1", "DESIGN", trace_to=["LLR-1"])
@@ -473,7 +473,7 @@ class TestTryFastTrace:
 
     @pytest.mark.asyncio
     async def test_adds_trace_and_returns_true(self) -> None:
-        from backend.crew.dispatch import try_fast_trace
+        from backend.pipeline.dispatch import try_fast_trace
 
         llr = _mock_node("LLR-1", "LLR", parent_id="HLR-1")
         design = _mock_node("DES-1", "DESIGN", trace_to=["LLR-99"])
@@ -498,27 +498,27 @@ class TestIsTransientError:
     """Tests for _is_transient_error."""
 
     def test_connection_error(self) -> None:
-        from backend.crew.dispatch import _is_transient_error
+        from backend.pipeline.dispatch import _is_transient_error
 
         assert _is_transient_error(ConnectionError("refused")) is True
 
     def test_timeout_error(self) -> None:
-        from backend.crew.dispatch import _is_transient_error
+        from backend.pipeline.dispatch import _is_transient_error
 
         assert _is_transient_error(TimeoutError("timed out")) is True
 
     def test_os_error(self) -> None:
-        from backend.crew.dispatch import _is_transient_error
+        from backend.pipeline.dispatch import _is_transient_error
 
         assert _is_transient_error(OSError("network")) is True
 
     def test_value_error_not_transient(self) -> None:
-        from backend.crew.dispatch import _is_transient_error
+        from backend.pipeline.dispatch import _is_transient_error
 
         assert _is_transient_error(ValueError("bad value")) is False
 
     def test_openai_server_error(self) -> None:
-        from backend.crew.dispatch import _is_transient_error
+        from backend.pipeline.dispatch import _is_transient_error
 
         try:
             import openai
@@ -536,7 +536,7 @@ class TestIsTransientError:
             pytest.skip("openai not installed")
 
     def test_openai_client_error_not_transient(self) -> None:
-        from backend.crew.dispatch import _is_transient_error
+        from backend.pipeline.dispatch import _is_transient_error
 
         try:
             import openai
@@ -557,12 +557,12 @@ class TestIsQuotaError:
     """Tests for _is_quota_error."""
 
     def test_non_openai_error(self) -> None:
-        from backend.crew.dispatch import _is_quota_error
+        from backend.pipeline.dispatch import _is_quota_error
 
         assert _is_quota_error(RuntimeError("nope")) is False
 
     def test_openai_401(self) -> None:
-        from backend.crew.dispatch import _is_quota_error
+        from backend.pipeline.dispatch import _is_quota_error
 
         try:
             import openai
@@ -578,7 +578,7 @@ class TestIsQuotaError:
             pytest.skip("openai not installed")
 
     def test_openai_403(self) -> None:
-        from backend.crew.dispatch import _is_quota_error
+        from backend.pipeline.dispatch import _is_quota_error
 
         try:
             import openai
@@ -594,7 +594,7 @@ class TestIsQuotaError:
             pytest.skip("openai not installed")
 
     def test_openai_500_not_quota(self) -> None:
-        from backend.crew.dispatch import _is_quota_error
+        from backend.pipeline.dispatch import _is_quota_error
 
         try:
             import openai
@@ -614,7 +614,7 @@ class TestGetModel:
     """Tests for dispatch._get_model."""
 
     def test_get_model_success(self) -> None:
-        from backend.crew.dispatch import _get_model
+        from backend.pipeline.dispatch import _get_model
 
         flow = MagicMock()
         flow._current_phase = 5
@@ -622,7 +622,7 @@ class TestGetModel:
         assert _get_model(flow) == "gpt-4"
 
     def test_get_model_exception_returns_empty(self) -> None:
-        from backend.crew.dispatch import _get_model
+        from backend.pipeline.dispatch import _get_model
 
         flow = MagicMock()
         flow._current_phase = 5
@@ -636,7 +636,7 @@ class TestDispatch:
     @pytest.mark.asyncio
     async def test_dispatch_fast_path(self) -> None:
         """dispatch returns 'fast-path trace' when try_fast_trace succeeds."""
-        from backend.crew.dispatch import dispatch
+        from backend.pipeline.dispatch import dispatch
 
         flow = _make_flow()
         gap = Gap(
@@ -647,7 +647,7 @@ class TestDispatch:
         )
 
         with patch(
-            "backend.crew.dispatch.try_fast_trace", new_callable=AsyncMock, return_value=True
+            "backend.pipeline.dispatch.try_fast_trace", new_callable=AsyncMock, return_value=True
         ):
             result = await dispatch(flow, gap)
         assert result == "fast-path trace"
@@ -655,7 +655,7 @@ class TestDispatch:
     @pytest.mark.asyncio
     async def test_dispatch_no_agent(self) -> None:
         """dispatch returns empty string when no agent available."""
-        from backend.crew.dispatch import dispatch
+        from backend.pipeline.dispatch import dispatch
 
         flow = _make_flow()
         flow.pool.get_agent_for_gap.return_value = None
@@ -667,7 +667,7 @@ class TestDispatch:
         )
 
         with patch(
-            "backend.crew.dispatch.try_fast_trace", new_callable=AsyncMock, return_value=False
+            "backend.pipeline.dispatch.try_fast_trace", new_callable=AsyncMock, return_value=False
         ):
             result = await dispatch(flow, gap)
         assert result == ""
@@ -675,7 +675,7 @@ class TestDispatch:
     @pytest.mark.asyncio
     async def test_dispatch_quota_error_raises(self) -> None:
         """dispatch raises DispatchQuotaError on quota error."""
-        from backend.crew.dispatch import DispatchQuotaError, dispatch
+        from backend.pipeline.dispatch import DispatchQuotaError, dispatch
 
         flow = _make_flow()
         gap = Gap(
@@ -699,9 +699,9 @@ class TestDispatch:
 
         with (
             patch(
-                "backend.crew.dispatch.try_fast_trace", new_callable=AsyncMock, return_value=False
+                "backend.pipeline.dispatch.try_fast_trace", new_callable=AsyncMock, return_value=False
             ),
-            patch("backend.crew.dispatch.run_agent_task", new_callable=AsyncMock, side_effect=exc),
+            patch("backend.pipeline.dispatch.run_agent_task", new_callable=AsyncMock, side_effect=exc),
         ):
             with pytest.raises(DispatchQuotaError):
                 await dispatch(flow, gap)
@@ -709,7 +709,7 @@ class TestDispatch:
     @pytest.mark.asyncio
     async def test_dispatch_transient_error_retries(self) -> None:
         """dispatch retries on transient error then succeeds."""
-        from backend.crew.dispatch import dispatch
+        from backend.pipeline.dispatch import dispatch
 
         flow = _make_flow()
         gap = Gap(
@@ -730,9 +730,9 @@ class TestDispatch:
 
         with (
             patch(
-                "backend.crew.dispatch.try_fast_trace", new_callable=AsyncMock, return_value=False
+                "backend.pipeline.dispatch.try_fast_trace", new_callable=AsyncMock, return_value=False
             ),
-            patch("backend.crew.dispatch.run_agent_task", side_effect=fake_run),
+            patch("backend.pipeline.dispatch.run_agent_task", side_effect=fake_run),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             result = await dispatch(flow, gap)
@@ -742,7 +742,7 @@ class TestDispatch:
     @pytest.mark.asyncio
     async def test_dispatch_transient_error_graph_changed_skips_retry(self) -> None:
         """dispatch skips retry when graph already changed (partial work)."""
-        from backend.crew.dispatch import dispatch
+        from backend.pipeline.dispatch import dispatch
 
         flow = _make_flow()
         # Graph changed between calls
@@ -759,9 +759,9 @@ class TestDispatch:
 
         with (
             patch(
-                "backend.crew.dispatch.try_fast_trace", new_callable=AsyncMock, return_value=False
+                "backend.pipeline.dispatch.try_fast_trace", new_callable=AsyncMock, return_value=False
             ),
-            patch("backend.crew.dispatch.run_agent_task", side_effect=fake_run),
+            patch("backend.pipeline.dispatch.run_agent_task", side_effect=fake_run),
         ):
             result = await dispatch(flow, gap)
         assert result == ""
@@ -769,7 +769,7 @@ class TestDispatch:
     @pytest.mark.asyncio
     async def test_dispatch_non_transient_error_breaks(self) -> None:
         """dispatch breaks on non-transient, non-quota error."""
-        from backend.crew.dispatch import dispatch
+        from backend.pipeline.dispatch import dispatch
 
         flow = _make_flow()
         gap = Gap(
@@ -784,9 +784,9 @@ class TestDispatch:
 
         with (
             patch(
-                "backend.crew.dispatch.try_fast_trace", new_callable=AsyncMock, return_value=False
+                "backend.pipeline.dispatch.try_fast_trace", new_callable=AsyncMock, return_value=False
             ),
-            patch("backend.crew.dispatch.run_agent_task", side_effect=fake_run),
+            patch("backend.pipeline.dispatch.run_agent_task", side_effect=fake_run),
         ):
             result = await dispatch(flow, gap)
         assert result == ""
@@ -1061,14 +1061,14 @@ class TestBatchGetModel:
     """Tests for batch_steps._get_model."""
 
     def test_success(self) -> None:
-        from backend.crew.batch_steps import _get_model
+        from backend.pipeline.batch_steps import _get_model
 
         flow = MagicMock()
         flow.config.llm.model_for_phase.return_value = "gpt-4"
         assert _get_model(flow, 5) == "gpt-4"
 
     def test_exception_returns_empty(self) -> None:
-        from backend.crew.batch_steps import _get_model
+        from backend.pipeline.batch_steps import _get_model
 
         flow = MagicMock()
         flow.config.llm.model_for_phase.side_effect = RuntimeError
@@ -1079,7 +1079,7 @@ class TestSnapshotAndTrackNodes:
     """Tests for _snapshot_node_ids and _track_new_nodes."""
 
     def test_snapshot_node_ids(self) -> None:
-        from backend.crew.batch_steps import _snapshot_node_ids
+        from backend.pipeline.batch_steps import _snapshot_node_ids
 
         hlr1 = _mock_node("HLR-1", "HLR")
         hlr2 = _mock_node("HLR-2", "HLR")
@@ -1089,14 +1089,14 @@ class TestSnapshotAndTrackNodes:
         assert result == {"HLR-1", "HLR-2"}
 
     def test_snapshot_empty(self) -> None:
-        from backend.crew.batch_steps import _snapshot_node_ids
+        from backend.pipeline.batch_steps import _snapshot_node_ids
 
         flow = _make_flow()
         result = _snapshot_node_ids(flow, "HLR")
         assert result == set()
 
     def test_track_new_nodes_finds_new(self) -> None:
-        from backend.crew.batch_steps import _track_new_nodes
+        from backend.pipeline.batch_steps import _track_new_nodes
 
         hlr1 = _mock_node("HLR-1", "HLR")
         hlr2 = _mock_node("HLR-2", "HLR")
@@ -1109,7 +1109,7 @@ class TestSnapshotAndTrackNodes:
         assert flow._batch_new_node_ids == {"HLR-2"}
 
     def test_track_new_nodes_no_new(self) -> None:
-        from backend.crew.batch_steps import _track_new_nodes
+        from backend.pipeline.batch_steps import _track_new_nodes
 
         hlr1 = _mock_node("HLR-1", "HLR")
         flow = _make_flow(nodes=[hlr1])
@@ -1118,7 +1118,7 @@ class TestSnapshotAndTrackNodes:
         assert new == set()
 
     def test_track_new_nodes_accumulates(self) -> None:
-        from backend.crew.batch_steps import _track_new_nodes
+        from backend.pipeline.batch_steps import _track_new_nodes
 
         hlr1 = _mock_node("HLR-1", "HLR")
         hlr2 = _mock_node("HLR-2", "HLR")
@@ -1135,12 +1135,12 @@ class TestFallbackStructural:
 
     @pytest.mark.asyncio
     async def test_calls_structural(self) -> None:
-        from backend.crew.batch_steps import _fallback_structural
+        from backend.pipeline.batch_steps import _fallback_structural
 
         flow = MagicMock()
         expected = {"step_name": "structural", "deletions": 0}
         with patch(
-            "backend.crew.phase_steps.structural", new_callable=AsyncMock, return_value=expected
+            "backend.pipeline.steps.structural", new_callable=AsyncMock, return_value=expected
         ) as mock_s:
             result = await _fallback_structural(flow, 5)
         mock_s.assert_awaited_once_with(flow, 5)
@@ -1152,24 +1152,24 @@ class TestRunFastTraces:
 
     @pytest.mark.asyncio
     async def test_counts_resolved(self) -> None:
-        from backend.crew.batch_steps import _run_fast_traces
+        from backend.pipeline.batch_steps import _run_fast_traces
 
         flow = MagicMock()
         gap1 = MagicMock()
         gap2 = MagicMock()
         gap3 = MagicMock()
 
-        with patch("backend.crew.dispatch.try_fast_trace", new_callable=AsyncMock) as mock_ft:
+        with patch("backend.pipeline.dispatch.try_fast_trace", new_callable=AsyncMock) as mock_ft:
             mock_ft.side_effect = [True, False, True]
             result = await _run_fast_traces(flow, [gap1, gap2, gap3])
         assert result == 2
 
     @pytest.mark.asyncio
     async def test_empty_gaps(self) -> None:
-        from backend.crew.batch_steps import _run_fast_traces
+        from backend.pipeline.batch_steps import _run_fast_traces
 
         flow = MagicMock()
-        with patch("backend.crew.dispatch.try_fast_trace", new_callable=AsyncMock):
+        with patch("backend.pipeline.dispatch.try_fast_trace", new_callable=AsyncMock):
             result = await _run_fast_traces(flow, [])
         assert result == 0
 
@@ -1178,7 +1178,7 @@ class TestGroupUndesignedByModule:
     """Tests for _group_undesigned_by_module."""
 
     def test_groups_by_module(self) -> None:
-        from backend.crew.batch_steps import _group_undesigned_by_module
+        from backend.pipeline.batch_steps import _group_undesigned_by_module
 
         llr1 = _mock_node("LLR-1", "LLR", parent_id="HLR-1", content="spec1")
         llr2 = _mock_node("LLR-2", "LLR", parent_id="HLR-1", content="spec2")
@@ -1202,7 +1202,7 @@ class TestGroupUndesignedByModule:
         assert len(context["undesigned_llrs"]) == 2
 
     def test_llr_not_found_skipped(self) -> None:
-        from backend.crew.batch_steps import _group_undesigned_by_module
+        from backend.pipeline.batch_steps import _group_undesigned_by_module
 
         flow = _make_flow()
         gap = MagicMock()
@@ -1211,7 +1211,7 @@ class TestGroupUndesignedByModule:
         assert result == []
 
     def test_llr_no_parent_skipped(self) -> None:
-        from backend.crew.batch_steps import _group_undesigned_by_module
+        from backend.pipeline.batch_steps import _group_undesigned_by_module
 
         llr = _mock_node("LLR-1", "LLR", parent_id=None)
         # Override parent_id to None explicitly
@@ -1223,7 +1223,7 @@ class TestGroupUndesignedByModule:
         assert result == []
 
     def test_no_module_ids_skipped(self) -> None:
-        from backend.crew.batch_steps import _group_undesigned_by_module
+        from backend.pipeline.batch_steps import _group_undesigned_by_module
 
         llr = _mock_node("LLR-1", "LLR", parent_id="HLR-1")
         flow = _make_flow(nodes=[llr])
@@ -1239,7 +1239,7 @@ class TestBatchPhaseNoGapsEarlyExit:
 
     @pytest.mark.asyncio
     async def test_batch_phase3_no_gaps(self) -> None:
-        from backend.crew.batch_steps import batch_phase3
+        from backend.pipeline.batch_steps import batch_phase3
 
         flow = _make_flow(gaps=[])
         result = await batch_phase3(flow, 3)
@@ -1248,7 +1248,7 @@ class TestBatchPhaseNoGapsEarlyExit:
 
     @pytest.mark.asyncio
     async def test_batch_phase5_no_gaps(self) -> None:
-        from backend.crew.batch_steps import batch_phase5
+        from backend.pipeline.batch_steps import batch_phase5
 
         flow = _make_flow(gaps=[])
         result = await batch_phase5(flow, 5)
@@ -1257,7 +1257,7 @@ class TestBatchPhaseNoGapsEarlyExit:
 
     @pytest.mark.asyncio
     async def test_batch_phase7_no_gaps(self) -> None:
-        from backend.crew.batch_steps import batch_phase7
+        from backend.pipeline.batch_steps import batch_phase7
 
         flow = _make_flow(gaps=[])
         result = await batch_phase7(flow, 7)
@@ -1266,7 +1266,7 @@ class TestBatchPhaseNoGapsEarlyExit:
 
     @pytest.mark.asyncio
     async def test_batch_phase8_no_gaps(self) -> None:
-        from backend.crew.batch_steps import batch_phase8
+        from backend.pipeline.batch_steps import batch_phase8
 
         flow = _make_flow(gaps=[])
         result = await batch_phase8(flow, 8)
@@ -1279,7 +1279,7 @@ class TestBatchPhaseExceptionFallback:
 
     @pytest.mark.asyncio
     async def test_batch_phase3_exception_falls_back(self) -> None:
-        from backend.crew.batch_steps import batch_phase3
+        from backend.pipeline.batch_steps import batch_phase3
 
         para = _mock_node("PARA-1", "PARA", content="text")
         gap = Gap(
@@ -1292,12 +1292,12 @@ class TestBatchPhaseExceptionFallback:
 
         with (
             patch(
-                "backend.crew.batch_steps._run_batch_agent",
+                "backend.pipeline.batch_steps._run_batch_agent",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("boom"),
             ),
             patch(
-                "backend.crew.batch_steps._fallback_structural",
+                "backend.pipeline.batch_steps._fallback_structural",
                 new_callable=AsyncMock,
                 return_value={"step_name": "structural", "deletions": 0},
             ) as mock_fb,
@@ -1308,7 +1308,7 @@ class TestBatchPhaseExceptionFallback:
 
     @pytest.mark.asyncio
     async def test_batch_phase5_exception_falls_back(self) -> None:
-        from backend.crew.batch_steps import batch_phase5
+        from backend.pipeline.batch_steps import batch_phase5
 
         hlr = _mock_node("HLR-1", "HLR", content="text")
         gap = Gap(
@@ -1321,12 +1321,12 @@ class TestBatchPhaseExceptionFallback:
 
         with (
             patch(
-                "backend.crew.batch_steps._run_batch_agent",
+                "backend.pipeline.batch_steps._run_batch_agent",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("boom"),
             ),
             patch(
-                "backend.crew.batch_steps._fallback_structural",
+                "backend.pipeline.batch_steps._fallback_structural",
                 new_callable=AsyncMock,
                 return_value={"step_name": "structural", "deletions": 0},
             ) as mock_fb,
@@ -1336,7 +1336,7 @@ class TestBatchPhaseExceptionFallback:
 
     @pytest.mark.asyncio
     async def test_batch_phase7_exception_falls_back(self) -> None:
-        from backend.crew.batch_steps import batch_phase7
+        from backend.pipeline.batch_steps import batch_phase7
 
         hlr = _mock_node("HLR-1", "HLR", content="text")
         gap = Gap(
@@ -1349,12 +1349,12 @@ class TestBatchPhaseExceptionFallback:
 
         with (
             patch(
-                "backend.crew.batch_steps._run_batch_agent",
+                "backend.pipeline.batch_steps._run_batch_agent",
                 new_callable=AsyncMock,
                 side_effect=RuntimeError("boom"),
             ),
             patch(
-                "backend.crew.batch_steps._fallback_structural",
+                "backend.pipeline.batch_steps._fallback_structural",
                 new_callable=AsyncMock,
                 return_value={"step_name": "structural", "deletions": 0},
             ) as mock_fb,
@@ -1369,7 +1369,7 @@ class TestBatchPhase8Specifics:
     @pytest.mark.asyncio
     async def test_batch_phase8_fast_path_resolves_all(self) -> None:
         """All gaps resolved by fast path — no batch agent needed."""
-        from backend.crew.batch_steps import batch_phase8
+        from backend.pipeline.batch_steps import batch_phase8
 
         gap = Gap(
             type=GapType.UNDESIGNED,
@@ -1382,7 +1382,7 @@ class TestBatchPhase8Specifics:
         flow._collect_phase_gaps.side_effect = [[gap], []]
 
         with patch(
-            "backend.crew.batch_steps._run_fast_traces", new_callable=AsyncMock, return_value=1
+            "backend.pipeline.batch_steps._run_fast_traces", new_callable=AsyncMock, return_value=1
         ):
             result = await batch_phase8(flow, 8)
         assert result["step_name"] == "batch_phase8"
@@ -1390,7 +1390,7 @@ class TestBatchPhase8Specifics:
     @pytest.mark.asyncio
     async def test_batch_phase8_fallback_on_zero_tool_calls(self) -> None:
         """Falls back to structural when batch agent makes no tool calls."""
-        from backend.crew.batch_steps import batch_phase8
+        from backend.pipeline.batch_steps import batch_phase8
 
         llr = _mock_node("LLR-1", "LLR", parent_id="HLR-1", content="spec")
         mod = _mock_node("MOD-1", "MODULE", content="module")
@@ -1408,13 +1408,13 @@ class TestBatchPhase8Specifics:
 
         with (
             patch(
-                "backend.crew.batch_steps._run_fast_traces", new_callable=AsyncMock, return_value=0
+                "backend.pipeline.batch_steps._run_fast_traces", new_callable=AsyncMock, return_value=0
             ),
             patch(
-                "backend.crew.batch_steps._run_batch_agent", new_callable=AsyncMock, return_value=0
+                "backend.pipeline.batch_steps._run_batch_agent", new_callable=AsyncMock, return_value=0
             ),
             patch(
-                "backend.crew.batch_steps._fallback_structural",
+                "backend.pipeline.batch_steps._fallback_structural",
                 new_callable=AsyncMock,
                 return_value={"step_name": "structural", "deletions": 0},
             ) as mock_fb,
@@ -1428,7 +1428,7 @@ class TestBatchPhaseAgentSuccess:
 
     @pytest.mark.asyncio
     async def test_batch_phase7_agent_resolves_gaps(self) -> None:
-        from backend.crew.batch_steps import batch_phase7
+        from backend.pipeline.batch_steps import batch_phase7
 
         hlr = _mock_node("HLR-1", "HLR", content="text")
         gap = Gap(
@@ -1441,7 +1441,7 @@ class TestBatchPhaseAgentSuccess:
         flow._collect_phase_gaps.side_effect = [[gap], []]
 
         with patch(
-            "backend.crew.batch_steps._run_batch_agent", new_callable=AsyncMock, return_value=3
+            "backend.pipeline.batch_steps._run_batch_agent", new_callable=AsyncMock, return_value=3
         ):
             result = await batch_phase7(flow, 7)
         assert result["step_name"] == "batch_phase7"

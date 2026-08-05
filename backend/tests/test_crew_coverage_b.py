@@ -983,7 +983,7 @@ class TestStructuralStep:
 
     @pytest.mark.asyncio
     async def test_returns_step_result(self) -> None:
-        from backend.crew.phase_steps import structural
+        from backend.pipeline.steps import structural
 
         flow = _make_flow()
         result = await structural(flow, 5)
@@ -997,7 +997,7 @@ class TestCombinedQualityStep:
 
     @pytest.mark.asyncio
     async def test_no_gaps(self) -> None:
-        from backend.crew.phase_steps import combined_quality
+        from backend.pipeline.steps import combined_quality
 
         flow = _make_flow()
         flow.run_combined_quality_check = AsyncMock(return_value=[])
@@ -1007,7 +1007,7 @@ class TestCombinedQualityStep:
 
     @pytest.mark.asyncio
     async def test_dispatches_gaps(self) -> None:
-        from backend.crew.phase_steps import combined_quality
+        from backend.pipeline.steps import combined_quality
 
         flow = _make_flow()
         gap1 = _make_gap(GapType.NON_ATOMIC_REQUIREMENT, "h1")
@@ -1022,8 +1022,8 @@ class TestCombinedQualityStep:
     async def test_quota_error_propagates(self) -> None:
         """DispatchQuotaError propagates so quota exhaustion halts the run —
         it is never converted into a completed step."""
-        from backend.crew.dispatch import DispatchQuotaError
-        from backend.crew.phase_steps import combined_quality
+        from backend.pipeline.dispatch import DispatchQuotaError
+        from backend.pipeline.steps import combined_quality
 
         flow = _make_flow()
         gap = _make_gap(GapType.NON_ATOMIC_REQUIREMENT, "h1")
@@ -1036,7 +1036,7 @@ class TestCombinedQualityStep:
 
     @pytest.mark.asyncio
     async def test_skips_missing_node(self) -> None:
-        from backend.crew.phase_steps import combined_quality
+        from backend.pipeline.steps import combined_quality
 
         flow = _make_flow()
         gap = _make_gap(GapType.NON_ATOMIC_REQUIREMENT, "missing")
@@ -1051,7 +1051,7 @@ class TestQualityGapsStep:
 
     @pytest.mark.asyncio
     async def test_delegates(self) -> None:
-        from backend.crew.phase_steps import quality_gaps
+        from backend.pipeline.steps import quality_gaps
 
         flow = _make_flow()
         result = await quality_gaps(flow, 5)
@@ -1064,7 +1064,7 @@ class TestSemanticStep:
 
     @pytest.mark.asyncio
     async def test_without_batch_ids(self) -> None:
-        from backend.crew.phase_steps import semantic
+        from backend.pipeline.steps import semantic
 
         flow = _make_flow()
         # No _batch_new_node_ids attribute
@@ -1080,7 +1080,7 @@ class TestSemanticStep:
 
     @pytest.mark.asyncio
     async def test_with_batch_ids(self) -> None:
-        from backend.crew.phase_steps import semantic
+        from backend.pipeline.steps import semantic
 
         flow = _make_flow()
         flow._batch_new_node_ids = ["n1", "n2"]
@@ -1095,7 +1095,7 @@ class TestSemanticStep:
 
     @pytest.mark.asyncio
     async def test_returns_deletion_count(self) -> None:
-        from backend.crew.phase_steps import semantic
+        from backend.pipeline.steps import semantic
 
         flow = _make_flow()
         flow.run_semantic_check = AsyncMock(return_value=5)
@@ -1108,7 +1108,7 @@ class TestDesignConsolidationStep:
 
     @pytest.mark.asyncio
     async def test_delegates(self) -> None:
-        from backend.crew.phase_steps import design_consolidation
+        from backend.pipeline.steps import design_consolidation
 
         flow = _make_flow()
         flow.run_design_consolidation = AsyncMock(return_value=3)
@@ -1123,7 +1123,7 @@ class TestCaseTraceCoverageStep:
 
     @pytest.mark.asyncio
     async def test_runs_checker(self) -> None:
-        from backend.crew.phase_steps import case_trace_coverage
+        from backend.pipeline.steps import case_trace_coverage
 
         flow = _make_flow()
         case = _make_node("CASE_HLR-001", node_type="CASE_HLR", trace_to=["HLR-001"])
@@ -1145,7 +1145,7 @@ class TestCaseTraceCoverageStep:
     @pytest.mark.asyncio
     async def test_no_case_nodes_skips_checker(self) -> None:
         """With no CASE nodes there is nothing to verify — no LLM checker is built."""
-        from backend.crew.phase_steps import case_trace_coverage
+        from backend.pipeline.steps import case_trace_coverage
 
         flow = _make_flow()  # empty graph
         flow._last_checked_case_ids = None

@@ -6,7 +6,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.checkpoint.memory import MemorySaver
 
 from backend.analysis.gaps import GapType
-from backend.crew.phase_context import PhaseContext, make_trim_hook
+from backend.pipeline.phase_context import PhaseContext, make_trim_hook
 
 
 def _fresh() -> PhaseContext:

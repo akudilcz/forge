@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from backend.analysis.gaps import Gap, GapPriority, GapType
-from backend.crew.structural_loop_graph import StructuralLoopState, create_structural_loop_graph
+from backend.pipeline.structural_loop import StructuralLoopState, create_structural_loop_graph
 
 
 def _make_flow(
@@ -94,8 +94,8 @@ async def test_structural_loop_graph_batch_processes_multiple_gaps() -> None:
 @pytest.mark.asyncio
 async def test_gap_already_resolved_skips_unchunked_with_existing_paras() -> None:
     """UNCHUNKED_DOCUMENT gap is skipped if PARAs already exist (e.g. from partial retry)."""
-    from backend.crew.structural_loop_graph import _gap_already_resolved
     from backend.graph.models import GraphNode, NodeType
+    from backend.pipeline.structural_loop import _gap_already_resolved
 
     flow: Any = MagicMock()
     para = GraphNode(
@@ -115,7 +115,7 @@ async def test_gap_already_resolved_skips_unchunked_with_existing_paras() -> Non
 @pytest.mark.asyncio
 async def test_gap_already_resolved_false_for_no_paras() -> None:
     """UNCHUNKED_DOCUMENT gap is not skipped when no PARAs exist."""
-    from backend.crew.structural_loop_graph import _gap_already_resolved
+    from backend.pipeline.structural_loop import _gap_already_resolved
 
     flow: Any = MagicMock()
     flow.graph.children_sync.return_value = []
@@ -132,7 +132,7 @@ async def test_gap_already_resolved_false_for_no_paras() -> None:
 @pytest.mark.asyncio
 async def test_gap_already_resolved_false_for_other_gap_types() -> None:
     """Non-UNCHUNKED_DOCUMENT gaps are never pre-resolved."""
-    from backend.crew.structural_loop_graph import _gap_already_resolved
+    from backend.pipeline.structural_loop import _gap_already_resolved
 
     flow: Any = MagicMock()
     gap = Gap(
@@ -148,7 +148,7 @@ async def test_gap_already_resolved_false_for_other_gap_types() -> None:
 async def test_quota_error_propagates_out_of_loop() -> None:
     """DispatchQuotaError propagates out of the loop — quota exhaustion halts
     the run loudly instead of finalizing as if the phase had been processed."""
-    from backend.crew.dispatch import DispatchQuotaError
+    from backend.pipeline.dispatch import DispatchQuotaError
 
     gap1 = _gap("MOD-0001")
     gap2 = _gap("MOD-0002")

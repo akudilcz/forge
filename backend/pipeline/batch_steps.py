@@ -23,13 +23,13 @@ from typing import Any
 from langchain_core.messages import HumanMessage
 
 from backend.analysis.gaps import Gap, GapType
-from backend.crew.phase_constraints import (
+from backend.pipeline.phase_constraints import (
     reset_phase_constraints,
     set_phase_constraints,
     set_phase_constraints_union,
 )
-from backend.crew.phase_context import phase_context
-from backend.crew.phase_steps import StepResult
+from backend.pipeline.phase_context import phase_context
+from backend.pipeline.steps import StepResult
 from backend.prompting.batch_prompts import (
     build_batch_phase3_prompt,
     build_batch_phase5_prompt,
@@ -196,7 +196,7 @@ async def _fallback_structural(flow: Any, phase: int) -> StepResult:
         phase=phase,
         fallback="structural",
     )
-    from backend.crew.phase_steps import structural  # noqa: PLC0415
+    from backend.pipeline.steps import structural  # noqa: PLC0415
 
     return await structural(flow, phase)
 
@@ -459,7 +459,7 @@ async def batch_phase8(flow: Any, phase: int) -> StepResult:
 
 async def _run_fast_traces(flow: Any, gaps: list[Gap]) -> int:
     """Run fast-path trace linking for UNDESIGNED gaps. Returns count resolved."""
-    from backend.crew.dispatch import try_fast_trace  # noqa: PLC0415
+    from backend.pipeline.dispatch import try_fast_trace  # noqa: PLC0415
 
     resolved = 0
     for gap in gaps:

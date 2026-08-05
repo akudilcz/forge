@@ -51,7 +51,7 @@ def _make_flow(
     workspace: Path | None = None,
 ) -> Any:
     """Create a new ForgeFlow instance."""
-    from backend.crew.flow import ForgeFlow
+    from backend.pipeline.flow import ForgeFlow
 
     return ForgeFlow(
         pool=pool, graph=graph, config=config,
@@ -435,7 +435,7 @@ async def scan_phase_gaps(
     # monkeypatch there — so it must be read from flow, not backend.quality.checks.
     # Strict mypy cannot treat an underscore-aliased import as re-exported.
     from backend.analysis.gap_analyser import GapAnalyser
-    from backend.crew.flow import (  # type: ignore[attr-defined]
+    from backend.pipeline.flow import (  # type: ignore[attr-defined]
         _QUALITY_GAP_TYPES,
         GAP_TYPE_TO_PHASE,
     )

@@ -575,7 +575,7 @@ class TestOperatorService:
         assert result["cancelled"] == []
 
     @pytest.mark.asyncio
-    @patch("backend.crew.flow.ForgeFlow")
+    @patch("backend.pipeline.flow.ForgeFlow")
     async def test_scan_quality(self, mock_flow_cls: MagicMock) -> None:
         mock_flow = MagicMock()
         mock_flow.scan_qual_detect = AsyncMock(return_value=["finding1"])
@@ -586,7 +586,7 @@ class TestOperatorService:
         assert result["qual_gap_count"] == 1
 
     @pytest.mark.asyncio
-    @patch("backend.crew.flow.ForgeFlow")
+    @patch("backend.pipeline.flow.ForgeFlow")
     async def test_qual_check(self, mock_flow_cls: MagicMock) -> None:
         mock_flow = MagicMock()
         mock_flow.run_qual_check = AsyncMock()
@@ -598,7 +598,7 @@ class TestOperatorService:
         assert result["status"] == "started"
 
     @pytest.mark.asyncio
-    @patch("backend.crew.flow.ForgeFlow")
+    @patch("backend.pipeline.flow.ForgeFlow")
     async def test_run_phase_single(self, mock_flow_cls: MagicMock) -> None:
         mock_flow = MagicMock()
         mock_flow.state = MagicMock()
@@ -611,7 +611,7 @@ class TestOperatorService:
         assert result["status"] == "started"
 
     @pytest.mark.asyncio
-    @patch("backend.crew.flow.ForgeFlow")
+    @patch("backend.pipeline.flow.ForgeFlow")
     async def test_run_phase_range(self, mock_flow_cls: MagicMock) -> None:
         mock_flow = MagicMock()
         mock_flow.state = MagicMock()

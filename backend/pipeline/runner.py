@@ -11,14 +11,14 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from backend.crew.batch_steps import (
+from backend.pipeline.batch_steps import (
     batch_phase3,
     batch_phase5,
     batch_phase7,
     batch_phase8,
     batch_phase10,
 )
-from backend.crew.phase_steps import (
+from backend.pipeline.steps import (
     StepResult,
     case_trace_coverage,
     combined_quality,
@@ -77,8 +77,8 @@ async def run_phase_pipeline(flow: Any, phase: int) -> dict[str, int]:
         f"Phase {phase} pipeline: {step_names}",
     )
 
-    from backend.crew.flow import _SingleStepDone  # noqa: PLC0415 — circular at module level
     from backend.observability import log_context  # noqa: PLC0415
+    from backend.pipeline.flow import _SingleStepDone  # noqa: PLC0415 — circular at module level
 
     total_deletions = 0
     cycle = 0

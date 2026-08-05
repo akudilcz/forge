@@ -24,8 +24,8 @@ from backend.agents.factory import AgentFactory
 from backend.agents.pool import AgentPool
 from backend.config.models import ForgeConfig
 from backend.core.phase_store import PhaseStore
-from backend.crew.flow import ForgeFlow
 from backend.graph.engine import ProjectGraph
+from backend.pipeline.flow import ForgeFlow
 
 logger = logging.getLogger(__name__)
 

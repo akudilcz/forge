@@ -18,16 +18,16 @@ from pydantic import BaseModel, Field
 from backend.analysis.gap_analyser import GapAnalyser
 from backend.analysis.gaps import Gap, GapType
 from backend.analysis.phase_auditor import PhaseAuditor
-from backend.crew.dispatch import (
+from backend.pipeline.dispatch import (
     dispatch as _dispatch_impl,
 )
-from backend.crew.dispatch import (
+from backend.pipeline.dispatch import (
     run_agent_task as _run_agent_task_impl,
 )
-from backend.crew.dispatch import (
+from backend.pipeline.dispatch import (
     try_fast_trace as _try_fast_trace_impl,
 )
-from backend.crew.phase_context import phase_context
+from backend.pipeline.phase_context import phase_context
 from backend.prompting.builder import (
     build_ancestor_context,
     build_task_description,
@@ -177,7 +177,7 @@ class ForgeFlow:
         if _broadcast_status:
             self._broadcast_loop_status("running")
         try:
-            from backend.crew.qual_check_graph import create_qual_check_graph
+            from backend.pipeline.quality_loop import create_qual_check_graph
 
             result = await create_qual_check_graph(self).ainvoke(
                 {
@@ -278,7 +278,7 @@ class ForgeFlow:
                 await self._run_deliverables_phase()
                 return {"phase": 14, **zero_result}
 
-            from backend.crew.phase_pipeline import run_phase_pipeline  # noqa: PLC0415
+            from backend.pipeline.runner import run_phase_pipeline  # noqa: PLC0415
 
             self._broadcast_loop_status("running")
             forge_logger.emit("INFO", "FLOW ", f"Phase {phase} run_phase: starting pipeline")
@@ -319,7 +319,7 @@ class ForgeFlow:
             return await self._run_code_gen_phase()
         if phase == 14:
             return await self._run_deliverables_phase()
-        from backend.crew.phase_pipeline import run_phase_pipeline  # noqa: PLC0415
+        from backend.pipeline.runner import run_phase_pipeline  # noqa: PLC0415
 
         await run_phase_pipeline(self, phase)
 
@@ -330,7 +330,7 @@ class ForgeFlow:
         when single-step mode resolved one gap.
         """
         logger.info("forge.flow.phase_start phase=%d", phase)
-        from backend.crew.structural_loop_graph import create_structural_loop_graph
+        from backend.pipeline.structural_loop import create_structural_loop_graph
 
         result = await create_structural_loop_graph(self).ainvoke(
             {

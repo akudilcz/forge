@@ -26,9 +26,9 @@ import pytest
 
 from backend.config.models import ForgeConfig, ProjectConfig
 from backend.core.phase_store import PhaseStore
-from backend.crew.flow import ForgeFlow
 from backend.graph.engine import ProjectGraph
 from backend.graph.models import GraphNode, LifecycleState, NodeType
+from backend.pipeline.flow import ForgeFlow
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 

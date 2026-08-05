@@ -1,4 +1,4 @@
-"""Tests for the QualCheckGraph stability loop (backend/crew/qual_check_graph.py)."""
+"""Tests for the QualCheckGraph stability loop (backend/pipeline/quality_loop.py)."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from backend.analysis.gaps import Gap, GapPriority, GapType
-from backend.crew.dispatch import DispatchQuotaError
-from backend.crew.flow import ForgeFlow
-from backend.crew.qual_check_graph import (
+from backend.pipeline.dispatch import DispatchQuotaError
+from backend.pipeline.flow import ForgeFlow
+from backend.pipeline.quality_loop import (
     _MAX_QUAL_PASSES,
     _count_nodes,
     create_qual_check_graph,

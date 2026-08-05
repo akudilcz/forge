@@ -293,8 +293,8 @@ class TestPhasesEndpointGaps:
         app = _make_app(graph=_mock_graph(), broadcaster=None)
         with (
             patch("backend.analysis.gap_analyser.GapAnalyser") as mock_cls,
-            patch("backend.crew.flow.GAP_TYPE_TO_PHASE", {}),
-            patch("backend.crew.flow._QUALITY_GAP_TYPES", set()),
+            patch("backend.pipeline.flow.GAP_TYPE_TO_PHASE", {}),
+            patch("backend.pipeline.flow._QUALITY_GAP_TYPES", set()),
         ):
             mock_cls.return_value.analyse.return_value = []
             resp = _client(app).post("/api/v1/phases/3/scan")

@@ -64,7 +64,7 @@ class OperatorService:
         self._state.flow_task = None
 
     def _make_flow(self) -> Any:
-        from backend.crew.flow import ForgeFlow
+        from backend.pipeline.flow import ForgeFlow
 
         return ForgeFlow(
             pool=self._pool,
@@ -164,7 +164,7 @@ class OperatorService:
     async def scan_gaps(self, phase: int) -> dict[str, Any]:
         """Run the gap analyser for *phase* and broadcast results."""
         from backend.analysis.gap_analyser import GapAnalyser
-        from backend.crew.flow import GAP_TYPE_TO_PHASE
+        from backend.pipeline.flow import GAP_TYPE_TO_PHASE
         from backend.quality.checks import QUALITY_GAP_TYPES
         from backend.server.forge_logger import forge_logger
 

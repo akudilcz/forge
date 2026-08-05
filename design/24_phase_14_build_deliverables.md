@@ -7,7 +7,7 @@ project graph and workspace, renders structured documentation, and bundles
 everything into a deliverables ZIP archive. Given the same graph state, it
 always produces identical output.
 
-**Handler:** `_run_deliverables_phase` in `backend/crew/flow.py`
+**Handler:** `_run_deliverables_phase` in `backend/pipeline/flow.py`
 **Module:** `backend/rendering/deliverables.py`
 
 ---

@@ -795,14 +795,14 @@ def test_architecture_includes_entity(db_path: str) -> None:
 
 
 def test_flow_graph_state_count_none_graph() -> None:
-    from backend.crew.flow import ForgeFlow
+    from backend.pipeline.flow import ForgeFlow
 
     flow = ForgeFlow(None, None, None, None, None)
     assert flow._graph_state_count() == 0
 
 
 def test_flow_graph_state_count_exception() -> None:
-    from backend.crew.flow import ForgeFlow
+    from backend.pipeline.flow import ForgeFlow
 
     mock_graph = MagicMock()
     mock_graph.all_nodes.side_effect = RuntimeError("DB error")

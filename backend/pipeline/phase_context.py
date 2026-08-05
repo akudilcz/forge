@@ -12,7 +12,7 @@ surgery — just a FIFO trim on the message list.
 
 Usage::
 
-    from backend.crew.phase_context import phase_context
+    from backend.pipeline.phase_context import phase_context
 
     phase_context.reset_phase(phase)
     hook = phase_context.make_trim_hook(context_window)

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.analysis.gaps import Gap, GapPriority, GapType
-from backend.crew.dispatch import (
+from backend.pipeline.dispatch import (
     _is_quota_error,
     _is_transient_error,
     _log_dispatch_diagnostics,
@@ -184,7 +184,7 @@ def test_is_transient_error_without_openai_installed(
     import sys
 
     monkeypatch.setitem(sys.modules, "openai", None)  # import openai → ImportError
-    from backend.crew.dispatch import _is_transient_error as transient
+    from backend.pipeline.dispatch import _is_transient_error as transient
 
     assert transient(ConnectionError("x")) is True
     assert transient(ValueError("x")) is False
@@ -196,7 +196,7 @@ def test_is_quota_error_without_openai_installed(
     import sys
 
     monkeypatch.setitem(sys.modules, "openai", None)
-    from backend.crew.dispatch import _is_quota_error as quota
+    from backend.pipeline.dispatch import _is_quota_error as quota
 
     assert quota(RuntimeError("x")) is False
 
@@ -207,7 +207,7 @@ def test_is_quota_error_without_openai_installed(
 @pytest.mark.asyncio
 async def test_dispatch_exhausts_transient_retries_and_returns_empty() -> None:
     """Persistent transient errors are retried then abandoned with a log."""
-    from backend.crew.dispatch import _MAX_API_RETRIES, dispatch
+    from backend.pipeline.dispatch import _MAX_API_RETRIES, dispatch
 
     flow = MagicMock()
     flow._graph_state_count.return_value = 0
@@ -218,11 +218,11 @@ async def test_dispatch_exhausts_transient_retries_and_returns_empty() -> None:
 
     with (
         patch(
-            "backend.crew.dispatch.run_agent_task",
+            "backend.pipeline.dispatch.run_agent_task",
             new_callable=AsyncMock, side_effect=ConnectionError("flaky"),
         ) as run_task,
-        patch("backend.crew.dispatch.asyncio.sleep", new_callable=AsyncMock),
-        patch("backend.crew.dispatch.forge_logger") as logger_mock,
+        patch("backend.pipeline.dispatch.asyncio.sleep", new_callable=AsyncMock),
+        patch("backend.pipeline.dispatch.forge_logger") as logger_mock,
     ):
         result = await dispatch(flow, gap)
 
@@ -258,9 +258,9 @@ def _task_flow() -> MagicMock:
 
 def _run_task_patches() -> list[Any]:
     return [
-        patch("backend.crew.dispatch.build_context_for_gap", return_value=""),
+        patch("backend.pipeline.dispatch.build_context_for_gap", return_value=""),
         patch(
-            "backend.crew.dispatch.build_task_description",
+            "backend.pipeline.dispatch.build_task_description",
             return_value=("do it", "done"),
         ),
     ]
@@ -271,7 +271,7 @@ async def test_run_agent_task_collects_tool_calls_and_final_text() -> None:
     """Tool calls are logged; the final text-only message becomes the output."""
     from types import SimpleNamespace
 
-    from backend.crew.dispatch import run_agent_task
+    from backend.pipeline.dispatch import run_agent_task
 
     tool_msg_dict = SimpleNamespace(tool_calls=[{"name": "file_write", "args": {"p": "x"}}], content="")
     tool_msg_obj = SimpleNamespace(tool_calls=[SimpleNamespace(name="shell_exec", args={"cmd": "ls"})], content="")
@@ -286,7 +286,7 @@ async def test_run_agent_task_collects_tool_calls_and_final_text() -> None:
     agent = _FakeAgent(events)
     gap = _gap("LLR-1")
     ctx_patch, desc_patch = _run_task_patches()
-    with ctx_patch, desc_patch, patch("backend.crew.dispatch.forge_logger") as logger_mock:
+    with ctx_patch, desc_patch, patch("backend.pipeline.dispatch.forge_logger") as logger_mock:
         raw = await run_agent_task(_task_flow(), agent, gap, attempt=1, model="gpt-test")
 
     assert raw == "all done"
@@ -300,14 +300,14 @@ async def test_run_agent_task_warns_on_text_only_response() -> None:
     """A response with zero tool calls triggers a hallucination warning."""
     from types import SimpleNamespace
 
-    from backend.crew.dispatch import run_agent_task
+    from backend.pipeline.dispatch import run_agent_task
 
     events = [
         {"event": "on_chat_model_end", "data": {"output": SimpleNamespace(tool_calls=None, content="just prose")}},
     ]
     gap = _gap("LLR-1")
     ctx_patch, desc_patch = _run_task_patches()
-    with ctx_patch, desc_patch, patch("backend.crew.dispatch.forge_logger") as logger_mock:
+    with ctx_patch, desc_patch, patch("backend.pipeline.dispatch.forge_logger") as logger_mock:
         raw = await run_agent_task(
             _task_flow(), _FakeAgent(events), gap, attempt=1, model="",
         )

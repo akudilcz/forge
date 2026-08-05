@@ -27,7 +27,7 @@ from backend.server.forge_logger import forge_logger
 from backend.workspace.trace_parser import analyse_traces
 
 if TYPE_CHECKING:
-    from backend.crew.phase_steps import StepResult
+    from backend.pipeline.steps import StepResult
 
 logger = logging.getLogger(__name__)
 

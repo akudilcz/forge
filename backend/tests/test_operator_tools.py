@@ -160,8 +160,8 @@ async def test_scan_gaps() -> None:
     mock_gap.model_dump.return_value = {}
 
     with patch("backend.analysis.gap_analyser.GapAnalyser.analyse", return_value=[mock_gap]), \
-         patch("backend.crew.flow.GAP_TYPE_TO_PHASE", {mock_gap.type: 3}), \
-         patch("backend.crew.flow._QUALITY_GAP_TYPES", set()):
+         patch("backend.pipeline.flow.GAP_TYPE_TO_PHASE", {mock_gap.type: 3}), \
+         patch("backend.pipeline.flow._QUALITY_GAP_TYPES", set()):
         result = await service.scan_gaps(3)
 
     assert result["phase"] == 3

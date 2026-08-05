@@ -10,7 +10,7 @@ from backend.agents.definitions import AGENT_REGISTRY, GAP_AGENT_MAPPING
 from backend.agents.factory import AgentFactory
 from backend.analysis.gaps import GapType
 from backend.config.models import ForgeConfig
-from backend.crew.phase_context import phase_context
+from backend.pipeline.phase_context import phase_context
 
 _log = structlog.get_logger(__name__)
 

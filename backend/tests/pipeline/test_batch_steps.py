@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.crew.batch_steps import (
+from backend.pipeline.batch_steps import (
     _node_to_dict,
     _run_batch_agent,
     batch_phase3,
@@ -282,7 +282,7 @@ async def test_batch_phase10_invokes_agent() -> None:
 @pytest.mark.asyncio
 async def test_batch_phase10_retries_up_to_max_attempts() -> None:
     from backend.analysis.gaps import Gap, GapPriority, GapType
-    from backend.crew.batch_steps import _MAX_BATCH_ATTEMPTS
+    from backend.pipeline.batch_steps import _MAX_BATCH_ATTEMPTS
 
     hlr = _mock_node("HLR-1", "HLR", content="shall")
     suite = _mock_node("SUITE-1", "SUITE", content="strategy")
@@ -294,7 +294,7 @@ async def test_batch_phase10_retries_up_to_max_attempts() -> None:
     flow._collect_phase_gaps.return_value = [gap]
 
     with patch(
-        "backend.crew.batch_steps._run_batch_agent", new_callable=AsyncMock, return_value=1
+        "backend.pipeline.batch_steps._run_batch_agent", new_callable=AsyncMock, return_value=1
     ) as mock_run:
         await batch_phase10(flow, 10)
     assert mock_run.await_count == _MAX_BATCH_ATTEMPTS
@@ -312,7 +312,7 @@ async def test_batch_phase10_passes_union_allow_gap_types() -> None:
     flow._collect_phase_gaps.side_effect = [[gap], []]
 
     with patch(
-        "backend.crew.batch_steps._run_batch_agent", new_callable=AsyncMock, return_value=1
+        "backend.pipeline.batch_steps._run_batch_agent", new_callable=AsyncMock, return_value=1
     ) as mock_run:
         await batch_phase10(flow, 10)
 
@@ -342,7 +342,7 @@ async def test_batch_phase10_tracks_new_case_node_ids() -> None:
         return 1
 
     with patch(
-        "backend.crew.batch_steps._run_batch_agent",
+        "backend.pipeline.batch_steps._run_batch_agent",
         new_callable=AsyncMock, side_effect=fake_agent,
     ):
         await batch_phase10(flow, 10)
@@ -361,11 +361,11 @@ async def test_batch_phase10_exception_falls_back_to_structural() -> None:
 
     with (
         patch(
-            "backend.crew.batch_steps._run_batch_agent",
+            "backend.pipeline.batch_steps._run_batch_agent",
             new_callable=AsyncMock, side_effect=RuntimeError("boom"),
         ),
         patch(
-            "backend.crew.batch_steps._fallback_structural",
+            "backend.pipeline.batch_steps._fallback_structural",
             new_callable=AsyncMock,
             return_value={"step_name": "structural", "deletions": 0},
         ) as mock_fb,
@@ -391,7 +391,7 @@ async def test_batch_phase10_skips_agent_when_all_requirements_tested() -> None:
     flow._collect_phase_gaps.return_value = [gap]
 
     with patch(
-        "backend.crew.batch_steps._run_batch_agent", new_callable=AsyncMock
+        "backend.pipeline.batch_steps._run_batch_agent", new_callable=AsyncMock
     ) as mock_run:
         result = await batch_phase10(flow, 10)
     mock_run.assert_not_awaited()
@@ -440,15 +440,15 @@ async def test_batch_phase8_exception_falls_back_to_structural() -> None:
 
     with (
         patch(
-            "backend.crew.batch_steps._run_fast_traces",
+            "backend.pipeline.batch_steps._run_fast_traces",
             new_callable=AsyncMock, return_value=0,
         ),
         patch(
-            "backend.crew.batch_steps._run_batch_agent",
+            "backend.pipeline.batch_steps._run_batch_agent",
             new_callable=AsyncMock, side_effect=RuntimeError("boom"),
         ),
         patch(
-            "backend.crew.batch_steps._fallback_structural",
+            "backend.pipeline.batch_steps._fallback_structural",
             new_callable=AsyncMock,
             return_value={"step_name": "structural", "deletions": 0},
         ) as mock_fb,
@@ -536,8 +536,8 @@ async def test_run_batch_agent_resets_constraints_when_stream_raises() -> None:
 
     token = object()
     with (
-        patch("backend.crew.batch_steps.set_phase_constraints", return_value=token),
-        patch("backend.crew.batch_steps.reset_phase_constraints") as mock_reset,
+        patch("backend.pipeline.batch_steps.set_phase_constraints", return_value=token),
+        patch("backend.pipeline.batch_steps.reset_phase_constraints") as mock_reset,
     ):
         with pytest.raises(RuntimeError, match="stream died"):
             await _run_batch_agent(flow, GapType.UNCOVERED_PARA, "prompt", 3)
@@ -552,10 +552,10 @@ async def test_run_batch_agent_uses_union_constraints_for_allow_gap_types() -> N
     token = object()
     with (
         patch(
-            "backend.crew.batch_steps.set_phase_constraints_union", return_value=token
+            "backend.pipeline.batch_steps.set_phase_constraints_union", return_value=token
         ) as mock_union,
-        patch("backend.crew.batch_steps.set_phase_constraints") as mock_single,
-        patch("backend.crew.batch_steps.reset_phase_constraints") as mock_reset,
+        patch("backend.pipeline.batch_steps.set_phase_constraints") as mock_single,
+        patch("backend.pipeline.batch_steps.reset_phase_constraints") as mock_reset,
     ):
         result = await _run_batch_agent(
             flow,

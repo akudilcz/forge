@@ -1,10 +1,10 @@
 # Phase Context Map
 
-Cross-checked against source (`backend/crew/`, `backend/agents/`, `backend/tools/`) on 2026-04-22. For each phase: what actually runs, what context is assembled, concrete issues, and potential solutions.
+Cross-checked against source (`backend/pipeline/` + `backend/prompting/`, `backend/agents/`, `backend/tools/`) on 2026-04-22. For each phase: what actually runs, what context is assembled, concrete issues, and potential solutions.
 
 ## Pipeline orchestration (ground truth)
 
-`backend/crew/phase_pipeline.py::PHASE_STEPS` wires phases to step lists:
+`backend/pipeline/runner.py::PHASE_STEPS` wires phases to step lists:
 
 | Phase | Steps |
 |---|---|

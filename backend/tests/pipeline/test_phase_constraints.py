@@ -5,13 +5,13 @@ from __future__ import annotations
 import pytest
 
 from backend.analysis.gaps import GapType
-from backend.crew.phase_constraints import (
+from backend.graph.models import NodeType
+from backend.pipeline.phase_constraints import (
     PHASE_CREATE_ALLOWLIST,
     check_create_allowed,
     reset_phase_constraints,
     set_phase_constraints,
 )
-from backend.graph.models import NodeType
 
 
 def test_no_constraint_active_allows_anything() -> None:
