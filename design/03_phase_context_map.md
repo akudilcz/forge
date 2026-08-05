@@ -24,7 +24,9 @@ Cross-checked against source (`backend/pipeline/` + `backend/prompting/`, `backe
 
 Both entry points — the full-run loop (`kickoff_async` → `_run_phase`) and the per-phase route (`run_phase`) — execute these step lists via `run_phase_pipeline`. Step failures propagate (the phase is marked `awaiting_approval` and the exception re-raises); `DispatchQuotaError` always propagates so quota exhaustion halts the run loudly.
 
-**Key correction vs earlier notes**: Phase 13 is *workspace_sync*, not a standalone quality audit. Quality audit runs *inside every phase's pipeline* via `quality_gaps` + `combined_quality` + `semantic` steps — where `combined_quality` is a single batched LLM call judging atomicity + EARS + title↔content match + title specificity on every authored node.
+**Key correction vs earlier notes**: Phase 13 is *workspace_sync*, not a standalone quality audit. Quality audit runs *inside every phase's pipeline* via `quality_gaps` + `combined_quality` + `semantic` steps — where `combined_quality` is a single batched LLM call judging atomicity + EARS + title↔content match + title specificity on every authored node. `combined_quality` PASS verdicts are sticky per `(node_id, content-hash)` on the flow (unchanged nodes are not re-judged across the runner's up-to-12 cycles; FAIL verdicts are never cached), and the `semantic` step runs a deterministic token-overlap prescreen so clearly-dissimilar candidates never reach the LLM judge (deletion still requires the two-call double confirmation — design/01 §7.4).
+
+The `structural` step's loop certifies each gap's resolution by re-running the gap analyser after the dispatch and requiring that gap's `(type, node_id)` key to be gone — a write anywhere else in the graph never resolves a gap (design/01 §8.3).
 
 ## Context assembly machinery
 

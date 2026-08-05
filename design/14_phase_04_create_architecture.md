@@ -68,7 +68,7 @@ modules. Every HLR is included so the architecture can account for all of them.
 
 | Quality Gap         | Trigger                                              |
 |---------------------|------------------------------------------------------|
-| STALE_NODE          | Parent PROJECT or traced HLRs updated after ARCHITECTURE |
+| STALE_NODE          | ARCHITECTURE's provenance hash mismatches parent PROJECT content |
 | EMPTY_CONTENT       | ARCHITECTURE node has blank or whitespace-only content |
 | INADEQUATE_CONTENT  | Content is too short or lacks module decomposition detail |
 

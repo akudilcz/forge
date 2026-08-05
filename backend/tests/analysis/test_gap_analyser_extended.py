@@ -34,16 +34,13 @@ def _graph(
 
 
 def test_stale_node(analyser: GapAnalyser) -> None:
-    from datetime import UTC, datetime
-
-    old_time = datetime(2024, 1, 1, tzinfo=UTC)
-    new_time = datetime(2024, 6, 1, tzinfo=UTC)
+    from backend.graph.provenance import DERIVED_FROM_HASH, provenance_hash
 
     parent = GraphNode(
         node_id="doc.spec",
         node_type=NodeType.DOCUMENT.value,
         title="Spec",
-        updated_at=new_time,
+        content="current document body",
     )
     child = GraphNode(
         node_id="doc.spec.p1",
@@ -51,7 +48,7 @@ def test_stale_node(analyser: GapAnalyser) -> None:
         title="Para",
         content="some content",
         parent_id="doc.spec",
-        updated_at=old_time,
+        properties={DERIVED_FROM_HASH: provenance_hash("older document body")},
     )
     g = _graph([parent, child], node_map={"doc.spec": parent, "doc.spec.p1": child})
     gaps = analyser.analyse(g)

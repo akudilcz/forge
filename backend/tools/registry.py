@@ -23,6 +23,7 @@ _GRAPH_WRITE_TOOLS = frozenset(
         "graph_remove_traces",
         "graph_add_edge",
         "graph_remove_edge",
+        "graph_refresh_provenance",
         # Batch writer — accepts an array of ops and runs them in one tool call.
         # Exposing it alongside the single-op tools lets capable models (Opus,
         # Sonnet) emit all decisions in one turn instead of N sequential ReAct
@@ -189,6 +190,8 @@ class ToolRegistry:
                 "graph_read",
                 "graph_update_node",
                 "graph_delete_node",
+                # Deterministic 'reviewed, no change needed' closure.
+                "graph_refresh_provenance",
                 "multi_graph_write",
             }
         ),

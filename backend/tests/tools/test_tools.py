@@ -178,7 +178,8 @@ def test_graph_write_add_node_with_parent_id() -> None:
     mock_graph.add_node = capture_add_node
     result = GraphWriteTool(graph=mock_graph)._execute(
         operation="add_node", node_id="req.hlr.abc.0001", node_type="REQ",
-        parent_id="doc.whitepaper.par.abc.0001", content="The system shall do X.",
+        parent_id="doc.whitepaper.par.abc.0001", title="Do X Requirement",
+        content="The system shall do X.",
     )
     assert "OK" in result
     assert captured["node"].parent_id == "doc.whitepaper.par.abc.0001"
@@ -194,7 +195,8 @@ def test_graph_write_add_node_empty_parent_becomes_none() -> None:
     mock_graph = MagicMock()
     mock_graph.add_node = capture_add_node
     GraphWriteTool(graph=mock_graph)._execute(
-        operation="add_node", node_id="req.hlr.xyz", node_type="REQ", content="something",
+        operation="add_node", node_id="req.hlr.xyz", node_type="REQ",
+        title="Something Requirement", content="something",
     )
     assert captured["node"].parent_id is None
 
@@ -214,7 +216,8 @@ def test_graph_write_add_node_auto_generates_id() -> None:
     mock_graph.allocate_node_id = mock_allocate
     result = GraphWriteTool(graph=mock_graph)._execute(
         operation="add_node", node_type="REQ",
-        parent_id="doc.spec.par.abc.0001", content="The system shall do X.",
+        parent_id="doc.spec.par.abc.0001", title="Do X Requirement",
+        content="The system shall do X.",
     )
     assert "OK" in result
     assert captured["node"].node_id == "REQ-0001"

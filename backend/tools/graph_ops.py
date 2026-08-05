@@ -212,6 +212,32 @@ class GraphRemoveTracesTool(_GraphMutationTool):
         return await GraphWriteTool._op_remove_traces(self._as_write_tool(), graph, **kw)
 
 
+# ── Refresh Provenance ───────────────────────────────────────────────────────
+
+class _RefreshProvenanceArgs(BaseModel):
+    node_id: str = Field(description="ID of the reviewed node to re-stamp.")
+    reason: str = Field(default="", description="Justification for the re-stamp.")
+
+
+class GraphRefreshProvenanceTool(_GraphMutationTool):
+    """Mark a STALE_NODE as reviewed-and-still-valid by re-stamping its provenance."""
+
+    name: str = "graph_refresh_provenance"
+    description: str = (
+        "Resolve a STALE_NODE verdict of 'reviewed, no change needed': "
+        "re-stamps the node's derived_from_hash against the parent's current "
+        "content WITHOUT touching the node's own content. Use graph_update_node "
+        "instead when the content actually needs re-deriving."
+    )
+    args_schema: type[BaseModel] = _RefreshProvenanceArgs
+
+    async def _run_op(self, graph: object, **kw: Any) -> str:
+        from backend.tools.graph_write import GraphWriteTool
+        return await GraphWriteTool._op_refresh_provenance(
+            self._as_write_tool(), graph, **kw
+        )
+
+
 # ── Add Edge ─────────────────────────────────────────────────────────────────
 
 class _AddEdgeArgs(BaseModel):

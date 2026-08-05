@@ -22,6 +22,7 @@ exactly one follow-up call; anything still unjudged raises
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from typing import Any
@@ -89,6 +90,14 @@ HLR-0002: ATOMIC=FAIL(covers sort AND validate) EARS=PASS MATCH=PASS SPECIFIC=PA
 MODULE-0001: MATCH=PASS SPECIFIC=PASS
 SUITE-0001: MATCH=PASS SPECIFIC=FAIL(title "Tests" is a vague label)
 """
+
+def quality_pass_key(node_id: str, title: str, content: str) -> tuple[str, str]:
+    """Cache key for a sticky PASS verdict: node plus a hash of exactly what
+    was judged. Title participates because two of the four axes (MATCH,
+    SPECIFIC) judge the title, so a retitle must rotate the key."""
+    digest = hashlib.sha256(f"{title}\x00{content}".encode()).hexdigest()
+    return (node_id, digest)
+
 
 _RETRY_NOTE = (
     "The nodes below received NO verdict (or an incomplete one) in your "

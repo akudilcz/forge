@@ -82,7 +82,7 @@ No `graph_add_traces` — SUITE does not trace to individual requirements.
 
 | Gap | Trigger |
 |-----|---------|
-| STALE_NODE | ARCHITECTURE or MODULE set changed after the SUITE was written. |
+| STALE_NODE | SUITE's provenance hash mismatches parent PROJECT content. |
 | EMPTY_CONTENT | SUITE body is blank or trivially short. |
 | INADEQUATE_CONTENT | Strategy missing required sections (test types, coverage targets, environment, or verification approach). |
 

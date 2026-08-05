@@ -71,7 +71,7 @@ cross-module interface alignment, and the specific HLRs the module must satisfy.
 
 | Quality Gap         | Trigger                                               |
 |---------------------|-------------------------------------------------------|
-| STALE_NODE          | Parent MODULE or ARCHITECTURE updated after CONTRACT   |
+| STALE_NODE          | CONTRACT's provenance hash mismatches parent MODULE content |
 | EMPTY_CONTENT       | CONTRACT has blank or whitespace-only content          |
 | INADEQUATE_CONTENT  | Content lacks function signatures or conditions        |
 

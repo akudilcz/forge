@@ -69,7 +69,7 @@ preserving the module inventory from the architecture document.
 
 | Quality Gap         | Trigger                                               |
 |---------------------|-------------------------------------------------------|
-| STALE_NODE          | Traced HLRs or ARCHITECTURE updated after MODULE      |
+| STALE_NODE          | MODULE's provenance hash mismatches parent ARCHITECTURE content |
 | EMPTY_CONTENT       | MODULE has blank or whitespace-only content            |
 | INADEQUATE_CONTENT  | Content lacks a clear responsibility statement         |
 | EMPTY_TRACE         | MODULE has no trace_to links (must trace to >= 1 HLR) |

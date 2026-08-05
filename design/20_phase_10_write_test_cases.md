@@ -80,7 +80,7 @@ Per-requirement context (deliberately shallow to avoid O(N^2) growth):
 
 | Gap | Trigger |
 |-----|---------|
-| STALE_NODE | The traced requirement was updated after the CASE was written. |
+| STALE_NODE | CASE's provenance hash mismatches parent SUITE content. |
 | EMPTY_CONTENT | CASE body is blank or trivially short. |
 | INADEQUATE_CONTENT | Missing required sections (steps, expected results, or acceptance criteria). |
 | INCONSISTENT_CONTENT | CASE steps contradict the requirement or conflict with another CASE for the same requirement. |

@@ -89,7 +89,7 @@ architectural boundaries (to respect module/contract scope).
 
 | Quality Gap         | Trigger                                       |
 |---------------------|-----------------------------------------------|
-| STALE_NODE          | Parent HLR updated after LLR                  |
+| STALE_NODE          | LLR's provenance hash mismatches parent HLR content |
 | EMPTY_CONTENT       | LLR has blank or whitespace-only content       |
 | INADEQUATE_CONTENT  | LLR content is too brief to be actionable      |
 | TITLE_COLLIDES_WITH_PARENT | LLR title duplicates parent HLR title — scope not narrowed |

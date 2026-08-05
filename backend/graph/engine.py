@@ -28,6 +28,7 @@ from backend.graph.models import (
     GraphNode,
     NodeType,
 )
+from backend.graph.provenance import DERIVED_FROM_HASH, provenance_hash
 from backend.server.forge_logger import forge_logger
 
 
@@ -131,6 +132,16 @@ class ProjectGraph(QueryMixin, AlgorithmMixin):
             persist_props["sub_type"] = node.para_type
         persist_props.pop("trace_to", None)
 
+        # Provenance stamp (design/01 §2.6): record the parent content this
+        # child was authored against. Stamped here — never by agents — so
+        # every creation path gets it automatically.
+        if node.parent_id and DERIVED_FROM_HASH not in persist_props:
+            parent = await self.node(node.parent_id)
+            if parent is not None:
+                stamp = provenance_hash(parent.content or "")
+                persist_props[DERIVED_FROM_HASH] = stamp
+                node.properties[DERIVED_FROM_HASH] = stamp
+
         now = datetime.now(UTC).isoformat()
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
@@ -201,6 +212,27 @@ class ProjectGraph(QueryMixin, AlgorithmMixin):
         content_changed = new_content != node.content or new_label != node.title
         assert node.content_updated_at is not None  # guaranteed by model_post_init
         new_content_ts = now if content_changed else node.content_updated_at.isoformat()
+
+        # Provenance stamp maintenance (design/01 §2.6):
+        # * content change → the node was just re-authored against the CURRENT
+        #   parent content, so re-stamp derived_from_hash.
+        # * metadata-only update → carry the existing stamp over, even when the
+        #   caller supplied a replacement properties bag that omits it.
+        if node.parent_id:
+            if new_content != node.content:
+                parent = await self.node(node.parent_id)
+                if parent is not None:
+                    merged_props = dict(merged_props or {})
+                    merged_props[DERIVED_FROM_HASH] = provenance_hash(
+                        parent.content or ""
+                    )
+            elif (
+                merged_props is not None
+                and DERIVED_FROM_HASH not in merged_props
+                and DERIVED_FROM_HASH in node.properties
+            ):
+                merged_props = dict(merged_props)
+                merged_props[DERIVED_FROM_HASH] = node.properties[DERIVED_FROM_HASH]
 
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
@@ -347,17 +379,29 @@ class ProjectGraph(QueryMixin, AlgorithmMixin):
 
         await self._save_history(node, changed_by, reason)
 
+        # Re-stamp provenance against the NEW parent (design/01 §2.6): a
+        # deliberate move must never trigger a stale storm by itself.
+        new_props = dict(node.properties)
+        if new_parent_id:
+            new_parent = await self.node(new_parent_id)
+            assert new_parent is not None  # existence verified above
+            new_props[DERIVED_FROM_HASH] = provenance_hash(new_parent.content or "")
+        elif DERIVED_FROM_HASH in new_props:
+            del new_props[DERIVED_FROM_HASH]
+
         now = datetime.now(UTC).isoformat()
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
-                "UPDATE pg_nodes SET parent_id=?, updated_at=?, version=version+1 WHERE node_id=?",
-                (new_parent_id, now, node_id),
+                "UPDATE pg_nodes SET parent_id=?, properties=?, updated_at=?, "
+                "version=version+1 WHERE node_id=?",
+                (new_parent_id, json.dumps(new_props), now, node_id),
             )
             await db.commit()
 
         if self._g.has_node(node_id):
             d = self._g.nodes[node_id]
             d["parent_id"] = new_parent_id
+            d["properties"] = new_props
             d["updated_at"] = now
             d["version"] = d.get("version", 1) + 1
 

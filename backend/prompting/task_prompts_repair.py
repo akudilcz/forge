@@ -152,11 +152,16 @@ def _untitled_node(nid: str, ctx: str) -> tuple[str, str]:
 
 def _stale_node(nid: str, ctx: str) -> tuple[str, str]:
     return (
-        f"Node '{nid}' is marked stale — its content may be out of date.\n\n"
-        f"Read the node, review its content against the current context, "
-        f"then update it via graph_update_node."
+        f"Node '{nid}' is stale — its parent's content changed since this "
+        f"node was authored (provenance hash mismatch).\n\n"
+        f"Read the node and its parent, then either:\n"
+        f"* content needs re-deriving → rewrite it via graph_update_node "
+        f"(this re-stamps provenance automatically), or\n"
+        f"* content is still valid as-is → call "
+        f"graph_refresh_provenance(node_id={nid}) to record the review "
+        f"without touching content."
         f"{ctx}",
-        f"Node '{nid}' updated in the graph.",
+        f"Node '{nid}' re-derived or its provenance refreshed.",
     )
 
 

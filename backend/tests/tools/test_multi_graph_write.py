@@ -51,7 +51,7 @@ def test_add_node_success() -> None:
         "node_id": "req.hlr.001",
         "node_type": "HLR",
         "title": "HLR-001",
-        "content": "The system shall...",
+        "content": "The system shall do X.",
         "properties": '{"req_level": "hlr"}',
         "lifecycle": "draft",
     }])
@@ -139,7 +139,8 @@ def test_mixed_operations_partial_success() -> None:
     graph.add_node = AsyncMock(side_effect=RuntimeError("DB error"))
     tool = MultiGraphWriteTool(graph=graph)
     ops = json.dumps([
-        {"operation": "add_node", "node_id": "req.1", "node_type": "HLR"},
+        {"operation": "add_node", "node_id": "req.1", "node_type": "HLR",
+         "title": "Req One", "content": "The system shall do X."},
         {"operation": "add_edge", "edge_type": "DERIVES_FROM", "source_id": "a", "target_id": "b"},
     ])
     result = tool._execute(operations=ops)

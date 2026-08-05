@@ -282,7 +282,7 @@ def test_add_traces_rejects_json_object(mock_graph: MagicMock) -> None:
 
 
 def test_coerce_to_list_variants() -> None:
-    from backend.tools.graph_write import _coerce_to_list, _TraceToCoerceError
+    from backend.tools.graph_write_parsing import _coerce_to_list, _TraceToCoerceError
 
     assert _coerce_to_list(None) == []
     assert _coerce_to_list("") == []
@@ -298,7 +298,7 @@ def test_coerce_to_list_variants() -> None:
 
 
 def test_parse_trace_to_fallbacks() -> None:
-    from backend.tools.graph_write import _parse_trace_to
+    from backend.tools.graph_write_parsing import _parse_trace_to
 
     # kwargs win when parseable
     assert _parse_trace_to({"trace_to": '["A"]'}, {}) == ["A"]

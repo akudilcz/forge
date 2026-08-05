@@ -9,12 +9,22 @@ of truth for parent-child type compatibility. Extracted from
 
 from __future__ import annotations
 
-import hashlib
 from collections import defaultdict
 from typing import Any
 
 from backend.analysis.gaps import Gap, GapPriority, GapType
+from backend.analysis.node_invariants import (
+    CASE_TRACE_TARGET,
+    TITLE_EXEMPT_TYPES,
+    check_case_trace_targets,
+    check_requirement_wording,
+    check_title,
+    normalise_content,
+    normalise_title,
+)
 from backend.graph.models import GraphNode, NodeType
+from backend.graph.provenance import DERIVED_FROM_HASH, provenance_hash
+from backend.server.forge_logger import forge_logger
 
 # Canonical parent-type constraints (design/01_architecture.md §2).
 # Maps child node_type → frozenset of valid parent node_types.
@@ -58,14 +68,20 @@ class NodeIntegrityChecks:
     )
 
     def _check_staleness(self, graph: Any, node: GraphNode) -> list[Gap]:
-        """Check if a node is stale relative to its parent's CONTENT.
+        """Provenance-hash staleness (design/01_architecture.md §2.6).
 
-        Content-aware: the comparison point is the parent's
-        ``content_updated_at`` (last content/title change), not
-        ``updated_at``. Metadata-only parent touches (properties,
-        trace_to, reparenting) must not cascade STALE_NODE gaps onto
-        every child — that pattern once cost a build 320 LLM repair
-        dispatches after DOCUMENT bookkeeping during phase-2 chunking.
+        STALE_NODE fires iff the child's ``properties.derived_from_hash``
+        (stamped by the engine from the parent content the child was
+        authored against) differs from the hash of the parent's CURRENT
+        content. Because the stamp covers content only, metadata/trace/
+        title touches of the parent can never cascade staleness — the
+        timestamp-based predecessor of this check once cost a build 320
+        LLM repair dispatches after DOCUMENT bookkeeping in phase 2.
+
+        Unstamped nodes (created before the provenance migration ran) are
+        never guessed at: no gap is emitted, and the anomaly is logged
+        loudly — schema migration ``_migrate_derived_from_hash`` is the
+        backfill path.
 
         Workspace-sync nodes (CODE, TEST, RESULT) are skipped — their
         parents are routinely updated with metadata (line_traces, trace
@@ -78,23 +94,35 @@ class NodeIntegrityChecks:
         parent = graph.node_sync(node.parent_id)
         if not parent:
             return []
-        parent_content_ts = parent.content_updated_at
-        if parent_content_ts is None:
-            raise ValueError(
-                f"Node {parent.node_id} has no content_updated_at — "
-                f"model_post_init should have defaulted it from updated_at."
+        props = node.properties or {}
+        if DERIVED_FROM_HASH not in props:
+            forge_logger.emit(
+                "WARNING", "GAP  ",
+                f"Node {node.node_id} has no {DERIVED_FROM_HASH} stamp — "
+                f"staleness unknown; schema migration should have "
+                f"backfilled it. Skipping STALE_NODE for this node.",
+                node_id=node.node_id,
             )
-        if node.updated_at < parent_content_ts:
+            return []
+        current = provenance_hash(parent.content or "")
+        if props[DERIVED_FROM_HASH] != current:
             return [
                 Gap(
                     type=GapType.STALE_NODE,
                     priority=GapPriority.MAINTENANCE,
                     node_id=node.node_id,
                     description=(
-                        f"Node {node.node_id} is stale "
-                        f"(parent content updated more recently)."
+                        f"Node {node.node_id} is stale — parent "
+                        f"{parent.node_id} content changed since this node "
+                        f"was authored (provenance hash mismatch). Re-derive "
+                        f"from the current parent content, or call "
+                        f"graph_refresh_provenance if it is still valid."
                     ),
-                    context={"parent_id": parent.node_id},
+                    context={
+                        "parent_id": parent.node_id,
+                        "stored_hash": props[DERIVED_FROM_HASH],
+                        "current_hash": current,
+                    },
                 )
             ]
         return []
@@ -201,50 +229,31 @@ class NodeIntegrityChecks:
 
     def _check_case_trace_types(self, graph: Any, node: GraphNode) -> list[Gap]:
         """Flag CASE nodes with missing trace_to or wrong-type refs."""
-        case_types = {
-            NodeType.CASE_HLR.value: NodeType.HLR.value,
-            NodeType.CASE_LLR.value: NodeType.LLR.value,
-        }
+        case_types = CASE_TRACE_TARGET
         if node.node_type not in case_types:
             return []
         expected = case_types[node.node_type]
 
         trace_refs = node.trace_to or []
-
-        # No traceability links — requirement link missing
-        if not trace_refs:
-            return [
-                Gap(
-                    type=GapType.STALE_TRACE_TO,
-                    priority=GapPriority.MAINTENANCE,
-                    node_id=node.node_id,
-                    description=(
-                        f"{node.node_type} {node.node_id} has no trace_to "
-                        f"— must trace to at least one {expected} node."
-                    ),
-                    context={"missing_trace": True, "expected_type": expected},
-                )
-            ]
-
-        # Wrong-type refs in trace_to
-        wrong = [
-            ref
-            for ref in trace_refs
-            if (target := graph.node_sync(ref)) and target.node_type != expected
-        ]
-        if not wrong:
+        msg = check_case_trace_targets(node.node_type, trace_refs, graph.node_sync)
+        if msg is None:
             return []
+        if not trace_refs:
+            context: dict[str, Any] = {"missing_trace": True, "expected_type": expected}
+        else:
+            wrong = [
+                ref
+                for ref in trace_refs
+                if (target := graph.node_sync(ref)) and target.node_type != expected
+            ]
+            context = {"wrong_type_refs": wrong, "expected_type": expected}
         return [
             Gap(
                 type=GapType.STALE_TRACE_TO,
                 priority=GapPriority.MAINTENANCE,
                 node_id=node.node_id,
-                description=(
-                    f"{node.node_type} {node.node_id} has trace_to "
-                    f"reference(s) to non-{expected} node(s): {', '.join(wrong)}. "
-                    f"Remove them — trace_to must contain only {expected} node IDs."
-                ),
-                context={"wrong_type_refs": wrong, "expected_type": expected},
+                description=f"{node.node_type} {node.node_id}: {msg}",
+                context=context,
             )
         ]
 
@@ -266,9 +275,9 @@ class NodeIntegrityChecks:
                 continue
             by_hash: dict[str, list[GraphNode]] = defaultdict(list)
             for node in siblings:
-                norm = (node.content or "").strip().lower()
-                content_hash = hashlib.sha256(norm.encode()).hexdigest()
-                by_hash[content_hash].append(node)
+                # Same normalisation the write tools enforce at add/update
+                # time (node_invariants.check_sibling_content_unique).
+                by_hash[normalise_content(node.content or "")].append(node)
 
             for dupes in by_hash.values():
                 if len(dupes) < 2:
@@ -293,78 +302,38 @@ class NodeIntegrityChecks:
     def _check_requirement_wording(self, node: GraphNode) -> list[Gap]:
         """Flag HLR/LLR nodes with bad wording or placeholder content.
 
-        Catches:
-        - Content not starting with 'The system shall '
-        - Placeholder content referencing raw PARA/DOCUMENT node IDs
-          (e.g. "The system shall PARA-0012." or "Handle PARA-0003 Content")
+        Delegates to the shared write-time invariant in
+        ``backend/analysis/node_invariants.py`` so tool enforcement and
+        analyser backstop can never diverge.
         """
-        requirement_types = {NodeType.HLR.value, NodeType.LLR.value}
-        if node.node_type not in requirement_types:
+        msg = check_requirement_wording(node.node_type, node.content or "")
+        if msg is None:
             return []
-        content = (node.content or "").strip()
-        if not content:
-            return []
-
-        # Check for placeholder content containing raw node IDs
-        import re  # noqa: PLC0415
-
-        if re.search(r"\bPARA-\d{4}\b", content):
-            return [
-                Gap(
-                    type=GapType.MALFORMED_REQUIREMENT,
-                    priority=GapPriority.MAINTENANCE,
-                    node_id=node.node_id,
-                    description=(
-                        f"{node.node_type} {node.node_id} is a placeholder referencing "
-                        f"a raw PARA node ID: {content[:80]!r}"
-                    ),
-                )
-            ]
-
-        if not content.lower().startswith("the system shall "):
-            return [
-                Gap(
-                    type=GapType.MALFORMED_REQUIREMENT,
-                    priority=GapPriority.MAINTENANCE,
-                    node_id=node.node_id,
-                    description=(
-                        f"{node.node_type} {node.node_id} content does not start with "
-                        f"'The system shall ': {content[:80]!r}"
-                    ),
-                )
-            ]
-
-        return []
+        return [
+            Gap(
+                type=GapType.MALFORMED_REQUIREMENT,
+                priority=GapPriority.MAINTENANCE,
+                node_id=node.node_id,
+                description=f"{node.node_type} {node.node_id}: {msg}",
+            )
+        ]
 
     def _check_title(self, node: GraphNode) -> list[Gap]:
-        """Flag authored nodes that lack a short (3-5 word) human-readable title."""
-        # Skip node types that don't need authored titles
-        skip_types = {
-            NodeType.PROJECT.value,
-            NodeType.DOCUMENT.value,
-            NodeType.RESULT.value,
-            NodeType.RECORD.value,
-        }
-        if node.node_type in skip_types:
-            return []
-        title = node.title.strip()
-        word_count = len(title.split()) if title else 0
-        if not title:
-            msg = f"Node {node.node_id} ({node.node_type}) has no title."
-        elif word_count > 7:
-            msg = (
-                f"Node {node.node_id} title is too long ({word_count} words): {title!r}. "
-                f"Keep it to 3-5 words."
-            )
-        else:
+        """Flag authored nodes that lack a short (3-5 word) human-readable title.
+
+        Delegates to the shared write-time invariant in
+        ``backend/analysis/node_invariants.py``.
+        """
+        msg = check_title(node.node_type, node.title)
+        if msg is None:
             return []
         return [
             Gap(
                 type=GapType.UNTITLED_NODE,
                 priority=GapPriority.MAINTENANCE,
                 node_id=node.node_id,
-                description=msg,
-                context={"current_title": title},
+                description=f"Node {node.node_id} ({node.node_type}): {msg}",
+                context={"current_title": node.title.strip()},
             )
         ]
 
@@ -372,19 +341,14 @@ class NodeIntegrityChecks:
         """Flag pairs of siblings under the same parent with identical titles.
 
         Emits one gap per duplicated title group, targeting the later-created node
-        (so the canonical first node keeps its title). Case/whitespace-insensitive.
+        (so the canonical first node keeps its title). Case/whitespace-insensitive
+        via the shared ``node_invariants.normalise_title`` used by the write tools.
         """
-        skip_types = {
-            NodeType.PROJECT.value,
-            NodeType.DOCUMENT.value,
-            NodeType.RESULT.value,
-            NodeType.RECORD.value,
-        }
         by_parent: dict[str, dict[str, list[GraphNode]]] = {}
         for n in all_nodes:
-            if n.node_type in skip_types or not n.parent_id:
+            if n.node_type in TITLE_EXEMPT_TYPES or not n.parent_id:
                 continue
-            title_key = (n.title or "").strip().lower()
+            title_key = normalise_title(n.title or "")
             if not title_key:
                 continue
             by_parent.setdefault(n.parent_id, {}).setdefault(title_key, []).append(n)

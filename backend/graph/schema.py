@@ -9,7 +9,11 @@ Schema aligns with DESIGN_GRAPH.md §Storage Architecture:
 
 from __future__ import annotations
 
+import json
+
 import aiosqlite
+
+from backend.graph.provenance import DERIVED_FROM_HASH, provenance_hash
 
 SCHEMA_SQL = """
 -- FORGE Project Graph SQLite Schema v3
@@ -107,6 +111,7 @@ async def apply_schema(db: aiosqlite.Connection) -> None:
       1. Rename display_label → title if needed.
       2. Add trace_to column and promote from properties JSON.
       3. Add content_updated_at column, backfilled from updated_at.
+      4. Backfill properties.derived_from_hash provenance stamps (LOUD).
 
     Args:
         db: An open aiosqlite.Connection instance.
@@ -116,6 +121,7 @@ async def apply_schema(db: aiosqlite.Connection) -> None:
     await _migrate_display_label(db)
     await _migrate_trace_to_column(db)
     await _migrate_content_updated_at(db)
+    await _migrate_derived_from_hash(db)
 
 
 async def _migrate_display_label(db: aiosqlite.Connection) -> None:
@@ -180,3 +186,48 @@ async def _migrate_content_updated_at(db: aiosqlite.Connection) -> None:
         "UPDATE pg_nodes SET content_updated_at = updated_at WHERE content_updated_at = ''"
     )
     await db.commit()
+
+
+async def _migrate_derived_from_hash(db: aiosqlite.Connection) -> None:
+    """Backfill ``properties.derived_from_hash`` provenance stamps — LOUDLY.
+
+    STALE_NODE detection compares a child's stored provenance stamp against
+    the hash of its parent's current content (design/01 §2.6). Nodes created
+    before provenance stamping existed carry no stamp, and their historical
+    parent content is unknowable — so the current parent content is taken as
+    the provenance baseline (stamp-on-first-load). That assumption means any
+    parent edit that happened BEFORE this migration will not surface as
+    STALE_NODE, which is why every backfill run is logged at WARNING with
+    the affected node count: silence here would hide the assumption.
+
+    Idempotent: only rows missing the property are touched. Rows without a
+    parent are never stamped.
+    """
+    query = (
+        "SELECT c.node_id, c.properties, p.content "
+        "FROM pg_nodes c JOIN pg_nodes p ON c.parent_id = p.node_id "
+        f"WHERE json_extract(c.properties, '$.{DERIVED_FROM_HASH}') IS NULL"
+    )
+    async with db.execute(query) as cur:
+        rows = list(await cur.fetchall())
+    if not rows:
+        return
+    for node_id, props_raw, parent_content in rows:
+        props = json.loads(props_raw or "{}")
+        props[DERIVED_FROM_HASH] = provenance_hash(parent_content or "")
+        await db.execute(
+            "UPDATE pg_nodes SET properties=? WHERE node_id=?",
+            (json.dumps(props), node_id),
+        )
+    await db.commit()
+
+    from backend.server.forge_logger import forge_logger  # noqa: PLC0415
+
+    forge_logger.emit(
+        "WARNING", "GRAPH",
+        f"provenance backfill: stamped {len(rows)} node(s) with "
+        f"{DERIVED_FROM_HASH} from their parent's CURRENT content "
+        f"(historical provenance unknowable — parent edits predating this "
+        f"migration will not surface as STALE_NODE).",
+        count=len(rows),
+    )

@@ -113,7 +113,7 @@ The following items are tracked but depend on schema or orchestration changes ou
 
 ## Staleness detectors
 
-`gap_analyser.py` (staleness checks in `gap_analyser_staleness.py`; the per-node `STALE_NODE` check lives in `gap_analyser_integrity.py` and compares child `updated_at` against parent `content_updated_at`, so metadata-only parent touches never cascade) emits:
+`gap_analyser.py` (staleness checks in `gap_analyser_staleness.py`; the per-node `STALE_NODE` check lives in `gap_analyser_integrity.py` and compares the child's `properties.derived_from_hash` provenance stamp against the SHA-256 of the parent's current content, so metadata/trace-only parent touches never cascade — see design/01 §2.6) emits:
 
 * `STALE_ARCHITECTURE` when >20% of current HLRs were added after the ARCHITECTURE's `created_at`.
 * `STALE_SUITE` when >20% of current HLRs+LLRs were added after a SUITE's `created_at`.

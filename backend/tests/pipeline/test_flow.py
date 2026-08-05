@@ -377,9 +377,22 @@ def test_build_ancestor_context_chain(flow: ForgeFlow, mock_deps: MockDeps) -> N
 # ── Single-step mode ──────────────────────────────────────────────────────────
 
 
+def _analyse_gap_once(gap: Gap) -> Any:
+    """Analyser stub: the gap is open on the first scan (collect) and gone on
+    every later scan — so the post-dispatch resolution certificate clears."""
+    calls = [0]
+
+    def _analyse(graph: Any) -> list[Gap]:
+        calls[0] += 1
+        return [gap] if calls[0] == 1 else []
+
+    return _analyse
+
+
 @pytest.mark.asyncio
 async def test_single_step_mode(flow: ForgeFlow, mock_deps: MockDeps) -> None:
-    """single_step=True: _run_phase raises _SingleStepDone after a graph write; kickoff sets loop_status=idle."""
+    """single_step=True: _run_phase raises _SingleStepDone once the dispatched
+    gap's resolution certificate clears; kickoff sets loop_status=idle."""
     from backend.graph.models import GraphNode, NodeType
 
     doc_node = GraphNode(
@@ -389,19 +402,21 @@ async def test_single_step_mode(flow: ForgeFlow, mock_deps: MockDeps) -> None:
     flow.state.single_step = True
     flow.state.start_phase = 2
 
-    # _run_phase raises _SingleStepDone after detecting a write (pre=1, post=2)
-    # dispatch.py reads pre_count once, structural_loop reads pre + post
-    counts = iter([1, 1, 2])
+    gap = Gap(
+        type=GapType.UNCHUNKED_DOCUMENT,
+        priority=GapPriority.DOCUMENT_STRUCTURE,
+        node_id="doc.spec",
+        description="Document doc.spec has no paragraphs.",
+    )
     with patch.object(flow, "_run_agent_task", new=AsyncMock()):
-        with patch.object(flow, "_graph_state_count", side_effect=counts):
+        with patch.object(flow._analyser, "analyse", side_effect=_analyse_gap_once(gap)):
             with pytest.raises(_SingleStepDone):
                 await flow._run_phase(2)
 
     # kickoff_async catches _SingleStepDone and sets loop_status=idle
     mock_deps[1].all_nodes.return_value = [doc_node]
-    counts = itertools.count(0)
     with patch.object(flow, "_run_agent_task", new=AsyncMock()):
-        with patch.object(flow, "_graph_state_count", side_effect=counts):
+        with patch.object(flow._analyser, "analyse", side_effect=_analyse_gap_once(gap)):
             await flow.kickoff_async()
 
     assert flow.state.loop_status == "idle"

@@ -697,7 +697,8 @@ class TestQueuePromoteTool:
 # 5. graph_write — uncovered paths
 # ═══════════════════════════════════════════════════════════════════════════
 
-from backend.tools.graph_write import GraphWriteTool, _parse_json_obj, _parse_trace_to
+from backend.tools.graph_write import GraphWriteTool
+from backend.tools.graph_write_parsing import _parse_json_obj, _parse_trace_to
 
 
 class TestOpUpdateNodeJsonError:

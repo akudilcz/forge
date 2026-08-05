@@ -11,29 +11,30 @@ from backend.pipeline.structural_loop import StructuralLoopState, create_structu
 
 def _make_flow(
     gaps: list[Gap] | None = None,
-    dispatch_changes_graph: bool = True,
+    dispatch_resolves_gap: bool = True,
     dispatch_return: str = "done",
 ) -> Any:
-    """Return a MagicMock standing in for ForgeFlow (typed Any — it is a mock)."""
+    """Return a MagicMock standing in for ForgeFlow (typed Any — it is a mock).
+
+    Resolution is analyser-driven (the resolution certificate): the loop
+    considers a gap resolved only when ``flow._analyser.analyse`` no longer
+    reports it. ``flow._open_gaps`` is the mutable set of still-open gaps;
+    a resolving dispatch removes the dispatched gap from it.
+    """
     flow = MagicMock()
     flow._collect_phase_gaps = MagicMock(return_value=gaps or [])
-    flow._analyser.analyse.return_value = []
+    flow._open_gaps = list(gaps or [])
+    flow._analyser.analyse = MagicMock(side_effect=lambda _graph: list(flow._open_gaps))
     flow._broadcast_gap_list = MagicMock()
     flow._request_approval = AsyncMock()
     flow.state.single_step = False
     flow.state.iteration = 0
 
-    pre = [0]
-
-    def graph_state_count() -> int:
-        return pre[0]
-
-    def dispatch_side_effect(*args: Any, **kwargs: Any) -> str:
-        if dispatch_changes_graph:
-            pre[0] += 1
+    def dispatch_side_effect(gap: Gap, *args: Any, **kwargs: Any) -> str:
+        if dispatch_resolves_gap and gap in flow._open_gaps:
+            flow._open_gaps.remove(gap)
         return dispatch_return
 
-    flow._graph_state_count = graph_state_count
     flow._dispatch = AsyncMock(side_effect=dispatch_side_effect)
     return flow
 
@@ -144,6 +145,119 @@ async def test_gap_already_resolved_false_for_other_gap_types() -> None:
     assert _gap_already_resolved(flow, gap) is False
 
 
+def _track_wq_statuses(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record every work-queue status update; monkeypatch restores at teardown."""
+    from backend.core.work_queue import work_queue
+
+    statuses: list[str] = []
+    orig_update = work_queue.update_status
+
+    def track(item_id: str, status: str) -> None:
+        statuses.append(status)
+        orig_update(item_id, status)
+
+    monkeypatch.setattr(work_queue, "update_status", track)
+    return statuses
+
+
+# ── Resolution certificate ───────────────────────────────────────────────────
+#
+# A gap counts as resolved only when the analyser no longer reports its exact
+# (type, node_id) key after the dispatch. Writes anywhere else in the graph
+# (wrong-typed nodes, no-op re-stamps, vandalism) must never resolve a gap.
+
+
+@pytest.mark.asyncio
+async def test_gap_resolved_only_when_its_own_analyser_check_clears(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Happy path: the dispatch removes the gap from the analyser output, so
+    the loop certifies resolution — the work item is marked done."""
+    gap = _gap("MOD-0001")
+    call_num = [0]
+
+    def collect_side(*args: Any, **kwargs: Any) -> list[Gap]:
+        call_num[0] += 1
+        return [gap] if call_num[0] == 1 else []
+
+    flow = _make_flow(gaps=[gap], dispatch_resolves_gap=True)
+    flow._collect_phase_gaps.side_effect = collect_side
+
+    statuses = _track_wq_statuses(monkeypatch)
+
+    graph = create_structural_loop_graph(flow)
+    result = await graph.ainvoke(_initial_state())
+
+    assert flow._dispatch.await_count == 1
+    assert result["iteration"] == 1
+    assert "done" in statuses, "certified resolution must mark the work item done"
+
+
+@pytest.mark.asyncio
+async def test_write_elsewhere_never_resolves_the_gap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dispatch that mutates the graph WITHOUT clearing this gap's analyser
+    check is not resolution: the attempt counter climbs and the gap is
+    abandoned at the cap — never marked done.
+
+    Under the old version-sum signal any write anywhere counted as progress
+    (the hostile-agent fake-progress incident)."""
+    gap = _gap("MOD-0001")
+    gap_key = f"{gap.type}:{gap.node_id}"
+    flow = _make_flow(gaps=[gap], dispatch_resolves_gap=False)
+
+    # The dispatch "writes" — it creates an unrelated gap elsewhere — but the
+    # dispatched gap itself stays open in every fresh analysis.
+    other = _gap("MOD-9999")
+
+    async def write_elsewhere(g: Gap, *args: Any, **kwargs: Any) -> str:
+        if other not in flow._open_gaps:
+            flow._open_gaps.append(other)
+        return "OK: created something unrelated"
+
+    flow._dispatch = AsyncMock(side_effect=write_elsewhere)
+    flow._collect_phase_gaps.side_effect = (
+        lambda phase, skipped: [gap] if gap_key not in skipped else []
+    )
+
+    from backend.pipeline.structural_loop import _MAX_GAP_ATTEMPTS
+
+    statuses = _track_wq_statuses(monkeypatch)
+
+    graph = create_structural_loop_graph(flow)
+    result = await graph.ainvoke(_initial_state())
+
+    # attempt++ on every persisting dispatch, then abandoned at the cap.
+    assert flow._dispatch.await_count == _MAX_GAP_ATTEMPTS
+    assert result["gap_fail_counts"][gap_key] == _MAX_GAP_ATTEMPTS
+    assert gap_key in result["abandoned"]
+    assert "done" not in statuses, (
+        "a write elsewhere was certified as resolving the gap"
+    )
+
+
+@pytest.mark.asyncio
+async def test_persisting_gap_increments_attempts_despite_version_writes() -> None:
+    """attempt++ when the gap persists, even though every dispatch writes."""
+    gap = _gap("MOD-0001")
+    gap_key = f"{gap.type}:{gap.node_id}"
+    call_num = [0]
+
+    def collect_side(*args: Any, **kwargs: Any) -> list[Gap]:
+        call_num[0] += 1
+        return [gap] if call_num[0] <= 2 else []
+
+    flow = _make_flow(gaps=[gap], dispatch_resolves_gap=False)
+    flow._collect_phase_gaps.side_effect = collect_side
+
+    graph = create_structural_loop_graph(flow)
+    result = await graph.ainvoke(_initial_state())
+
+    assert flow._dispatch.await_count == 2
+    assert result["gap_fail_counts"][gap_key] == 2
+
+
 @pytest.mark.asyncio
 async def test_quota_error_propagates_out_of_loop() -> None:
     """DispatchQuotaError propagates out of the loop — quota exhaustion halts
@@ -184,7 +298,7 @@ async def test_failed_dispatch_resets_wq_status_to_pending(
         # Return the gap on first collect, then empty to stop the loop
         return [gap] if call_num[0] == 1 else []
 
-    flow = _make_flow(dispatch_changes_graph=False)
+    flow = _make_flow(gaps=[gap], dispatch_resolves_gap=False)
     flow._collect_phase_gaps.side_effect = collect_side
 
     # Track work_queue.update_status calls

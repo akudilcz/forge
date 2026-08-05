@@ -6,10 +6,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from unittest import mock
 
 from backend.analysis.gap_analyser import GapAnalyser
 from backend.analysis.gaps import GapType
 from backend.graph.models import GraphNode
+from backend.graph.provenance import DERIVED_FROM_HASH, provenance_hash
 
 
 def _node(nid: str, ntype: str, **kw: Any) -> GraphNode:
@@ -43,61 +45,74 @@ class _Graph:
 # ── STALE_NODE (content-aware) ───────────────────────────────────────────────
 
 
-def test_metadata_only_parent_update_does_not_stale_children() -> None:
-    """A properties/trace-only parent touch bumps updated_at but NOT
-    content_updated_at — children must not be flagged STALE_NODE."""
-    old = datetime.now(UTC) - timedelta(days=10)
-    mid = datetime.now(UTC) - timedelta(days=5)
-    new = datetime.now(UTC)
-    parent = _node(
-        "DOC-1", "DOCUMENT",
-        updated_at=new,  # metadata touched just now (e.g. phase-2 chunking)
-        content_updated_at=old,  # content itself unchanged for 10 days
+def test_matching_provenance_hash_not_stale() -> None:
+    """Child stamped against the parent's current content is fresh —
+    regardless of any timestamp relationship."""
+    parent = _node("DOC-1", "DOCUMENT", content="doc body",
+                   updated_at=datetime.now(UTC))
+    child = _node(
+        "PARA-1", "PARA", parent_id="DOC-1", content="body",
+        updated_at=datetime.now(UTC) - timedelta(days=10),
+        properties={DERIVED_FROM_HASH: provenance_hash("doc body")},
     )
-    child = _node("PARA-1", "PARA", parent_id="DOC-1", content="body",
-                  updated_at=mid)
     gaps = GapAnalyser()._check_staleness(_Graph([parent, child]), child)
     assert gaps == []
 
 
-def test_parent_content_change_still_emits_stale_node() -> None:
-    old = datetime.now(UTC) - timedelta(days=10)
-    new = datetime.now(UTC)
-    parent = _node(
-        "DOC-1", "DOCUMENT",
-        updated_at=new,
-        content_updated_at=new,  # real content change after child was written
+def test_parent_content_change_emits_stale_node() -> None:
+    """STALE_NODE fires iff stored hash != current parent content hash."""
+    parent = _node("DOC-1", "DOCUMENT", content="NEW doc body")
+    child = _node(
+        "PARA-1", "PARA", parent_id="DOC-1", content="body",
+        properties={DERIVED_FROM_HASH: provenance_hash("OLD doc body")},
     )
-    child = _node("PARA-1", "PARA", parent_id="DOC-1", content="body",
-                  updated_at=old)
     gaps = GapAnalyser()._check_staleness(_Graph([parent, child]), child)
     assert len(gaps) == 1
     assert gaps[0].type == GapType.STALE_NODE
     assert gaps[0].node_id == "PARA-1"
+    assert gaps[0].context["parent_id"] == "DOC-1"
 
 
-def test_child_newer_than_parent_content_change_not_stale() -> None:
-    old = datetime.now(UTC) - timedelta(days=10)
-    new = datetime.now(UTC)
-    parent = _node("HLR-1", "HLR", updated_at=old, content_updated_at=old)
-    child = _node("LLR-1", "LLR", parent_id="HLR-1", content="body",
-                  updated_at=new)
+def test_metadata_only_parent_touch_never_stales_children() -> None:
+    """The hash covers parent CONTENT only — properties/trace/title touches
+    of the parent can never cascade STALE_NODE onto children."""
+    parent = _node(
+        "DOC-1", "DOCUMENT", content="doc body", title="Renamed Title",
+        properties={"chunked": True}, trace_to=["X-1"],
+        updated_at=datetime.now(UTC),
+    )
+    child = _node(
+        "PARA-1", "PARA", parent_id="DOC-1", content="body",
+        updated_at=datetime.now(UTC) - timedelta(days=10),
+        properties={DERIVED_FROM_HASH: provenance_hash("doc body")},
+    )
     gaps = GapAnalyser()._check_staleness(_Graph([parent, child]), child)
     assert gaps == []
 
 
-def test_node_without_explicit_content_ts_defaults_to_updated_at() -> None:
-    """Nodes built without content_updated_at initialise it to updated_at,
-    preserving the original timestamp semantics."""
-    old = datetime.now(UTC) - timedelta(days=10)
-    new = datetime.now(UTC)
-    parent = _node("HLR-1", "HLR", updated_at=new)  # no content_updated_at
-    child = _node("LLR-1", "LLR", parent_id="HLR-1", content="body",
-                  updated_at=old)
-    assert parent.content_updated_at == parent.updated_at
+def test_unstamped_node_is_not_flagged_but_logged_loud() -> None:
+    """Legacy nodes without derived_from_hash are backfilled at schema
+    migration; if the analyser ever meets one mid-run it must NOT guess a
+    verdict — it emits no gap and logs loudly."""
+    parent = _node("HLR-1", "HLR", content="req text")
+    child = _node("LLR-1", "LLR", parent_id="HLR-1", content="body")
+    with mock.patch(
+        "backend.analysis.gap_analyser_integrity.forge_logger"
+    ) as logger:
+        gaps = GapAnalyser()._check_staleness(_Graph([parent, child]), child)
+    assert gaps == []
+    assert logger.emit.called
+    assert logger.emit.call_args.args[0] == "WARNING"
+
+
+def test_workspace_sync_types_skip_staleness() -> None:
+    parent = _node("DESIGN-1", "DESIGN", content="new design body")
+    child = _node(
+        "CODE-1", "CODE", parent_id="DESIGN-1", content="src ref",
+        properties={DERIVED_FROM_HASH: provenance_hash("old design body")},
+    )
     gaps = GapAnalyser()._check_staleness(_Graph([parent, child]), child)
-    assert len(gaps) == 1
-    assert gaps[0].type == GapType.STALE_NODE
+    assert gaps == []
 
 
 # ── STALE_ARCHITECTURE ───────────────────────────────────────────────────────

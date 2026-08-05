@@ -12,6 +12,11 @@ from __future__ import annotations
 from typing import Any
 
 from backend.analysis.gaps import Gap, GapPriority, GapType
+from backend.analysis.node_invariants import (
+    MIN_CONTENT_LENGTH,
+    MIN_CONTENT_TYPES,
+    check_min_content_length,
+)
 from backend.graph.models import GraphNode, NodeType
 
 
@@ -83,20 +88,12 @@ class CorpusStalenessChecks:
                     stack.extend(ref.trace_to)
         return gaps
 
-    # Minimum content length (chars) for non-container, non-requirement nodes.
+    # Minimum content length for non-container, non-requirement nodes.
     # Requirements are checked separately (wording, atomicity, EARS).
-    _MIN_CONTENT_LENGTH = 50
-    _CONTENT_CHECK_TYPES: frozenset[str] = frozenset(
-        {
-            NodeType.ARCHITECTURE.value,
-            NodeType.MODULE.value,
-            NodeType.CONTRACT.value,
-            NodeType.DESIGN.value,
-            NodeType.SUITE.value,
-            NodeType.CASE_HLR.value,
-            NodeType.CASE_LLR.value,
-        }
-    )
+    # Values live in the shared write-time invariant module so the write
+    # tools and this backstop can never diverge.
+    _MIN_CONTENT_LENGTH = MIN_CONTENT_LENGTH
+    _CONTENT_CHECK_TYPES: frozenset[str] = MIN_CONTENT_TYPES
 
     # Fraction of descendants added AFTER an ARCHITECTURE/SUITE node's created_at
     # beyond which it is considered stale and should be re-derived.
@@ -307,26 +304,23 @@ class CorpusStalenessChecks:
         self,
         all_nodes: list[GraphNode],
     ) -> list[Gap]:
-        """Flag nodes with content too short to be actionable."""
+        """Flag nodes with content too short to be actionable.
+
+        Delegates to the shared write-time invariant in
+        ``backend/analysis/node_invariants.py``.
+        """
         gaps: list[Gap] = []
         for node in all_nodes:
-            if node.node_type not in self._CONTENT_CHECK_TYPES:
+            msg = check_min_content_length(node.node_type, node.content or "")
+            if msg is None:
                 continue
-            content = (node.content or "").strip()
-            if not content:
-                continue  # EMPTY_CONTENT already catches this
-            if len(content) < self._MIN_CONTENT_LENGTH:
-                gaps.append(
-                    Gap(
-                        type=GapType.INADEQUATE_CONTENT,
-                        priority=GapPriority.MAINTENANCE,
-                        node_id=node.node_id,
-                        description=(
-                            f"{node.node_type} {node.node_id} content is only "
-                            f"{len(content)} chars — too short to be actionable. "
-                            f"Minimum {self._MIN_CONTENT_LENGTH} chars expected."
-                        ),
-                        context={"content_length": len(content)},
-                    )
+            gaps.append(
+                Gap(
+                    type=GapType.INADEQUATE_CONTENT,
+                    priority=GapPriority.MAINTENANCE,
+                    node_id=node.node_id,
+                    description=f"{node.node_type} {node.node_id}: {msg}",
+                    context={"content_length": len((node.content or "").strip())},
                 )
+            )
         return gaps

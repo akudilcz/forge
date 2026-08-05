@@ -87,6 +87,11 @@ class ForgeFlow(SpecialPhaseHandlers):
         # Sticky semantic-dedup verdicts, keyed by (node_id, content-hash).
         # Flow-scoped so pipeline re-loops cannot re-litigate unchanged nodes.
         self._semantic_verdict_cache: dict[tuple[str, str], str] = {}
+        # Sticky combined-quality PASS verdicts, keyed by
+        # (node_id, title+content hash). FAIL is never cached — a repaired
+        # node must be re-judged. Flow-scoped, rebuilt on restart: worst case
+        # after a restart is one full re-judging sweep (design/01 §7.4).
+        self._quality_verdict_cache: dict[tuple[str, str], str] = {}
 
     # ── Public interface ─────────────────────────────────────────────────────
 
@@ -472,6 +477,10 @@ class ForgeFlow(SpecialPhaseHandlers):
             self.broadcaster.emit(WSEventType.PHASE_TRANSITION, {"loop_status": status})
 
     def _graph_state_count(self) -> int:
+        # Version-sum heuristic. Retired as a resolution signal — the
+        # structural loop certifies resolution by re-running the analyser
+        # (design/01 §8.3). Still used by dispatch.py to detect partial work
+        # before retrying a transient API failure.
         if self.graph is None:
             return 0
         try:

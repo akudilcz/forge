@@ -81,19 +81,36 @@ async def run_combined_quality_check(flow: Any, phase: int) -> list[Gap]:
     if only_ids:
         nodes = [n for n in nodes if n.node_id in only_ids]
 
-    items = [
-        (n.node_id, n.node_type, (n.title or "").strip(), (n.content or "").strip())
-        for n in nodes
-        if (n.title or "").strip() and (n.content or "").strip()
-    ]
-    if not items:
-        return []
-
     from backend.agents.factory import build_llm
     from backend.quality.combined_check import (
         UnjudgedQualityError,
         create_combined_quality_checker,
+        quality_pass_key,
     )
+
+    all_items = [
+        (n.node_id, n.node_type, (n.title or "").strip(), (n.content or "").strip())
+        for n in nodes
+        if (n.title or "").strip() and (n.content or "").strip()
+    ]
+    # Sticky PASS verdicts (design/01 §7.4): a node whose title+content is
+    # unchanged since its last full PASS is not re-sent to the judge. FAIL is
+    # never cached, so repaired nodes are always re-judged. The cache lives on
+    # the flow — AttributeError here is a missing precondition, not a fallback.
+    verdict_cache = flow._quality_verdict_cache
+    items = [
+        it for it in all_items
+        if quality_pass_key(it[0], it[2], it[3]) not in verdict_cache
+    ]
+    if len(items) < len(all_items):
+        forge_logger.emit(
+            "INFO",
+            "XQUAL",
+            f"Phase {phase} combined quality check — "
+            f"{len(all_items) - len(items)} node(s) skipped via sticky PASS verdicts",
+        )
+    if not items:
+        return []
 
     checker = create_combined_quality_checker(build_llm(flow.config, cacheable=True))
     forge_logger.emit(
@@ -119,6 +136,14 @@ async def run_combined_quality_check(flow: Any, phase: int) -> list[Gap]:
             f"{type(exc).__name__}: {exc} — retrying once",
         )
         gaps = await checker(items)
+
+    # A returned result means every judged node received a verdict on every
+    # applicable axis (unjudged raises). Stamp PASS for nodes with no gaps;
+    # nodes that failed any axis are deliberately NOT cached.
+    failed_ids = {g.node_id for g in gaps}
+    for node_id, _ntype, title, content in items:
+        if node_id not in failed_ids:
+            verdict_cache[quality_pass_key(node_id, title, content)] = "PASS"
 
     forge_logger.emit(
         "INFO",

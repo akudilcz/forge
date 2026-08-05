@@ -118,6 +118,103 @@ async def test_combined_quality_check_double_failure_propagates() -> None:
     assert checker.await_count == 2
 
 
+# ── run_combined_quality_check: sticky PASS verdicts (design §7.4) ───────────
+#
+# The runner re-drives combined_quality up to 12 cycles; a node whose
+# title+content is unchanged since its last full PASS must not be re-sent to
+# the judge. FAIL verdicts are never cached.
+
+
+def _cached_flow(nodes: list[SimpleNamespace]) -> MagicMock:
+    flow = _flow(nodes)
+    flow._quality_verdict_cache = {}
+    return flow
+
+
+def _patched(checker: AsyncMock) -> Any:
+    return patch(
+        "backend.quality.combined_check.create_combined_quality_checker",
+        return_value=checker,
+    )
+
+
+@pytest.mark.asyncio
+async def test_pass_verdict_is_cached_and_node_not_rejudged() -> None:
+    """A clean node is judged once; the second cycle never calls the LLM."""
+    flow = _cached_flow(
+        [_node("LLR-1", "LLR", title="Store files", content="The system shall store files.")]
+    )
+    checker = AsyncMock(return_value=[])
+    with patch("backend.agents.factory.build_llm", return_value=MagicMock()), _patched(checker):
+        first = await run_combined_quality_check(flow, phase=7)
+        second = await run_combined_quality_check(flow, phase=7)
+    assert first == []
+    assert second == []
+    assert checker.await_count == 1, "an unchanged PASS node was re-sent to the judge"
+
+
+@pytest.mark.asyncio
+async def test_fail_verdict_is_not_cached() -> None:
+    """A node that failed any axis is re-judged on the next cycle."""
+    node = _node("LLR-1", "LLR", title="Store files", content="The system shall store files.")
+    flow = _cached_flow([node])
+    gap = Gap(
+        type=GapType.NON_ATOMIC_REQUIREMENT,
+        priority=GapPriority.MAINTENANCE,
+        node_id="LLR-1",
+        description="not atomic",
+    )
+    checker = AsyncMock(side_effect=[[gap], [gap]])
+    with patch("backend.agents.factory.build_llm", return_value=MagicMock()), _patched(checker):
+        await run_combined_quality_check(flow, phase=7)
+        await run_combined_quality_check(flow, phase=7)
+    assert checker.await_count == 2, "a FAIL verdict was cached — repairs would never be re-judged"
+
+
+@pytest.mark.asyncio
+async def test_content_change_invalidates_cached_pass() -> None:
+    """Editing a previously-passed node rotates its hash — it is re-judged."""
+    node = _node("LLR-1", "LLR", title="Store files", content="The system shall store files.")
+    flow = _cached_flow([node])
+    checker = AsyncMock(return_value=[])
+    with patch("backend.agents.factory.build_llm", return_value=MagicMock()), _patched(checker):
+        await run_combined_quality_check(flow, phase=7)
+        node.content = "The system shall store files atomically."
+        await run_combined_quality_check(flow, phase=7)
+    assert checker.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_only_uncached_nodes_are_sent_to_the_judge() -> None:
+    """Mixed batch: the cached-PASS node is filtered out; the new node is judged."""
+    passed = _node("LLR-1", "LLR", title="Store files", content="The system shall store files.")
+    flow = _cached_flow([passed])
+    checker = AsyncMock(return_value=[])
+    with patch("backend.agents.factory.build_llm", return_value=MagicMock()), _patched(checker):
+        await run_combined_quality_check(flow, phase=7)
+        fresh = _node("LLR-2", "LLR", title="Delete files", content="The system shall delete files.")
+        flow.graph.all_nodes = MagicMock(return_value=[passed, fresh])
+        await run_combined_quality_check(flow, phase=7)
+    assert checker.await_count == 2
+    second_items = checker.await_args_list[1].args[0]
+    assert [it[0] for it in second_items] == ["LLR-2"], (
+        "the cached-PASS node leaked back into the judged batch"
+    )
+
+
+@pytest.mark.asyncio
+async def test_failed_batch_caches_nothing() -> None:
+    """An exception (even after retry) must not stamp PASS on anything."""
+    flow = _cached_flow(
+        [_node("LLR-1", "LLR", title="Store files", content="The system shall store files.")]
+    )
+    checker = AsyncMock(side_effect=RuntimeError("LLM down"))
+    with patch("backend.agents.factory.build_llm", return_value=MagicMock()), _patched(checker):
+        with pytest.raises(RuntimeError):
+            await run_combined_quality_check(flow, phase=7)
+    assert flow._quality_verdict_cache == {}, "a failed batch cached a verdict"
+
+
 @pytest.mark.asyncio
 async def test_run_semantic_check_no_candidates() -> None:
     flow = _flow([_node("HLR-1", "HLR", content="the system shall X.", parent_id="PARA-1")])

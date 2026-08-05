@@ -56,7 +56,7 @@ def _llm_seq(*contents: str) -> MagicMock:
 async def _judge(content: Any) -> tuple[bool, MagicMock]:
     graph = _graph()
     check = create_semantic_checker(_llm(content), graph, {})
-    deleted = await check("PARA-0001", "some requirement text", "[PARA-0002] other")
+    deleted = await check("PARA-0001", "some requirement text", "[PARA-0002] related text")
     return deleted, graph
 
 
@@ -155,7 +155,7 @@ class TestResponseShapes:
         llm.ainvoke = AsyncMock(return_value="DUPLICATE - same thing")
 
         check = create_semantic_checker(llm, graph, {})
-        deleted = await check("PARA-0001", "text", "[PARA-0002] other")
+        deleted = await check("PARA-0001", "text", "[PARA-0002] related text")
 
         assert deleted is True
 
@@ -174,7 +174,7 @@ class TestDoubleConfirmation:
         llm = _llm_seq("DUPLICATE - same as PARA-0002", "DUPLICATE - same as PARA-0002")
         check = create_semantic_checker(llm, graph, {})
 
-        deleted = await check("PARA-0001", "text", "[PARA-0002] other")
+        deleted = await check("PARA-0001", "text", "[PARA-0002] related text")
 
         assert deleted is True
         assert llm.ainvoke.await_count == 2
@@ -186,7 +186,7 @@ class TestDoubleConfirmation:
         llm = _llm_seq("DUPLICATE - same as PARA-0002", "UNIQUE - distinct obligation")
         check = create_semantic_checker(llm, graph, {})
 
-        deleted = await check("PARA-0001", "text", "[PARA-0002] other")
+        deleted = await check("PARA-0001", "text", "[PARA-0002] related text")
 
         assert deleted is False
         assert llm.ainvoke.await_count == 2
@@ -197,7 +197,7 @@ class TestDoubleConfirmation:
         llm = _llm_seq("DUPLICATE - same as PARA-0002", "")
         check = create_semantic_checker(llm, graph, {})
 
-        deleted = await check("PARA-0001", "text", "[PARA-0002] other")
+        deleted = await check("PARA-0001", "text", "[PARA-0002] related text")
 
         assert deleted is False
         graph.delete_node.assert_not_awaited()
@@ -207,10 +207,106 @@ class TestDoubleConfirmation:
         llm = _llm_seq("UNIQUE - distinct obligation")
         check = create_semantic_checker(llm, graph, {})
 
-        deleted = await check("PARA-0001", "text", "[PARA-0002] other")
+        deleted = await check("PARA-0001", "text", "[PARA-0002] related text")
 
         assert deleted is False
         assert llm.ainvoke.await_count == 1
+
+
+class TestDeterministicPrescreen:
+    """Clearly-dissimilar pairs never reach the LLM judge (design §7.4).
+
+    The prescreen is a cheap stdlib token-overlap check. It only reduces the
+    candidate pairs that get judged — it never authorises deletion, and the
+    two-call double confirmation still gates every actual deletion.
+    """
+
+    async def test_dissimilar_pair_skips_the_llm_and_keeps_the_node(self) -> None:
+        graph = _graph()
+        llm = _llm("DUPLICATE - should never be consulted")
+        check = create_semantic_checker(llm, graph, {})
+
+        deleted = await check(
+            "PARA-0001",
+            "Sort the integer list into ascending order.",
+            "[PARA-0002] Render weather forecasts as coloured umbrella icons.",
+        )
+
+        assert deleted is False
+        llm.ainvoke.assert_not_awaited()
+        graph.delete_node.assert_not_awaited()
+
+    async def test_similar_pair_still_reaches_the_judge(self) -> None:
+        graph = _graph()
+        llm = _llm("UNIQUE - distinct obligation")
+        check = create_semantic_checker(llm, graph, {})
+
+        deleted = await check(
+            "PARA-0001",
+            "The system shall sort the integer list ascending.",
+            "[PARA-0002] The system shall sort the integer list descending.",
+        )
+
+        assert deleted is False
+        assert llm.ainvoke.await_count == 1
+
+    async def test_one_similar_peer_among_dissimilar_triggers_judgement(self) -> None:
+        graph = _graph()
+        llm = _llm("UNIQUE - distinct obligation")
+        check = create_semantic_checker(llm, graph, {})
+
+        siblings = (
+            "  [PARA-0002] Render weather forecasts as coloured umbrella icons.\n"
+            "  [PARA-0003] The system shall sort the integer list descending."
+        )
+        await check("PARA-0001", "The system shall sort the integer list ascending.", siblings)
+
+        assert llm.ainvoke.await_count == 1
+
+    async def test_double_confirmation_still_gates_deletion_after_prescreen(self) -> None:
+        """The prescreen passing a pair through changes nothing about deletion
+        safety: it still takes 2/2 DUPLICATE verdicts."""
+        graph = _graph()
+        llm = _llm_seq("DUPLICATE - same as PARA-0002", "DUPLICATE - same as PARA-0002")
+        check = create_semantic_checker(llm, graph, {})
+
+        deleted = await check(
+            "PARA-0001",
+            "The system shall sort the integer list ascending.",
+            "[PARA-0002] The system shall sort the integer list ascending.",
+        )
+
+        assert deleted is True
+        assert llm.ainvoke.await_count == 2
+        graph.delete_node.assert_awaited_once_with("PARA-0001")
+
+    async def test_unparseable_peers_text_is_conservatively_judged(self) -> None:
+        """Peers text without [ID] blocks cannot be prescreened — send to the
+        judge rather than silently skipping."""
+        graph = _graph()
+        llm = _llm("UNIQUE - distinct obligation")
+        check = create_semantic_checker(llm, graph, {})
+
+        await check("PARA-0001", "totally unrelated words here", "free-form peers blob")
+
+        assert llm.ainvoke.await_count == 1
+
+    def test_prescreen_function_scores_overlap(self) -> None:
+        from backend.quality.semantic_duplicate_check import prescreen_similar_peers
+
+        assert prescreen_similar_peers(
+            "The system shall sort the list.",
+            "[PARA-0002] The system shall sort the list quickly.",
+        )
+        assert not prescreen_similar_peers(
+            "alpha beta gamma delta",
+            "[PARA-0002] epsilon zeta eta theta",
+        )
+
+    def test_prescreen_empty_content_never_matches(self) -> None:
+        from backend.quality.semantic_duplicate_check import prescreen_similar_peers
+
+        assert not prescreen_similar_peers("", "[PARA-0002] some peer text")
 
 
 class TestVerdictCache:
@@ -228,9 +324,9 @@ class TestVerdictCache:
         llm = _llm_seq("UNIQUE - distinct obligation")
         check = create_semantic_checker(llm, graph, cache)
 
-        first = await check("PARA-0242", "Do not delegate to list.sort", "[PARA-0001] other")
+        first = await check("PARA-0242", "Do not delegate to list.sort", "[PARA-0001] text delegate to list.sort")
         # Re-judging identical content must not call the LLM again.
-        second = await check("PARA-0242", "Do not delegate to list.sort", "[PARA-0001] other")
+        second = await check("PARA-0242", "Do not delegate to list.sort", "[PARA-0001] text delegate to list.sort")
 
         assert first is False
         assert second is False
@@ -244,12 +340,12 @@ class TestVerdictCache:
         cache: dict[tuple[str, str], str] = {}
         llm1 = _llm_seq("UNIQUE - distinct obligation")
         await create_semantic_checker(llm1, graph, cache)(
-            "PARA-0242", "unchanged text", "[PARA-0001] other"
+            "PARA-0242", "unchanged text", "[PARA-0001] text delegate to list.sort"
         )
 
         llm2 = _llm_seq("DUPLICATE - flip-flop", "DUPLICATE - flip-flop")
         deleted = await create_semantic_checker(llm2, graph, cache)(
-            "PARA-0242", "unchanged text", "[PARA-0001] other"
+            "PARA-0242", "unchanged text", "[PARA-0001] text delegate to list.sort"
         )
 
         assert deleted is False
@@ -262,8 +358,8 @@ class TestVerdictCache:
         llm = _llm_seq("UNIQUE - distinct obligation", "UNIQUE - still distinct")
         check = create_semantic_checker(llm, graph, cache)
 
-        await check("PARA-0242", "original text", "[PARA-0001] other")
-        await check("PARA-0242", "edited text", "[PARA-0001] other")
+        await check("PARA-0242", "original text", "[PARA-0001] text delegate to list.sort")
+        await check("PARA-0242", "edited text", "[PARA-0001] text delegate to list.sort")
 
         assert llm.ainvoke.await_count == 2
 
@@ -274,8 +370,8 @@ class TestVerdictCache:
         llm = _llm_seq("", "UNIQUE - distinct obligation")
         check = create_semantic_checker(llm, graph, cache)
 
-        await check("PARA-0001", "text", "[PARA-0002] other")
-        await check("PARA-0001", "text", "[PARA-0002] other")
+        await check("PARA-0001", "text", "[PARA-0002] related text")
+        await check("PARA-0001", "text", "[PARA-0002] related text")
 
         assert llm.ainvoke.await_count == 2
 
@@ -286,8 +382,8 @@ class TestVerdictCache:
         llm = _llm_seq("DUPLICATE - overlap", "UNIQUE - distinct")
         check = create_semantic_checker(llm, graph, cache)
 
-        await check("PARA-0001", "text", "[PARA-0002] other")
-        deleted = await check("PARA-0001", "text", "[PARA-0002] other")
+        await check("PARA-0001", "text", "[PARA-0002] related text")
+        deleted = await check("PARA-0001", "text", "[PARA-0002] related text")
 
         assert deleted is False
         assert llm.ainvoke.await_count == 2

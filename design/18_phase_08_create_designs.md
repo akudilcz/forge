@@ -78,7 +78,7 @@ Per-MODULE batch context:
 
 | Gap | Trigger |
 |-----|---------|
-| STALE_NODE | A traced LLR or parent MODULE was updated after the DESIGN. |
+| STALE_NODE | DESIGN's provenance hash mismatches parent MODULE content. |
 | EMPTY_CONTENT | DESIGN body is blank or trivially short. |
 | INADEQUATE_CONTENT | Missing class name, method signatures, or responsibilities. |
 | CONTRACT_VIOLATION | DESIGN contradicts the MODULE's CONTRACT obligations. |

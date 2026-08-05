@@ -115,6 +115,7 @@ class ForgeBuilder:
             GraphAddNodeTool,
             GraphAddTracesTool,
             GraphDeleteNodeTool,
+            GraphRefreshProvenanceTool,
             GraphRemoveEdgeTool,
             GraphRemoveTracesTool,
             GraphReparentNodeTool,
@@ -143,6 +144,7 @@ class ForgeBuilder:
             GraphRemoveTracesTool,
             GraphAddEdgeTool,
             GraphRemoveEdgeTool,
+            GraphRefreshProvenanceTool,
         )
 
         llm = self._config.llm

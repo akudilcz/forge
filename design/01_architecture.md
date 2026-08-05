@@ -132,7 +132,18 @@ All node IDs use a simple sequential format: `{NODE_TYPE}-{seq:04d}`. Examples: 
 
 When a node's content changes its `content_hash` is recomputed. Impact propagates **downward** through structural children, marking each descendant stale. CONTRACT changes additionally stale all sibling DESIGNs in the same MODULE. Propagation stops at RESULT nodes.
 
-Staleness is **content-aware**: every node carries a `content_updated_at` timestamp that the engine bumps only when its `content` or `title` actually changes (`update_node` compares old vs new). Metadata-only mutations — properties, `trace_to`, reparenting — bump `updated_at` but not `content_updated_at`. `STALE_NODE` fires only when a child's `updated_at` is older than its parent's `content_updated_at`, so a metadata touch of a parent (e.g. DOCUMENT chunk bookkeeping in phase 2) never cascades a stale storm across its children. Node creation initialises `content_updated_at = updated_at`; legacy databases are migrated by backfilling `content_updated_at` from `updated_at` (the conservative upper bound — never misses a genuine content change).
+Staleness is **provenance-hash based**: every child node carries `properties.derived_from_hash` — the SHA-256 of the parent `content` the child was authored against. The graph engine stamps it automatically (agents never supply it):
+
+* **create** (`add_node`): stamped from the live parent's current content.
+* **content update** (`update_node` with changed content): re-stamped — the child was just re-authored against the current parent.
+* **metadata-only update** (properties, `trace_to`): the existing stamp is carried over, even when the caller supplies a replacement properties bag that omits it.
+* **reparent**: re-stamped against the new parent, so a deliberate move never triggers a stale storm by itself.
+
+`STALE_NODE` fires **iff** the stored `derived_from_hash` differs from the SHA-256 of the parent's *current* content. Because the hash covers content only, metadata/trace/title touches of a parent (e.g. DOCUMENT chunk bookkeeping in phase 2) can never cascade staleness onto children. Repair is closed deterministically: rewriting the child's content re-stamps as a side effect, and a "reviewed, no change needed" verdict is a free `graph_refresh_provenance` call — never a paid LLM no-op.
+
+**Backfill rule (LOUD)**: legacy nodes without `derived_from_hash` are stamped during schema migration (`_migrate_derived_from_hash`), treating the parent's *current* content as the provenance — the only defensible baseline, since the historical parent content is unknowable. Each backfill run logs the stamped-node count via `forge_logger` at WARNING so it is visible in the build log; the analyser additionally logs (and emits no gap) if it ever meets an unstamped node mid-run.
+
+The `content_updated_at` column and its engine bookkeeping are retained, but staleness logic no longer reads it. *(Follow-up: `content_updated_at` may now be redundant and could be dropped once no other consumer appears.)*
 
 Workspace-sync node types (CODE, TEST, RESULT) are exempt from staleness detection. Their parents are routinely updated with metadata that does not invalidate child content. Validity of CODE and TEST is governed by `UNSYNCED_DESIGN` and `UNSYNCED_TEST` gap checks.
 
@@ -186,7 +197,7 @@ Quality gaps represent integrity violations and content problems. They surface *
 
 | Gap Type | Meaning | Detection |
 |----------|---------|-----------|
-| `STALE_NODE` | Child older than parent's last content/title change (`content_updated_at`) | Deterministic |
+| `STALE_NODE` | Child's `derived_from_hash` differs from hash of parent's current content | Deterministic |
 | `ORPHAN_NODE` | Parent missing or wrong type | Deterministic |
 | `EMPTY_CONTENT` | Non-container node with no content | Deterministic |
 | `STALE_TRACE_TO` | Trace references non-existent node | Deterministic |
@@ -262,6 +273,25 @@ Phase 12 has its own gap taxonomy detected by workspace scanning.
 The `GapAnalyser.analyse()` method iterates every node once, running three check families per node (structural completeness, staleness, integrity), then four cross-node scans (duplicate siblings, empty traces, circular traces, inadequate content). Within a priority level, gaps are ordered by `node_id` for deterministic runs.
 
 Semantic duplicate detection groups nodes by parent and type, excludes the canonical (lowest `node_id`) from each group, and dispatches a `DUPLICATE_NODE` gap for each non-canonical sibling. CASE nodes with unique `trace_to` sets are never treated as duplicates.
+
+### 3.6 Write-Time Invariant Enforcement (Correct-by-Construction)
+
+Every deterministic invariant that the analyser can detect *after* the fact is also enforced *at write time* by the graph-write tools. A write that would violate one is **rejected** with a tool `ERROR: ...` message telling the agent exactly how to fix it — the correction happens in the same (already-paid) agent turn, instead of the analyser flagging a gap that costs a later LLM repair dispatch.
+
+The checks live in **one shared module, `backend/analysis/node_invariants.py`**, used by both the write tools (`graph_write`, `graph_ops`, `multi_graph_write`) and the Gap Analyser, so the two layers can never diverge. The analyser keeps running as a backstop for graphs authored before enforcement existed (resumed builds).
+
+Enforced invariants (each is a pure function returning `None` or an actionable message):
+
+| Invariant | Applies to | Rejected when | Analyser backstop gap |
+|-----------|-----------|---------------|----------------------|
+| Title presence / length | all authored types (not PROJECT, DOCUMENT, RESULT, RECORD) | title missing or > 7 words | `UNTITLED_NODE` |
+| Sibling title uniqueness | same | title duplicates a sibling's (case/whitespace-insensitive) under the same parent | `SIBLING_TITLE_DUPLICATE` |
+| Requirement wording | HLR, LLR | content doesn't start with "The system shall ", or contains a raw `PARA-nnnn` placeholder | `MALFORMED_REQUIREMENT` |
+| Minimum content length | ARCHITECTURE, MODULE, CONTRACT, DESIGN, SUITE, CASE_* | non-empty content < 50 chars | `INADEQUATE_CONTENT` |
+| Sibling content uniqueness | all types | content identical (trim/lowercase) to a same-type sibling's | `DUPLICATE_NODE` |
+| CASE trace_to membership | CASE_HLR, CASE_LLR | trace_to empty, or contains refs resolving to the wrong node type (CASE_HLR→HLR, CASE_LLR→LLR) | `STALE_TRACE_TO` |
+
+Enforcement points: `add_node` checks all applicable invariants against the prospective node; `update_node` checks only the fields being changed (title and/or content); `update_trace` / `add_traces` check CASE trace membership. `multi_graph_write` validates the **whole batch first** and rejects it atomically (multi_file_write precedent) — a bad operation never leaves the batch half-applied — reporting per-op errors in its existing `[i] ERROR: ...` summary format.
 
 ---
 
@@ -361,7 +391,7 @@ Three principles govern context assembly across all phases:
 
 | Gap Type | Context Provided | Rationale |
 |----------|-----------------|-----------|
-| `STALE_NODE` | Ancestor chain | Re-derive from current parent |
+| `STALE_NODE` | Ancestor chain | Re-derive from current parent (or `graph_refresh_provenance` if still valid) |
 | `ORPHAN_NODE` | Ancestor chain | Find or create correct parent |
 | `DUPLICATE_NODE` | Ancestor chain + siblings (same parent, same type) | Judge semantic overlap |
 | Other integrity gaps | Ancestor chain | Standard structural context |
@@ -444,7 +474,7 @@ Tools are whitelisted by **gap type**, not by role. At dispatch time the agent r
 
 | Gap Type | Tools |
 |----------|-------|
-| `STALE_NODE` | `graph_read`, `graph_update_node`, `graph_delete_node` |
+| `STALE_NODE` | `graph_read`, `graph_update_node`, `graph_delete_node`, `graph_refresh_provenance` |
 | `ORPHAN_NODE` | `graph_read`, `graph_reparent_node`, `graph_delete_node` |
 | `EMPTY_CONTENT` | `graph_read`, `graph_update_node` |
 | `STALE_TRACE_TO` | `graph_read`, `graph_add_traces`, `graph_remove_traces`, `graph_update_trace` |
@@ -572,6 +602,10 @@ What actually caches (verified against langchain-core 1.5.x): only non-streaming
 
 **Independence exemption.** The semantic duplicate checker (`backend/quality/semantic_duplicate_check.py`) deletes a node only when two *independent* LLM calls both return a DUPLICATE verdict. Both calls send byte-identical prompts, so a response cache would turn the second call into a replay of the first and make the double confirmation vacuous. That construction site therefore passes `cacheable=False`; every other `build_llm` site passes `cacheable=True`.
 
+**Sticky PASS verdicts for the combined quality check.** The combined checker (`backend/quality/combined_check.py`) is driven by `run_combined_quality_check` up to once per pipeline cycle (the runner cycles up to 12 times), and re-judging an unchanged node is pure spend. `checks.py` therefore caches PASS verdicts per `(node_id, sha256(title + NUL + content))` in the flow-scoped `ForgeFlow._quality_verdict_cache` (same pattern as the semantic dedup cache): a node whose title+content hash is unchanged since it last passed **every** applicable axis is filtered out of the batch and never re-sent to the judge. FAIL verdicts are **never** cached — a node that failed any axis must be re-judged after its repair dispatch (repairs change the content, which also rotates the hash). A batch that raises (`UnjudgedQualityError` or transport failure) caches nothing. The cache is flow-scoped and rebuilt on restart: the worst case after a process restart is one full re-judging sweep, so resumability is unharmed.
+
+**Deterministic prescreen for semantic dedup.** Before the semantic duplicate judge is called, a stdlib-only lexical similarity check (`semantic_duplicate_check.py::prescreen_similar_peers`) compares the target's normalised token set against each peer block parsed from the peers context. Similarity is the token-set overlap coefficient `|A∩B| / min(|A|,|B|)`; only when **every** peer scores below the conservative threshold (`_PRESCREEN_MIN_OVERLAP = 0.2`) is the LLM call skipped — clearly-dissimilar candidates share almost no vocabulary, whereas true semantic duplicates share far more than 20% of the smaller node's tokens. Anything ambiguous (and any peers text the prescreen cannot parse) still goes to the judge. **Deletion safety is unchanged**: the prescreen only reduces the candidate pairs that reach the LLM — it never authorises a deletion. The two-call double confirmation below still gates every actual deletion exactly as before, and byte-identical pairs are still resolved deterministically upstream by `duplicate_resolver`.
+
 **Deterministic byte-identical duplicate deletion.** The double-confirmation safety above exists because *semantic* duplicate judgment is an LLM opinion. Byte-identical duplicates need no judgment at all: when the gap analyser confirms two siblings share the same parent, the same node type, and identical content after its normalisation (`strip().lower()`), it emits a `DUPLICATE_NODE` gap carrying `context.duplicate_of` (the canonical, lowest node ID). `backend/pipeline/duplicate_resolver.py::try_resolve_exact_duplicate` — invoked as a pre-dispatch fast path in `pipeline/dispatch.py`, alongside `try_fast_trace` — resolves these **without any LLM dispatch**: it re-verifies the byte-identity precondition against the live graph, merges the duplicate's `trace_to` references into the canonical node, then deletes the younger node via the engine's `delete_node` path (which auto-reparents children). This is not a silent fallback — it acts on a re-verified fact, logs loudly through `forge_logger`, and raises `RuntimeError` if the deletion precondition fails. Gaps whose content is *not* byte-identical at resolution time (or that lack `duplicate_of`) fall through to the LLM path unchanged; the semantic double-confirmation rules above apply only to that LLM path.
 
 ### 7.5 Style Guide
@@ -626,11 +660,11 @@ Step functions:
 
 | Step | What It Does |
 |------|-------------|
-| `structural` | Dispatch agent to close structural gaps one at a time |
+| `structural` | Dispatch agent to close structural gaps one at a time; each gap's resolution is certified by re-running the gap analyser (see §8.3) |
 | `batch_phaseN` | Dispatch agent with all gaps in a single prompt; agent prefers `multi_graph_write` to emit every new node in one tool call |
-| `combined_quality` | Single batched LLM call judges every authored node on four axes (ATOMIC, EARS, title↔content match, title specificity) and emits the relevant gap types. A missing verdict is never a pass: nodes/axes the model failed to judge are re-asked in exactly one follow-up call, and anything still unjudged raises `UnjudgedQualityError` — the step fails loudly rather than scoring silence as clean |
+| `combined_quality` | Single batched LLM call judges every authored node on four axes (ATOMIC, EARS, title↔content match, title specificity) and emits the relevant gap types. A missing verdict is never a pass: nodes/axes the model failed to judge are re-asked in exactly one follow-up call, and anything still unjudged raises `UnjudgedQualityError` — the step fails loudly rather than scoring silence as clean. PASS verdicts are sticky per `(node_id, content-hash)` on the flow, so unchanged nodes are not re-judged in later cycles; FAIL verdicts are never cached (see §7.4) |
 | `quality_gaps` | Detect and dispatch deterministic quality gaps (orphan, empty-content, title-collision, sibling-title-duplicate, stale-trace-to, untitled, duplicate) |
-| `semantic` | Detect and remove semantic duplicate nodes (sibling-scoped; skips containers and sole-coverage children). Deletion requires the same DUPLICATE verdict from **two independent LLM calls** — a single nondeterministic verdict must not destroy requirement text. A UNIQUE verdict (including a UNIQUE on the confirmation call) is sticky: it is cached per `(node_id, content-hash)` on the flow, so unchanged nodes are never re-litigated by later pipeline cycles |
+| `semantic` | Detect and remove semantic duplicate nodes (sibling-scoped; skips containers and sole-coverage children). Deletion requires the same DUPLICATE verdict from **two independent LLM calls** — a single nondeterministic verdict must not destroy requirement text. A UNIQUE verdict (including a UNIQUE on the confirmation call) is sticky: it is cached per `(node_id, content-hash)` on the flow, so unchanged nodes are never re-litigated by later pipeline cycles. A deterministic lexical prescreen (token-set overlap, stdlib only) skips clearly-dissimilar candidates before the LLM judge; it only reduces candidate pairs and never authorises deletion (see §7.4) |
 | `design_consolidation` | Merge DESIGN sprawl within each MODULE (Phase 8) |
 | `case_trace_coverage` | Verify CASE nodes cover traced requirements (Phase 10) |
 | `workspace_sync` | Deterministic file scan to create CODE/TEST nodes (Phase 13) |
@@ -639,14 +673,20 @@ Step functions:
 
 After all steps complete, if any step reported deletions, the pipeline cycles -- re-runs all steps -- because deletions can uncover new gaps. When no deletions occur the phase is stable. A cycle cap (12) bounds runaway delete/recreate loops.
 
-Within the structural loop, every dispatch of a still-open gap counts against
-a per-gap cap (`_MAX_GAP_ATTEMPTS = 3`); at the cap the gap is abandoned for
-the pass and stays open, so the cumulative audit fails the phase loudly.
-The cap counts **all** dispatches, not just no-progress ones: a graph-state
-delta is not proof the gap advanced — an agent that creates wrong-typed or
-unrelated nodes on every call "makes progress" forever without ever closing
-its gap, which would otherwise spin the loop until quota exhaustion. A gap
-that genuinely closes never reappears in the next collect, so the counter is
+Within the structural loop, resolution is **proven, not inferred**: after
+each dispatch the loop re-runs the gap analyser (a cheap in-memory scan) and
+declares the gap resolved only when its exact key `(gap type, node id)` is
+absent from the fresh analysis — the **per-gap resolution certificate**. The
+former global version-sum "progress" signal (`sum(node.version)` deltas) is
+retired for resolution: under it ANY write anywhere in the graph counted,
+including no-op re-stamps, wrong-typed nodes, and vandalism of unrelated
+nodes (the hostile-agent fake-progress incident). A write that does not
+close the dispatched gap now provably never resolves it.
+
+Every dispatch of a still-open gap counts against a per-gap cap
+(`_MAX_GAP_ATTEMPTS = 3`); at the cap the gap is abandoned for the pass and
+stays open, so the cumulative audit fails the phase loudly. A gap whose
+certificate clears never reappears in the next collect, so the counter is
 only ever consulted for gaps that failed to close. Counters are per
 structural pass; legitimate rework in a later pipeline cycle starts fresh and
 is bounded by the cycle cap.

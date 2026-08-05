@@ -156,7 +156,15 @@ class TestWrongNodeType:
         but the gap never closes. The circuit breaker must count every
         dispatch of a still-open gap — this exact scenario used to spin the
         structural loop unboundedly (LangGraph enforces no default recursion
-        limit) until API quota exhaustion."""
+        limit) until API quota exhaustion.
+
+        The resolution certificate makes this provable, not just bounded:
+        resolution requires the dispatched gap's own analyser check to clear,
+        so a wrong-typed write is recorded as no_change on every single
+        dispatch — never once as an improvement."""
+        from backend.core.work_queue import work_queue
+
+        history_before = len(work_queue.all_history)
         await run_phases_0_and_1(flow)
 
         with scripted_seams(WrongTypeAgent(graph)) as agent:
@@ -170,6 +178,18 @@ class TestWrongNodeType:
         assert len(nodes_of(graph, NodeType.HLR)) == _MAX_GAP_ATTEMPTS
         assert_no_orphans(graph)
         assert_unique_node_ids(graph)
+        # Certificate: every dispatch that grew the graph without closing the
+        # gap is recorded as no_change — fake progress is never certified.
+        chunk_actions = [
+            e
+            for e in work_queue.all_history[history_before:]
+            if e["category"] == "UNCHUNKED_DOCUMENT"
+        ]
+        assert len(chunk_actions) == _MAX_GAP_ATTEMPTS
+        assert all(e["outcome"] == "no_change" for e in chunk_actions), (
+            "a wrong-node-type write was recorded as improving the gap — "
+            "the version-sum fake-progress signal is back"
+        )
 
 
 # ── 3. Duplicate spam: converges, IDs stay collision-free ───────────────────

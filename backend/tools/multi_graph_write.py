@@ -74,6 +74,15 @@ class MultiGraphWriteTool(ForgeTool):
     async def _run_all(self, graph: object, ops: list[dict[str, Any]]) -> str:
         from backend.tools.graph_write import GraphWriteTool
 
+        # Whole-batch invariant pre-validation (multi_file_write precedent):
+        # any violating operation rejects the batch atomically, so a bad op
+        # can never leave the graph half-written (design/01 §3.6).
+        rejections = _prevalidate_batch(graph, ops)
+        if rejections:
+            return "\n".join(
+                [f"0/{len(ops)} operations succeeded.", "Errors:", *rejections]
+            )
+
         delegate = GraphWriteTool(graph)
         results: list[str] = []
         errors: list[str] = []
@@ -95,3 +104,81 @@ class MultiGraphWriteTool(ForgeTool):
         if errors:
             summary_parts.append("Errors:\n" + "\n".join(errors))
         return "\n".join(summary_parts)
+
+
+def _prevalidate_batch(graph: object, ops: list[dict[str, Any]]) -> list[str]:
+    """Dry-run authoring-invariant validation over a whole batch.
+
+    Each op is checked against the live graph AND against nodes pending
+    earlier in the same batch (two ops adding the same sibling title must
+    fail here — the live graph alone cannot see the first one yet).
+    Returns per-op error lines in the existing summary format; empty list
+    means the batch may execute.
+    """
+    from backend.analysis.node_invariants import (
+        check_sibling_content_unique,
+        check_sibling_title_unique,
+    )
+    from backend.graph.models import GraphNode
+    from backend.tools.graph_write_parsing import _parse_json_obj, _parse_trace_to
+    from backend.tools.graph_write_validation import (
+        validate_add_node,
+        validate_trace_update,
+        validate_update_node,
+    )
+
+    errors: list[str] = []
+    pending: list[GraphNode] = []
+    for i, op_dict in enumerate(ops):
+        op = str(op_dict.get("operation", "")).strip().lower()
+        err: str | None = None
+        if op == "add_node":
+            node_type = str(op_dict.get("node_type", "")).upper()
+            node_id = str(op_dict.get("node_id", "")).strip() or f"PENDING-{i}"
+            parent_id = str(op_dict.get("parent_id", "")).strip()
+            title = str(op_dict.get("title", ""))
+            content = str(op_dict.get("content", ""))
+            props = _parse_json_obj(str(op_dict.get("properties", "{}")))
+            trace_to = _parse_trace_to(dict(op_dict), props)
+            err = validate_add_node(
+                graph, node_type, node_id, parent_id, title, content, trace_to
+            )
+            if err is None and parent_id:
+                in_batch = [p for p in pending if p.parent_id == parent_id]
+                for msg in (
+                    check_sibling_title_unique(node_type, title, node_id, in_batch),
+                    check_sibling_content_unique(node_type, content, node_id, in_batch),
+                ):
+                    if msg is not None:
+                        err = f"ERROR: {msg} (conflicts within this batch)"
+                        break
+            if err is None:
+                pending.append(
+                    GraphNode(
+                        node_id=node_id, node_type=node_type,
+                        parent_id=parent_id or None, title=title, content=content,
+                    )
+                )
+        elif op in ("update_node", "update_trace", "add_traces"):
+            node_id = str(op_dict.get("node_id", ""))
+            try:
+                existing = graph.node_sync(node_id)  # type: ignore[attr-defined]
+            except (AttributeError, TypeError):
+                existing = None
+            if op == "update_node":
+                new_title = str(op_dict.get("title", "")).strip() or None
+                new_content = str(op_dict.get("content", "")) or None
+                err = validate_update_node(graph, existing, new_title, new_content)
+            elif existing is not None and isinstance(existing, GraphNode):
+                try:
+                    from backend.tools.graph_write_parsing import _coerce_to_list
+                    new_refs = _coerce_to_list(op_dict.get("trace_to"))
+                except ValueError:
+                    new_refs = []  # the op handler reports the parse error
+                if op == "add_traces":
+                    current = list(existing.trace_to or [])
+                    new_refs = current + [r for r in new_refs if r not in current]
+                err = validate_trace_update(graph, existing, new_refs)
+        if err is not None:
+            errors.append(f"[{i}] {err}")
+    return errors

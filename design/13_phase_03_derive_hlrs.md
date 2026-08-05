@@ -127,7 +127,7 @@ no deletions occur.
 
 | Gap Type | Meaning |
 |----------|---------|
-| `STALE_NODE` | HLR older than its parent PARA |
+| `STALE_NODE` | HLR's `derived_from_hash` no longer matches its parent PARA's content |
 | `ORPHAN_NODE` | HLR parent missing or wrong type |
 | `EMPTY_CONTENT` | HLR with no content |
 | `UNTITLED_NODE` | Missing or too-long title |

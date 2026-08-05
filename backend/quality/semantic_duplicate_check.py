@@ -17,6 +17,7 @@ that cannot be auto-recovered — live-trace proven on PARA-0242):
 from __future__ import annotations
 
 import hashlib
+import re
 import time
 from typing import Any
 
@@ -58,6 +59,61 @@ UNIQUE - <the distinct obligation this node specifies>
 """
 
 _STICKY_UNIQUE = "UNIQUE"
+
+# ── Deterministic prescreen (design/01 §7.4) ─────────────────────────────────
+#
+# Clearly-dissimilar pairs never reach the LLM judge. The threshold is
+# conservative: true semantic duplicates share far more than 20% of the
+# smaller node's vocabulary ("The system shall …" boilerplate alone usually
+# clears it), so only pairs with essentially disjoint wording are skipped.
+# The prescreen only reduces candidate pairs — it never authorises deletion;
+# the two-call double confirmation below still gates every actual deletion.
+
+_PRESCREEN_MIN_OVERLAP = 0.2
+
+#: One peer block per line: "  [NODE-ID] content…" (build_all_peers_context).
+_PEER_LINE_RE = re.compile(r"^\s*\[(?P<pid>[^\]\s]+)\]\s*(?P<body>.*)$")
+
+
+def _token_set(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", text.lower()))
+
+
+def _overlap(a: set[str], b: set[str]) -> float:
+    """Token-set overlap coefficient: |A∩B| / min(|A|, |B|)."""
+    if not a or not b:
+        return 0.0
+    return len(a & b) / min(len(a), len(b))
+
+
+def _peer_bodies(siblings_text: str) -> list[str]:
+    """Split the peers context into per-peer content blocks."""
+    bodies: list[str] = []
+    for raw in siblings_text.splitlines():
+        m = _PEER_LINE_RE.match(raw)
+        if m:
+            bodies.append(m.group("body"))
+        elif bodies:
+            # Continuation line of the previous peer block.
+            bodies[-1] = f"{bodies[-1]} {raw.strip()}"
+    return bodies
+
+
+def prescreen_similar_peers(node_content: str, siblings_text: str) -> bool:
+    """Return True when at least one peer is lexically similar enough to be
+    worth an LLM judgment.
+
+    Conservative on the judge side: peers text that cannot be parsed into
+    ``[ID]`` blocks is sent to the judge rather than silently skipped.
+    """
+    bodies = _peer_bodies(siblings_text)
+    if not bodies:
+        return True
+    target = _token_set(node_content)
+    return any(
+        _overlap(target, _token_set(body)) >= _PRESCREEN_MIN_OVERLAP
+        for body in bodies
+    )
 
 
 def _cache_key(node_id: str, node_content: str) -> tuple[str, str]:
@@ -137,6 +193,18 @@ def create_semantic_checker(
             forge_logger.emit(
                 "INFO", "SEMA ",
                 f"Skip {node_id} — sticky {verdict_cache[key]} verdict for unchanged content",
+                node_id=node_id,
+            )
+            return False
+
+        # Deterministic prescreen: a target sharing essentially no vocabulary
+        # with any peer cannot be a semantic duplicate — skip the LLM judge.
+        # Reduces candidate pairs only; never authorises deletion.
+        if not prescreen_similar_peers(node_content, siblings_text):
+            forge_logger.emit(
+                "INFO", "SEMA ",
+                f"Prescreen skip {node_id} — no lexically similar peer "
+                f"(overlap < {_PRESCREEN_MIN_OVERLAP})",
                 node_id=node_id,
             )
             return False

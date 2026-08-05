@@ -10,6 +10,17 @@ from pydantic import BaseModel, Field
 from backend.analysis.gap_analyser import VALID_PARENT_TYPES
 from backend.tools.async_utils import run_async
 from backend.tools.base import ForgeTool
+from backend.tools.graph_write_parsing import (
+    _coerce_to_list,
+    _parse_json_obj,
+    _parse_trace_to,
+    _TraceToCoerceError,
+)
+from backend.tools.graph_write_validation import (
+    validate_add_node,
+    validate_trace_update,
+    validate_update_node,
+)
 
 
 async def check_orphan_guard(graph: object, node_id: str, child_node: Any) -> str | None:
@@ -129,7 +140,9 @@ class GraphWriteTool(ForgeTool):
         "Add or update nodes and edges in the Project Graph. "
         "EVERY task that creates an artefact must call this to record traceability edges. "
         "Operations: add_node, update_node, update_trace, add_traces, remove_traces, "
-        "reparent_node, add_edge, remove_edge, delete_node. "
+        "reparent_node, add_edge, remove_edge, delete_node, refresh_provenance. "
+        "refresh_provenance marks a STALE_NODE as reviewed-and-still-valid by "
+        "re-stamping its provenance against the current parent content. "
         "Prefer add_traces / remove_traces over update_trace: "
         "add_traces appends IDs to the existing trace_to; "
         "remove_traces deletes specific IDs from it; "
@@ -147,6 +160,7 @@ class GraphWriteTool(ForgeTool):
         "add_edge": "_op_add_edge",
         "remove_edge": "_op_remove_edge",
         "delete_node": "_op_delete_node",
+        "refresh_provenance": "_op_refresh_provenance",
     }
 
     def __init__(self, graph: object = None) -> None:
@@ -179,7 +193,7 @@ class GraphWriteTool(ForgeTool):
             return (
                 f"Unknown operation '{op}'. "
                 "Valid: add_node, update_node, update_trace, add_traces, remove_traces, "
-                "reparent_node, add_edge, remove_edge, delete_node"
+                "reparent_node, add_edge, remove_edge, delete_node, refresh_provenance"
             )
 
         method = getattr(self, method_name)
@@ -221,6 +235,21 @@ class GraphWriteTool(ForgeTool):
 
         trace_targets = _parse_trace_to(kwargs, props)
 
+        # Write-time invariant enforcement (design/01 §3.6): reject writes
+        # the Gap Analyser would flag anyway, so the agent fixes them in
+        # the same turn instead of a later paid repair dispatch.
+        invariant_err = validate_add_node(
+            graph,
+            node_type_req.upper(),
+            node_id,
+            parent_id_raw or "",
+            kwargs.get("title", ""),
+            kwargs.get("content", ""),
+            trace_targets,
+        )
+        if invariant_err:
+            return invariant_err
+
         node = GraphNode(
             node_id=node_id,
             node_type=kwargs.get("node_type", ""),
@@ -256,6 +285,16 @@ class GraphWriteTool(ForgeTool):
             props = props or {}
             props["sub_type"] = para_type_raw
 
+        # Write-time invariant enforcement (design/01 §3.6) on the fields
+        # this update actually changes.
+        try:
+            existing = graph.node_sync(node_id)  # type: ignore[attr-defined]
+        except (AttributeError, TypeError):
+            existing = None
+        invariant_err = validate_update_node(graph, existing, title, content)
+        if invariant_err:
+            return invariant_err
+
         await graph.update_node(  # type: ignore[attr-defined]
             node_id, content, props, "agent", kwargs.get("reason", ""), title=title,
         )
@@ -271,6 +310,10 @@ class GraphWriteTool(ForgeTool):
         existing = graph.node_sync(node_id)  # type: ignore[attr-defined]
         if existing is None:
             return f"ERROR: Node not found: {node_id}"
+
+        invariant_err = validate_trace_update(graph, existing, trace_targets)
+        if invariant_err:
+            return invariant_err
 
         await graph.update_node(  # type: ignore[attr-defined]
             node_id, None, None, "agent",
@@ -295,6 +338,10 @@ class GraphWriteTool(ForgeTool):
 
         if not added:
             return f"OK: no new traces to add on {node_id} (already present)"
+
+        invariant_err = validate_trace_update(graph, existing, current + added)
+        if invariant_err:
+            return invariant_err
 
         await graph.update_node(  # type: ignore[attr-defined]
             node_id, None, None, "agent",
@@ -367,86 +414,37 @@ class GraphWriteTool(ForgeTool):
         await graph.delete_node(node_id)  # type: ignore[attr-defined]
         return f"OK: deleted {node_id}"
 
+    async def _op_refresh_provenance(self, graph: object, **kwargs: Any) -> str:
+        """Deterministic STALE_NODE closure for 'reviewed, no change needed'.
 
-# ------------------------------------------------------------------
-# Module-level helpers
-# ------------------------------------------------------------------
-
-def _parse_json_obj(raw: str) -> dict:
-    """Parse a JSON string into a dict, returning empty dict on failure."""
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        return {}
-
-
-class _TraceToCoerceError(ValueError):
-    """Raised by ``_coerce_to_list`` when the input cannot be interpreted as
-    a trace_to value (caller converts this to a tool-level ERROR string)."""
-
-
-def _coerce_to_list(raw: Any) -> list[str]:
-    """Coerce a ``trace_to`` field into ``list[str]``.
-
-    Accepts:
-      * ``None`` / empty string / ``"[]"`` → ``[]``
-      * ``list`` / ``tuple``               → cast elements to str
-      * a JSON-string list ``'["x","y"]'`` → parse
-
-    Raises ``_TraceToCoerceError`` on anything else (a bare string that
-    isn't valid JSON, a dict, etc.) so callers can surface a clear
-    ``ERROR: trace_to must be a JSON array of node ID strings`` back to
-    the agent.
-
-    Agents sometimes pass a native ``list`` rather than the tool's
-    documented JSON-string shape; this helper handles that common case
-    without raising ``'list' object has no attribute 'strip'``.
-    """
-    if raw is None:
-        return []
-    if isinstance(raw, (list, tuple)):
-        return [str(x) for x in raw]
-    if isinstance(raw, str):
-        s = raw.strip()
-        if not s or s == "[]":
-            return []
-        try:
-            parsed = json.loads(s)
-        except json.JSONDecodeError as exc:
-            raise _TraceToCoerceError(
-                f"trace_to is not a JSON array: {s!r}"
-            ) from exc
-        if isinstance(parsed, list):
-            return [str(x) for x in parsed]
-        raise _TraceToCoerceError(
-            f"trace_to must be a JSON array; got {type(parsed).__name__}"
+        Re-stamps ``properties.derived_from_hash`` from the LIVE parent
+        content without touching the node's own content — a free
+        alternative to a paid no-op content rewrite (design/01 §2.6).
+        """
+        from backend.graph.provenance import (  # noqa: PLC0415
+            DERIVED_FROM_HASH,
+            provenance_hash,
         )
-    raise _TraceToCoerceError(f"trace_to has unsupported type {type(raw).__name__}")
 
-
-def _parse_trace_to(kwargs: dict[str, Any], props: dict) -> list[str]:
-    """Extract trace_to targets from kwargs, falling back to props.
-
-    Tolerant of both JSON-string lists and native Python lists (agents
-    sometimes pass a list even though the tool schema specifies a JSON
-    string). Returns ``[]`` on any parse failure (add_node callers
-    proceed without trace_to rather than failing the whole op — the
-    update-trace path is the strict one).
-
-    The ``props`` fallback is extra-lenient: a bare string is wrapped in
-    a list (historical behaviour preserved for compat).
-    """
-    try:
-        trace_targets = _coerce_to_list(kwargs.get("trace_to"))
-    except _TraceToCoerceError:
-        trace_targets = []
-    if not trace_targets:
-        fallback = props.pop("trace_to", None)
-        if isinstance(fallback, str) and fallback:
-            trace_targets = [fallback]
-        else:
-            try:
-                trace_targets = _coerce_to_list(fallback)
-            except _TraceToCoerceError:
-                trace_targets = []
-    return trace_targets
+        node_id = kwargs.get("node_id", "")
+        node = graph.node_sync(node_id)  # type: ignore[attr-defined]
+        if node is None:
+            return f"ERROR: Node not found: {node_id}"
+        if not node.parent_id:
+            return f"ERROR: {node_id} has no parent — nothing to re-stamp"
+        parent = graph.node_sync(node.parent_id)  # type: ignore[attr-defined]
+        if parent is None:
+            return f"ERROR: parent {node.parent_id} of {node_id} not found"
+        current = provenance_hash(parent.content or "")
+        props = dict(node.properties or {})
+        if DERIVED_FROM_HASH in props and props[DERIVED_FROM_HASH] == current:
+            return f"OK: provenance on {node_id} already current"
+        props[DERIVED_FROM_HASH] = current
+        await graph.update_node(  # type: ignore[attr-defined]
+            node_id, None, props, "agent",
+            kwargs.get("reason", "refresh_provenance"),
+        )
+        return (
+            f"OK: provenance re-stamped on {node_id} against parent "
+            f"{node.parent_id}"
+        )

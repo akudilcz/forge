@@ -86,6 +86,22 @@ def _gap_already_resolved(flow: ForgeFlow, gap: Any) -> bool:
     return False
 
 
+def _gap_still_open(flow: ForgeFlow, gap: Gap) -> bool:
+    """Per-gap resolution certificate (design/01 §8.3).
+
+    A gap is resolved only when a fresh analyser scan — a cheap in-memory
+    pass — no longer reports its exact ``(type, node_id)`` key. This replaces
+    the retired global version-sum signal, under which ANY write anywhere in
+    the graph counted as progress: no-op re-stamps, wrong-typed nodes, and
+    mutations of unrelated nodes all "resolved" gaps they never touched
+    (the hostile-agent fake-progress incident).
+    """
+    return any(
+        g.type == gap.type and g.node_id == gap.node_id
+        for g in flow._analyser.analyse(flow.graph)
+    )
+
+
 def _find_queue_item(phase: int, node_id: str) -> Any:
     """Find a work queue item by phase and target node_id."""
     for item in work_queue.items_for_phase(phase):
@@ -98,19 +114,17 @@ def _record_action(
     state: StructuralLoopState,
     gap: Gap,
     wq_item: Any,
-    pre_count: int,
-    post_count: int,
+    resolved: bool,
     attempt: int,
 ) -> None:
     """Append this dispatch's outcome to the work-queue history.
 
     ``ActionHistory`` existed with a full API and a Control Station panel, but
     nothing ever called ``record_action`` — so the history was permanently
-    empty and the panel permanently blank. The outcome is already known here
-    from the node-count delta, which is the same signal the loop uses to decide
-    progress.
+    empty and the panel permanently blank. The outcome is the resolution
+    certificate itself: the dispatched gap either cleared from the analyser
+    output (improved) or it did not (no_change).
     """
-    outcome = "improved" if post_count > pre_count else "no_change"
     work_queue.record_action(
         ActionRecord(
             round=attempt,
@@ -119,9 +133,9 @@ def _record_action(
             category=gap.type.value,
             files_modified=[],
             tool_calls=0,
-            gap_count_before=pre_count,
-            gap_count_after=post_count,
-            outcome=outcome,
+            gap_count_before=1,
+            gap_count_after=0 if resolved else 1,
+            outcome="improved" if resolved else "no_change",
             summary=f"{gap.type.value} on {gap.node_id}",
         )
     )
@@ -225,8 +239,6 @@ def create_structural_loop_graph(flow: ForgeFlow) -> Any:
         if wq_item:
             work_queue.update_status(wq_item.id, "in_progress")
 
-        pre_count = flow._graph_state_count()
-
         try:
             crew_out = await flow._dispatch(gap, attempt=attempt)
         except DispatchQuotaError as exc:
@@ -242,24 +254,26 @@ def create_structural_loop_graph(flow: ForgeFlow) -> Any:
                 work_queue.update_status(wq_item.id, "failed")
             raise
 
-        post_count = flow._graph_state_count()
+        # Resolution certificate: only the gap's own analyser check clearing
+        # proves resolution. A write anywhere else — however large — does not.
+        resolved = not _gap_still_open(flow, gap)
 
         fail_counts = dict(state["gap_fail_counts"])
         single_step_done = False
 
-        _record_action(state, gap, wq_item, pre_count, post_count, attempt)
+        _record_action(state, gap, wq_item, resolved, attempt)
 
-        # Every dispatch counts against _MAX_GAP_ATTEMPTS, progress or not.
-        # A graph-state delta used to reset the counter, so an agent that
-        # created wrong-typed or unrelated nodes on every call was
+        # Every dispatch counts against _MAX_GAP_ATTEMPTS, certified or not.
+        # A graph-state version-sum delta used to reset the counter, so an
+        # agent that created wrong-typed or unrelated nodes on every call was
         # re-dispatched without bound — fake progress spun the loop until
         # quota exhaustion (proven by test_hostile_agent_convergence.py; the
         # LangGraph default recursion limit does not bound this graph). A gap
-        # that actually closes never reappears in collect_gaps, so the stale
-        # counter is never consulted for it.
+        # whose certificate clears never reappears in collect_gaps, so the
+        # stale counter is never consulted for it.
         fail_counts[gap_key] = attempt
 
-        if post_count > pre_count:
+        if resolved:
             forge_logger.gap_resolved(gap.type.value, gap.node_id)
             flow.state.iteration += 1
             single_step_done = flow.state.single_step
@@ -272,7 +286,8 @@ def create_structural_loop_graph(flow: ForgeFlow) -> Any:
                 forge_logger.emit(
                     "WARN",
                     "FLOW ",
-                    f"Possible hallucination: graph unchanged — {gap.type.value}:{gap.node_id}",
+                    f"Possible hallucination: gap still open after claimed "
+                    f"success — {gap.type.value}:{gap.node_id}",
                 )
             if wq_item:
                 work_queue.update_status(wq_item.id, "pending")
