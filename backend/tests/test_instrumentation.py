@@ -151,7 +151,7 @@ async def test_semantic_check_emits_decision(capture: _CaptureSink) -> None:
     graph = MagicMock()
     graph.delete_node = AsyncMock()
 
-    check = create_semantic_checker(llm, graph)
+    check = create_semantic_checker(llm, graph, {})
     await check("HLR-0001", "The system shall log.", "[HLR-0002] The system shall cache.")
 
     decisions = _records_by(capture, category="DECIDE")

@@ -43,7 +43,8 @@ def test_agent_factory_creates_langgraph_agent_with_config() -> None:
 
     mock_config = MagicMock()
     mock_config.llm.base_url = "http://localhost:11434/v1"
-    mock_config.llm.api_key_env = "OLLAMA_API_KEY"
+    mock_config.llm.keyless = True  # explicit keyless local endpoint
+    mock_config.llm.api_key_env = ""
     mock_config.llm.request_timeout = 120
     mock_config.llm.options.temperature = 0.8
     mock_config.llm.agents = {"Software Engineer": "test-model-123"}

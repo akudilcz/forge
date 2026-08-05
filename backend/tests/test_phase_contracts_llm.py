@@ -298,6 +298,9 @@ def flow(graph: ProjectGraph, workspace: Path, tmp_path: Path) -> ForgeFlow:
             name="llm-contract-test", forgemd="forge.md", workspace_dir=str(workspace)
         )
     )
+    # Offline scripted test: every real checker seam is mocked, but build_llm
+    # still constructs a client — declare the endpoint keyless explicitly.
+    config.llm.keyless = True
     pool = MagicMock()
     pool.get_agent_for_gap.return_value = MagicMock()  # a non-None "agent"
     return ForgeFlow(

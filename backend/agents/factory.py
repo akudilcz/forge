@@ -310,8 +310,15 @@ def build_llm(
         config: Forge configuration (single source of truth for LLM settings).
         model: Explicit model name; falls back to Quality Auditor's configured model.
         temperature: Explicit temperature; falls back to config default.
+
+    Raises:
+        RuntimeError: when the endpoint is not explicitly keyless
+            (``llm.keyless``) and the environment variable named by
+            ``llm.api_key_env`` is unset or empty. A missing key must fail
+            loudly at construction — never fall back to a placeholder that
+            surfaces as swallowed mid-run 401s.
     """
-    api_key = os.environ.get(config.llm.api_key_env, "ollama") or "ollama"
+    api_key = _resolve_api_key(config)
     model_name = model or config.llm.agents[AgentRole.QUALITY_AUDITOR.value]
     temp = temperature if temperature is not None else config.llm.options.temperature
     import httpx
@@ -329,8 +336,38 @@ def build_llm(
         api_key=api_key,
         temperature=temp,
         timeout=timeout,
-        max_retries=0,
+        # Direct llm.ainvoke callers (quality checks, dedup, trace audit) have
+        # no retry loop of their own — one transient 429/5xx must not kill a
+        # check, so the client retries transient transport failures itself.
+        max_retries=2,
     )
+
+
+def _resolve_api_key(config: ForgeConfig) -> str:
+    """Resolve the API key for LLM construction, failing loudly if absent.
+
+    An explicitly keyless local endpoint (``llm.keyless = true``, e.g. Ollama)
+    uses a placeholder — the OpenAI client requires a non-empty string.
+    """
+    if config.llm.keyless:
+        return "ollama"
+
+    env_name = config.llm.api_key_env
+    if not env_name:
+        raise RuntimeError(
+            "LLM configuration error: llm.api_key_env is empty and the "
+            "endpoint is not marked keyless. Set llm.api_key_env to the "
+            "environment variable holding your API key, or set "
+            "llm.keyless = true for a local keyless endpoint."
+        )
+    api_key = os.environ.get(env_name)
+    if not api_key:
+        raise RuntimeError(
+            f"LLM configuration error: environment variable {env_name!r} "
+            f"(llm.api_key_env) is unset or empty. Export it, or set "
+            f"llm.keyless = true for a local keyless endpoint."
+        )
+    return api_key
 
 
 class AgentFactory:

@@ -289,7 +289,10 @@ async def run_combined_quality_check(flow: Any, phase: int) -> list[Gap]:
         return []
 
     from backend.agents.factory import build_llm
-    from backend.crew.combined_quality_check import create_combined_quality_checker
+    from backend.crew.combined_quality_check import (
+        UnjudgedQualityError,
+        create_combined_quality_checker,
+    )
 
     checker = create_combined_quality_checker(build_llm(flow.config))
     forge_logger.emit(
@@ -299,6 +302,11 @@ async def run_combined_quality_check(flow: Any, phase: int) -> list[Gap]:
     )
     try:
         gaps: list[Gap] = await checker(items)
+    except UnjudgedQualityError:
+        # Unjudged nodes after the checker's single retry are a loud failure
+        # — swallowing this into an empty gap list would score the silence
+        # as a clean quality sweep.
+        raise
     except Exception as exc:
         # One retry for transient failures. A second failure propagates —
         # returning [] here would be indistinguishable from a clean sweep,
@@ -488,7 +496,13 @@ def _build_semantic_checker(flow: Any) -> Any:
     from backend.agents.factory import build_llm
     from backend.crew.semantic_duplicate_check import create_semantic_checker
 
-    return create_semantic_checker(build_llm(flow.config), flow.graph)
+    # The verdict cache lives on the flow (initialised in ForgeFlow.__init__)
+    # so sticky UNIQUE verdicts survive across pipeline cycles even though
+    # each cycle builds a fresh checker. AttributeError here is deliberate:
+    # a flow without the cache is a missing precondition, not a fallback case.
+    return create_semantic_checker(
+        build_llm(flow.config), flow.graph, flow._semantic_verdict_cache
+    )
 
 
 def _build_design_consolidator(flow: Any) -> Any:

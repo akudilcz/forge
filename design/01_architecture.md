@@ -560,6 +560,8 @@ RULES:
 
 Quality checks (judge and planner templates) are invoked directly via plain LLM calls, not through the phase agent. **Judges** evaluate and do not act (no tools). **Planners** produce structured plans (no tools, no mutations).
 
+All plain LLM calls are constructed through the single `build_llm` factory, which retries transient transport failures at the client level (`max_retries=2`). `build_llm` fails **at construction** with a loud error when the environment variable named by `llm.api_key_env` is unset or empty — unless the endpoint is explicitly declared keyless via `llm.keyless = true` (a local endpoint such as Ollama that requires no API key). There is no implicit fallback key: a misconfigured key surfaces immediately, not as swallowed mid-run 401s.
+
 ### 7.5 Style Guide
 
 - **Directives** (imperative) for safety constraints, tool restrictions, output format rules.
@@ -614,9 +616,9 @@ Step functions:
 |------|-------------|
 | `structural` | Dispatch agent to close structural gaps one at a time |
 | `batch_phaseN` | Dispatch agent with all gaps in a single prompt; agent prefers `multi_graph_write` to emit every new node in one tool call |
-| `combined_quality` | Single batched LLM call judges every authored node on four axes (ATOMIC, EARS, title↔content match, title specificity) and emits the relevant gap types |
+| `combined_quality` | Single batched LLM call judges every authored node on four axes (ATOMIC, EARS, title↔content match, title specificity) and emits the relevant gap types. A missing verdict is never a pass: nodes/axes the model failed to judge are re-asked in exactly one follow-up call, and anything still unjudged raises `UnjudgedQualityError` — the step fails loudly rather than scoring silence as clean |
 | `quality_gaps` | Detect and dispatch deterministic quality gaps (orphan, empty-content, title-collision, sibling-title-duplicate, stale-trace-to, untitled, duplicate) |
-| `semantic` | Detect and remove semantic duplicate nodes (sibling-scoped; skips containers and sole-coverage children) |
+| `semantic` | Detect and remove semantic duplicate nodes (sibling-scoped; skips containers and sole-coverage children). Deletion requires the same DUPLICATE verdict from **two independent LLM calls** — a single nondeterministic verdict must not destroy requirement text. A UNIQUE verdict (including a UNIQUE on the confirmation call) is sticky: it is cached per `(node_id, content-hash)` on the flow, so unchanged nodes are never re-litigated by later pipeline cycles |
 | `design_consolidation` | Merge DESIGN sprawl within each MODULE (Phase 8) |
 | `case_trace_coverage` | Verify CASE nodes cover traced requirements (Phase 10) |
 | `workspace_sync` | Deterministic file scan to create CODE/TEST nodes (Phase 13) |

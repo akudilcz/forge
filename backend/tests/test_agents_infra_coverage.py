@@ -289,14 +289,20 @@ class TestGapPrompts:
             assert gap_inherits_from_role("UNCOVERED_PARA") is False
 
 
+def _llm_config(*, keyless: bool, api_key_env: str) -> MagicMock:
+    config = MagicMock()
+    config.llm.keyless = keyless
+    config.llm.api_key_env = api_key_env
+    config.llm.agents = {"Quality Auditor": "qwen-72b"}
+    config.llm.base_url = "http://localhost:11434/v1"
+    config.llm.options.temperature = 0.7
+    config.llm.request_timeout = 120
+    return config
+
+
 class TestBuildLLM:
     def test_build_llm_defaults(self) -> None:
-        config = MagicMock()
-        config.llm.api_key_env = "MY_KEY"
-        config.llm.agents = {"Quality Auditor": "qwen-72b"}
-        config.llm.base_url = "http://localhost:11434/v1"
-        config.llm.options.temperature = 0.7
-        config.llm.request_timeout = 120
+        config = _llm_config(keyless=False, api_key_env="MY_KEY")
 
         with patch.dict("os.environ", {"MY_KEY": "test-key"}):
             with patch("backend.agents.factory.ThrottledChatOpenAI") as mock_llm:
@@ -306,36 +312,59 @@ class TestBuildLLM:
                 assert kw["api_key"] == "test-key"
                 assert kw["temperature"] == 0.7
 
-    def test_build_llm_explicit_model_and_temp(self) -> None:
-        config = MagicMock()
-        config.llm.api_key_env = "MISSING_KEY"
-        config.llm.agents = {"Quality Auditor": "default-model"}
-        config.llm.base_url = "http://localhost"
-        config.llm.options.temperature = 0.7
-        config.llm.request_timeout = 60
+    def test_build_llm_retries_transient_failures(self) -> None:
+        """One transient network error must not kill a check outright."""
+        config = _llm_config(keyless=False, api_key_env="MY_KEY")
 
-        with patch.dict("os.environ", {}, clear=False):
+        with patch.dict("os.environ", {"MY_KEY": "test-key"}):
+            with patch("backend.agents.factory.ThrottledChatOpenAI") as mock_llm:
+                build_llm(config)
+                assert mock_llm.call_args[1]["max_retries"] >= 2
+
+    def test_build_llm_explicit_model_and_temp(self) -> None:
+        config = _llm_config(keyless=False, api_key_env="MY_KEY")
+
+        with patch.dict("os.environ", {"MY_KEY": "test-key"}):
             with patch("backend.agents.factory.ThrottledChatOpenAI") as mock_llm:
                 build_llm(config, model="custom-model", temperature=0.2)
                 kw = mock_llm.call_args[1]
                 assert kw["model"] == "custom-model"
                 assert kw["temperature"] == 0.2
-                # When env var missing, falls back to "ollama"
-                assert kw["api_key"] == "ollama"
 
-    def test_build_llm_ollama_fallback_empty_string(self) -> None:
-        config = MagicMock()
-        config.llm.api_key_env = "EMPTY_KEY"
-        config.llm.agents = {"Quality Auditor": "m"}
-        config.llm.base_url = "http://localhost"
-        config.llm.options.temperature = 0.5
-        config.llm.request_timeout = 30
+    def test_build_llm_raises_when_api_key_env_unset(self) -> None:
+        """A missing key is a configuration error at construction — never a
+        silent 'ollama' fallback that surfaces as mid-run 401s."""
+        config = _llm_config(keyless=False, api_key_env="MISSING_KEY_XYZ")
+
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("backend.agents.factory.ThrottledChatOpenAI"):
+                with pytest.raises(RuntimeError, match="MISSING_KEY_XYZ"):
+                    build_llm(config)
+
+    def test_build_llm_raises_when_api_key_env_empty_string(self) -> None:
+        config = _llm_config(keyless=False, api_key_env="EMPTY_KEY")
 
         with patch.dict("os.environ", {"EMPTY_KEY": ""}):
+            with patch("backend.agents.factory.ThrottledChatOpenAI"):
+                with pytest.raises(RuntimeError, match="EMPTY_KEY"):
+                    build_llm(config)
+
+    def test_build_llm_raises_when_api_key_env_name_blank(self) -> None:
+        config = _llm_config(keyless=False, api_key_env="")
+
+        with patch("backend.agents.factory.ThrottledChatOpenAI"):
+            with pytest.raises(RuntimeError, match="api_key_env"):
+                build_llm(config)
+
+    def test_build_llm_keyless_endpoint_needs_no_key(self) -> None:
+        """llm.keyless = true is the explicit opt-in for local keyless
+        endpoints (e.g. Ollama) — a placeholder key is used."""
+        config = _llm_config(keyless=True, api_key_env="")
+
+        with patch.dict("os.environ", {}, clear=True):
             with patch("backend.agents.factory.ThrottledChatOpenAI") as mock_llm:
                 build_llm(config)
-                kw = mock_llm.call_args[1]
-                assert kw["api_key"] == "ollama"
+                assert mock_llm.call_args[1]["api_key"] == "ollama"
 
 
 # ---------------------------------------------------------------------------

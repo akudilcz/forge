@@ -110,6 +110,9 @@ class ForgeFlow:
         self._analyser = GapAnalyser()
         self._auditor = PhaseAuditor()
         self._approval_events: dict[int, asyncio.Event] = {}
+        # Sticky semantic-dedup verdicts, keyed by (node_id, content-hash).
+        # Flow-scoped so pipeline re-loops cannot re-litigate unchanged nodes.
+        self._semantic_verdict_cache: dict[tuple[str, str], str] = {}
 
     # ── Public interface ─────────────────────────────────────────────────────
 

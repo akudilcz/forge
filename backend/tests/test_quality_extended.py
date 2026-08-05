@@ -131,6 +131,27 @@ async def test_run_semantic_check_no_candidates() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_combined_quality_check_propagates_unjudged_error() -> None:
+    """UnjudgedQualityError must not be swallowed into an empty gap list —
+    an unverified batch is a loud failure, not a clean sweep."""
+    from backend.crew.combined_quality_check import UnjudgedQualityError
+    from backend.crew.quality import run_combined_quality_check
+
+    flow = _flow([_node("HLR-1", "HLR", title="T", content="the system shall X.")])
+
+    failing_checker = AsyncMock(side_effect=UnjudgedQualityError({"HLR-1": {"ATOMIC"}}))
+    with (
+        patch("backend.agents.factory.build_llm", return_value=MagicMock()),
+        patch(
+            "backend.crew.combined_quality_check.create_combined_quality_checker",
+            return_value=failing_checker,
+        ),
+    ):
+        with pytest.raises(UnjudgedQualityError):
+            await run_combined_quality_check(flow, phase=3)
+
+
+@pytest.mark.asyncio
 async def test_scan_qual_detect_no_nodes_for_phase() -> None:
     flow = _flow([])
     result = await scan_qual_detect(flow, phase=3)
@@ -145,12 +166,13 @@ async def test_scan_qual_detect_unknown_phase() -> None:
     assert result == []
 
 
-def test_build_semantic_checker_wires_llm_and_graph() -> None:
+def test_build_semantic_checker_wires_llm_graph_and_flow_scoped_cache() -> None:
     from backend.crew.quality import _build_semantic_checker
 
     flow = MagicMock()
     flow.config = MagicMock()
     flow.graph = MagicMock()
+    flow._semantic_verdict_cache = {}
     with (
         patch("backend.agents.factory.build_llm", return_value="llm-sentinel"),
         patch(
@@ -160,7 +182,9 @@ def test_build_semantic_checker_wires_llm_and_graph() -> None:
     ):
         checker = _build_semantic_checker(flow)
     assert checker == "checker-sentinel"
-    ctor.assert_called_once_with("llm-sentinel", flow.graph)
+    # The verdict cache is the flow's own dict — shared across pipeline
+    # cycles, never a fresh dict per checker build.
+    ctor.assert_called_once_with("llm-sentinel", flow.graph, flow._semantic_verdict_cache)
 
 
 def test_build_design_consolidator_wires_llm_and_graph() -> None:

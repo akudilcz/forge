@@ -2,17 +2,27 @@
 
 Asks the LLM whether a node is a semantic duplicate of its siblings.
 Parses DUPLICATE/UNIQUE from the text response.
+
+Deletion is guarded two ways (a false DUPLICATE destroys requirement text
+that cannot be auto-recovered — live-trace proven on PARA-0242):
+
+1. **Double confirmation** — a node is only deleted when two independent
+   LLM calls both return DUPLICATE. A single nondeterministic verdict is
+   never enough.
+2. **Sticky UNIQUE verdicts** — a UNIQUE verdict is cached per
+   ``(node_id, content-hash)`` in a caller-supplied cache dict (scoped to
+   the owning flow, no global state). The pipeline's deletion-triggered
+   re-loop therefore cannot re-litigate an unchanged node in a later cycle.
 """
 from __future__ import annotations
 
-import logging
+import hashlib
+import time
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from backend.server.forge_logger import forge_logger
-
-logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """\
 You are a deduplication judge. Given a TARGET node and its SIBLINGS,
@@ -47,22 +57,31 @@ or
 UNIQUE - <the distinct obligation this node specifies>
 """
 
+_STICKY_UNIQUE = "UNIQUE"
 
-def create_semantic_checker(llm: Any, graph: Any) -> Any:
-    """Return an async callable that judges one node and deletes it if duplicate."""
 
-    async def check(node_id: str, node_content: str, siblings_text: str) -> bool:
-        """Judge node_id against siblings_text; delete if duplicate. Returns True if deleted."""
-        import time  # noqa: PLC0415
+def _cache_key(node_id: str, node_content: str) -> tuple[str, str]:
+    """Cache key for a verdict: the node plus a hash of its exact content."""
+    digest = hashlib.sha256(node_content.encode("utf-8")).hexdigest()
+    return (node_id, digest)
 
-        forge_logger.emit(
-            "INFO", "SEMA ",
-            f"Judging {node_id}",
-            f"content={node_content[:80].replace(chr(10), ' ')!r}",
-            node_id=node_id,
-            sibling_count=siblings_text.count("[") if siblings_text else 0,
-        )
 
+def create_semantic_checker(
+    llm: Any,
+    graph: Any,
+    verdict_cache: dict[tuple[str, str], str],
+) -> Any:
+    """Return an async callable that judges one node and deletes it if duplicate.
+
+    *verdict_cache* maps ``(node_id, content-hash)`` to a sticky verdict.
+    It must be owned by the flow so it persists across pipeline cycles
+    (each cycle builds a fresh checker) but never leaks between projects.
+    """
+
+    async def _judge_once(
+        node_id: str, node_content: str, siblings_text: str
+    ) -> tuple[bool, str]:
+        """One independent LLM judgment. Returns (is_duplicate, label)."""
         t0 = time.monotonic()
         response = await llm.ainvoke([
             SystemMessage(content=_SYSTEM_PROMPT),
@@ -108,15 +127,56 @@ def create_semantic_checker(llm: Any, graph: Any) -> Any:
             node_id=node_id,
             duration_ms=duration_ms,
         )
+        return is_duplicate, label
 
-        if is_duplicate:
+    async def check(node_id: str, node_content: str, siblings_text: str) -> bool:
+        """Judge node_id against siblings_text; delete only on a confirmed
+        duplicate verdict. Returns True if deleted."""
+        key = _cache_key(node_id, node_content)
+        if key in verdict_cache:
             forge_logger.emit(
                 "INFO", "SEMA ",
-                f"Deleting confirmed duplicate {node_id}",
+                f"Skip {node_id} — sticky {verdict_cache[key]} verdict for unchanged content",
                 node_id=node_id,
             )
-            await graph.delete_node(node_id)
+            return False
 
-        return is_duplicate
+        forge_logger.emit(
+            "INFO", "SEMA ",
+            f"Judging {node_id}",
+            f"content={node_content[:80].replace(chr(10), ' ')!r}",
+            node_id=node_id,
+            sibling_count=siblings_text.count("[") if siblings_text else 0,
+        )
+
+        is_duplicate, label = await _judge_once(node_id, node_content, siblings_text)
+        if not is_duplicate:
+            if label == "UNIQUE":
+                # Sticky: an unchanged node judged UNIQUE is never re-litigated.
+                verdict_cache[key] = _STICKY_UNIQUE
+            return False
+
+        # One DUPLICATE verdict is not enough to destroy requirement text —
+        # require the same verdict from a second, independent call.
+        confirmed, confirm_label = await _judge_once(node_id, node_content, siblings_text)
+        if not confirmed:
+            forge_logger.emit(
+                "WARN", "SEMA ",
+                f"Unconfirmed duplicate {node_id} — first call said DUPLICATE, "
+                f"confirmation said {confirm_label}; keeping node",
+                node_id=node_id,
+            )
+            # Disagreement defaults to UNIQUE, and sticks: without this the
+            # pipeline re-loop gets up to 12 fresh chances to flip the verdict.
+            verdict_cache[key] = _STICKY_UNIQUE
+            return False
+
+        forge_logger.emit(
+            "INFO", "SEMA ",
+            f"Deleting confirmed duplicate {node_id} (2/2 DUPLICATE verdicts)",
+            node_id=node_id,
+        )
+        await graph.delete_node(node_id)
+        return True
 
     return check

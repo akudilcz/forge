@@ -41,9 +41,21 @@ def _graph() -> MagicMock:
     return graph
 
 
+def _llm_seq(*contents: str) -> MagicMock:
+    """LLM mock returning one response per call, in order."""
+    llm = MagicMock()
+    responses = []
+    for c in contents:
+        r = MagicMock()
+        r.content = c
+        responses.append(r)
+    llm.ainvoke = AsyncMock(side_effect=responses)
+    return llm
+
+
 async def _judge(content: Any) -> tuple[bool, MagicMock]:
     graph = _graph()
-    check = create_semantic_checker(_llm(content), graph)
+    check = create_semantic_checker(_llm(content), graph, {})
     deleted = await check("PARA-0001", "some requirement text", "[PARA-0002] other")
     return deleted, graph
 
@@ -142,7 +154,140 @@ class TestResponseShapes:
         llm = MagicMock()
         llm.ainvoke = AsyncMock(return_value="DUPLICATE - same thing")
 
-        check = create_semantic_checker(llm, graph)
+        check = create_semantic_checker(llm, graph, {})
         deleted = await check("PARA-0001", "text", "[PARA-0002] other")
 
         assert deleted is True
+
+
+class TestDoubleConfirmation:
+    """A single DUPLICATE verdict must never delete requirement text.
+
+    Live-trace regression (merge_sort.log): PARA-0242 — "Do not delegate to
+    the built-in list.sort or sorted" — was hard-deleted on one nondeterministic
+    DUPLICATE verdict. Deletion now requires the same DUPLICATE verdict from
+    two independent LLM calls.
+    """
+
+    async def test_confirmed_duplicate_deletes_after_two_calls(self) -> None:
+        graph = _graph()
+        llm = _llm_seq("DUPLICATE - same as PARA-0002", "DUPLICATE - same as PARA-0002")
+        check = create_semantic_checker(llm, graph, {})
+
+        deleted = await check("PARA-0001", "text", "[PARA-0002] other")
+
+        assert deleted is True
+        assert llm.ainvoke.await_count == 2
+        graph.delete_node.assert_awaited_once_with("PARA-0001")
+
+    async def test_unconfirmed_duplicate_keeps_the_node(self) -> None:
+        """First call says DUPLICATE, confirmation says UNIQUE → keep."""
+        graph = _graph()
+        llm = _llm_seq("DUPLICATE - same as PARA-0002", "UNIQUE - distinct obligation")
+        check = create_semantic_checker(llm, graph, {})
+
+        deleted = await check("PARA-0001", "text", "[PARA-0002] other")
+
+        assert deleted is False
+        assert llm.ainvoke.await_count == 2
+        graph.delete_node.assert_not_awaited()
+
+    async def test_unparseable_confirmation_keeps_the_node(self) -> None:
+        graph = _graph()
+        llm = _llm_seq("DUPLICATE - same as PARA-0002", "")
+        check = create_semantic_checker(llm, graph, {})
+
+        deleted = await check("PARA-0001", "text", "[PARA-0002] other")
+
+        assert deleted is False
+        graph.delete_node.assert_not_awaited()
+
+    async def test_unique_verdict_makes_only_one_call(self) -> None:
+        graph = _graph()
+        llm = _llm_seq("UNIQUE - distinct obligation")
+        check = create_semantic_checker(llm, graph, {})
+
+        deleted = await check("PARA-0001", "text", "[PARA-0002] other")
+
+        assert deleted is False
+        assert llm.ainvoke.await_count == 1
+
+
+class TestVerdictCache:
+    """A prior UNIQUE verdict is sticky for unchanged content.
+
+    The pipeline re-loops after any deletion (up to 12 cycles), re-judging
+    survivors. PARA-0242 was judged UNIQUE at 22:38 and DUPLICATE for
+    identical content at 22:57. With the cache, an unchanged node that was
+    once judged UNIQUE is never re-litigated.
+    """
+
+    async def test_unique_verdict_is_sticky_for_unchanged_content(self) -> None:
+        graph = _graph()
+        cache: dict[tuple[str, str], str] = {}
+        llm = _llm_seq("UNIQUE - distinct obligation")
+        check = create_semantic_checker(llm, graph, cache)
+
+        first = await check("PARA-0242", "Do not delegate to list.sort", "[PARA-0001] other")
+        # Re-judging identical content must not call the LLM again.
+        second = await check("PARA-0242", "Do not delegate to list.sort", "[PARA-0001] other")
+
+        assert first is False and second is False
+        assert llm.ainvoke.await_count == 1
+        graph.delete_node.assert_not_awaited()
+
+    async def test_cache_survives_across_checker_instances(self) -> None:
+        """The cache is flow-scoped: a fresh checker built for the next
+        pipeline cycle shares the same cache dict."""
+        graph = _graph()
+        cache: dict[tuple[str, str], str] = {}
+        llm1 = _llm_seq("UNIQUE - distinct obligation")
+        await create_semantic_checker(llm1, graph, cache)(
+            "PARA-0242", "unchanged text", "[PARA-0001] other"
+        )
+
+        llm2 = _llm_seq("DUPLICATE - flip-flop", "DUPLICATE - flip-flop")
+        deleted = await create_semantic_checker(llm2, graph, cache)(
+            "PARA-0242", "unchanged text", "[PARA-0001] other"
+        )
+
+        assert deleted is False
+        llm2.ainvoke.assert_not_awaited()
+        graph.delete_node.assert_not_awaited()
+
+    async def test_changed_content_is_rejudged(self) -> None:
+        graph = _graph()
+        cache: dict[tuple[str, str], str] = {}
+        llm = _llm_seq("UNIQUE - distinct obligation", "UNIQUE - still distinct")
+        check = create_semantic_checker(llm, graph, cache)
+
+        await check("PARA-0242", "original text", "[PARA-0001] other")
+        await check("PARA-0242", "edited text", "[PARA-0001] other")
+
+        assert llm.ainvoke.await_count == 2
+
+    async def test_unparseable_verdict_is_not_cached(self) -> None:
+        """No answer is not a verdict — the node may be re-judged later."""
+        graph = _graph()
+        cache: dict[tuple[str, str], str] = {}
+        llm = _llm_seq("", "UNIQUE - distinct obligation")
+        check = create_semantic_checker(llm, graph, cache)
+
+        await check("PARA-0001", "text", "[PARA-0002] other")
+        await check("PARA-0001", "text", "[PARA-0002] other")
+
+        assert llm.ainvoke.await_count == 2
+
+    async def test_unconfirmed_duplicate_becomes_sticky_unique(self) -> None:
+        """A DUPLICATE/UNIQUE disagreement resolves to UNIQUE and sticks."""
+        graph = _graph()
+        cache: dict[tuple[str, str], str] = {}
+        llm = _llm_seq("DUPLICATE - overlap", "UNIQUE - distinct")
+        check = create_semantic_checker(llm, graph, cache)
+
+        await check("PARA-0001", "text", "[PARA-0002] other")
+        deleted = await check("PARA-0001", "text", "[PARA-0002] other")
+
+        assert deleted is False
+        assert llm.ainvoke.await_count == 2
+        graph.delete_node.assert_not_awaited()

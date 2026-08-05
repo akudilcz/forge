@@ -45,6 +45,10 @@ class ProviderConfig(BaseModel):
 
     base_url: str = ""
     api_key_env: str = ""
+    # Explicit opt-in for local endpoints that require no API key (e.g.
+    # Ollama). Never inferred — a missing key with keyless=False is a
+    # loud configuration error at LLM construction.
+    keyless: bool = False
     agents: dict[str, str] = Field(default_factory=dict)
     phase_models: dict[str, str] = Field(default_factory=dict)
     model_context_windows: dict[str, int] = Field(default_factory=dict)
@@ -83,6 +87,10 @@ class LLMConfig(BaseModel):
     provider: str = "openai"
     base_url: str = "https://api.poe.com/v1"
     api_key_env: str = "POE_API_KEY"
+    # Explicit opt-in for local endpoints that require no API key (e.g.
+    # Ollama). Never inferred — a missing key with keyless=False is a
+    # loud configuration error at LLM construction.
+    keyless: bool = False
     request_timeout: int = 600
     call_delay_ms: int = 400
     num_ctx: int = 128000

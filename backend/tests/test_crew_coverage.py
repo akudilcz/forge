@@ -312,7 +312,7 @@ class TestSemanticDuplicateCheck:
         llm.ainvoke.return_value = response
 
         graph = _make_graph()
-        check = create_semantic_checker(llm, graph)
+        check = create_semantic_checker(llm, graph, {})
 
         result = await check("N1", "requirement text", "sibling text")
         assert result is False
@@ -320,6 +320,7 @@ class TestSemanticDuplicateCheck:
 
     @pytest.mark.asyncio
     async def test_duplicate_response_deletes_node(self) -> None:
+        """Both the initial and the confirmation call return DUPLICATE."""
         from backend.crew.semantic_duplicate_check import create_semantic_checker
 
         llm = AsyncMock()
@@ -328,10 +329,11 @@ class TestSemanticDuplicateCheck:
         llm.ainvoke.return_value = response
 
         graph = _make_graph()
-        check = create_semantic_checker(llm, graph)
+        check = create_semantic_checker(llm, graph, {})
 
         result = await check("N1", "requirement text", "sibling text")
         assert result is True
+        assert llm.ainvoke.await_count == 2  # verdict + independent confirmation
         graph.delete_node.assert_awaited_once_with("N1")
 
     @pytest.mark.asyncio
@@ -344,7 +346,7 @@ class TestSemanticDuplicateCheck:
         llm.ainvoke.return_value = response
 
         graph = _make_graph()
-        check = create_semantic_checker(llm, graph)
+        check = create_semantic_checker(llm, graph, {})
 
         result = await check("N2", "text", "siblings")
         assert result is True
@@ -357,7 +359,7 @@ class TestSemanticDuplicateCheck:
         llm = AsyncMock()
         llm.ainvoke.return_value = "UNIQUE - plain string"
         graph = _make_graph()
-        check = create_semantic_checker(llm, graph)
+        check = create_semantic_checker(llm, graph, {})
 
         result = await check("N1", "text", "siblings")
         assert result is False
