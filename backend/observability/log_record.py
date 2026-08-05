@@ -74,7 +74,7 @@ class LogCategory(str, Enum):
     TEST = "TEST"      # Test runner artefacts
     CAT = "CAT"        # Legacy / test-only
     DASH = "DASH"      # Dashboard stats
-    CONFORM = "CONFORM"  # Architecture conformance (consistency_check)
+    CONFORM = "CONFORM"  # Architecture conformance (legacy — emitter removed)
 
 
 _CATEGORY_BY_CANONICAL: dict[str, LogCategory] = {

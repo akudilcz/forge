@@ -117,9 +117,6 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = [
-    "backend.contracts.validator",
-    "backend.context.composer",
-    "backend.context.manager",
     "backend.tools.base",
     "backend.tools.graph_read",
     "backend.tools.graph_write",
@@ -137,13 +134,9 @@ module = [
     "backend.server.routers.graph",
     "backend.server.routers.requirements",
     "backend.server.routers.compliance",
-    "backend.contracts.negotiator",
-    "backend.contracts.registry",
     "backend.crew.flow",
-    "backend.crew.callbacks",
     "backend.agents.pool",
     "backend.agents.factory",
-    "backend.architecture.analyser",
     "backend.tools.send_message",
     "backend.server.routers.agents",
     "backend.server.routers.architecture",

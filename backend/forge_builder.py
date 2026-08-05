@@ -1,8 +1,8 @@
 """ForgeBuilder — constructs a fully wired ForgeFlow from a config and workspace.
 
-Used by both production (lifespan.py) and integration tests. Encapsulates
-the dependency wiring that was previously scattered across lifespan helpers
-and duplicated in test fixtures.
+Used by the integration test-suite (the server wires its own dependencies in
+``server/lifespan.py``). Encapsulates the dependency wiring so test fixtures
+build a real pipeline in one call.
 
 Usage::
 
