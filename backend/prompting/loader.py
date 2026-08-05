@@ -6,7 +6,7 @@ renders a template by path relative to that directory.
 
 Usage::
 
-    from backend.prompt_loader import render
+    from backend.prompting.loader import render
 
     prompt = render("codegen/slice_system.j2", src_path="src/foo.py", ...)
 """
@@ -18,7 +18,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
+_TEMPLATES_DIR = Path(__file__).resolve().parent.parent.parent / "templates"
 
 
 @lru_cache(maxsize=1)

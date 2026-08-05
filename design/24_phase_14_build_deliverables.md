@@ -8,7 +8,7 @@ everything into a deliverables ZIP archive. Given the same graph state, it
 always produces identical output.
 
 **Handler:** `_run_deliverables_phase` in `backend/crew/flow.py`
-**Module:** `backend/crew/deliverables.py`
+**Module:** `backend/rendering/deliverables.py`
 
 ---
 

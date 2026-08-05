@@ -360,7 +360,8 @@ async def test_phase_12_on_empty_graph_completes_without_junk(
         factory.llm_call_limit = None
 
     row = flow.phase_store.get(12)
-    assert row is not None and str(row["status"]) == "complete"
+    assert row is not None
+    assert str(row["status"]) == "complete"
 
     junk_sources = [
         p.name for p in (workspace / "src").rglob("*.py") if p.name != "__init__.py"

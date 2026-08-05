@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from backend.crew.context_budget import (
+from backend.prompting.context_budget import (
     P_ANCESTOR_CHAIN,
     P_BACKGROUND,
     P_LANDSCAPE,

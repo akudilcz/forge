@@ -1,4 +1,4 @@
-"""Coverage tests for backend.crew.task_builder context builders.
+"""Coverage tests for backend.prompting.builder context builders.
 
 Exercises the context-assembly branches of ``build_context_for_gap`` and
 the smaller lookup helpers with a lightweight duck-typed graph.
@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from backend.analysis.gaps import Gap, GapPriority, GapType
-from backend.crew.task_builder import (
+from backend.prompting.builder import (
     _build_shallow_req_context,
     _find_architecture_node,
     build_cases_for_requirement,

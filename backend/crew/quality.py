@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 from backend.analysis.gaps import Gap, GapPriority, GapType
-from backend.crew.task_builder import build_all_peers_context
+from backend.prompting.builder import build_all_peers_context
 from backend.server.forge_logger import forge_logger
 
 logger = logging.getLogger(__name__)

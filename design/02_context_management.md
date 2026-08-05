@@ -8,7 +8,7 @@ We never truncate node content mid-string. Every node that appears in an agent's
 
 ## Section-based context assembly
 
-Per-gap context is built by `backend/crew/task_builder.py::build_context_for_gap()`. Each builder emits zero or more `Section(priority, name, text)` entries, and the final string is produced by `context_budget.pack()`.
+Per-gap context is built by `backend/prompting/builder.py::build_context_for_gap()`. Each builder emits zero or more `Section(priority, name, text)` entries, and the final string is produced by `context_budget.pack()`.
 
 ### Priority scale (`context_budget.py`)
 
@@ -53,7 +53,7 @@ Callers then wrap the selected candidates back into a `Section`. The selector ne
 
 `markdown_sections.extract_sections(text, headings)` wraps `langchain_text_splitters.MarkdownHeaderTextSplitter` to pull named sections out of long markdown documents (e.g. ARCHITECTURE) without positional slicing. Used by Phase 6 to surface Tech Stack + Cross-Cutting Concerns at the top of the CONTRACT-authoring context.
 
-## Peer-artefact helpers (`task_builder.py`)
+## Peer-artefact helpers (`prompting/builder.py`)
 
 Each returns full content, with no caps:
 

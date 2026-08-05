@@ -901,7 +901,8 @@ class TestParseTraceTo:
 # 6. file_write
 # ═══════════════════════════════════════════════════════════════════════════
 
-from backend.tools.file_write import FileWriteTool, _check_syntax
+from backend.tools.file_write import FileWriteTool
+from backend.tools.write_validation import check_syntax as _check_syntax
 
 
 class TestCheckSyntax:

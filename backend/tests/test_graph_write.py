@@ -282,7 +282,7 @@ def test_add_traces_rejects_json_object(mock_graph: MagicMock) -> None:
 
 
 def test_coerce_to_list_variants() -> None:
-    from backend.tools.graph_write import _TraceToCoerceError, _coerce_to_list
+    from backend.tools.graph_write import _coerce_to_list, _TraceToCoerceError
 
     assert _coerce_to_list(None) == []
     assert _coerce_to_list("") == []

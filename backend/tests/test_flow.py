@@ -690,8 +690,8 @@ def test_phase_routing_constants(flow: ForgeFlow) -> None:
 )
 def test_build_sibling_req_context(scenario: str, only_self: bool, expected_empty: bool) -> None:
     """build_sibling_req_context lists siblings or returns empty string."""
-    from backend.crew.task_builder import build_sibling_req_context
     from backend.graph.models import GraphNode
+    from backend.prompting.builder import build_sibling_req_context
 
     node = GraphNode(
         node_id="LLR-0002", node_type="LLR", title="T", content="req B", parent_id="HLR-0001"
@@ -725,8 +725,8 @@ def test_build_module_design_context(
     scenario: str, has_module: bool, expected_empty: bool
 ) -> None:
     """build_module_design_context includes module/design info or returns empty."""
-    from backend.crew.task_builder import build_module_design_context
     from backend.graph.models import GraphNode
+    from backend.prompting.builder import build_module_design_context
 
     llr = GraphNode(
         node_id="LLR-0005", node_type="LLR", title="T", content="req", parent_id="HLR-0001"
@@ -777,8 +777,8 @@ def test_build_module_design_context(
 
 def test_build_context_for_gap_undesigned_includes_module_context() -> None:
     """build_context_for_gap for UNDESIGNED appends module/design context."""
-    from backend.crew.task_builder import build_context_for_gap
     from backend.graph.models import GraphNode
+    from backend.prompting.builder import build_context_for_gap
 
     llr = GraphNode(
         node_id="LLR-0003", node_type="LLR", title="T", content="req", parent_id="HLR-0001"
@@ -1367,7 +1367,7 @@ async def test_run_phase_routes_special_phases(flow: ForgeFlow, phase: int) -> N
 @pytest.mark.asyncio
 async def test_code_gen_phase_warns_when_gaps_unresolved(flow: ForgeFlow) -> None:
     result = SimpleNamespace(source_files=[], test_files=[], gaps_resolved=False)
-    flow._get_tool_instances = MagicMock(return_value=[])
+    flow._get_tool_instances = MagicMock(return_value=[])  # type: ignore[method-assign]
     with (
         patch(
             "backend.crew.code_gen.run_code_gen",

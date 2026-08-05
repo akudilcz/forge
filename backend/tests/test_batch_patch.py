@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from backend.tools.batch_patch import BatchPatchTool, _PatchEntry
 
 
@@ -124,7 +126,7 @@ def test_unreadable_target_reports_read_error(tmp_path: Path) -> None:
     assert result.startswith("ERROR reading dir.py:")
 
 
-def test_write_failure_reports_write_error(tmp_path: Path, monkeypatch) -> None:
+def test_write_failure_reports_write_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / "f.txt").write_text("hello world")
     tool = BatchPatchTool(workspace=str(tmp_path))
 

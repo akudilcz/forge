@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from backend.crew.dashboard import _render_phase_doc, render_dashboard
+from backend.rendering.dashboard import _render_phase_doc, render_dashboard
 
 
 def _make_node(node_id: str, node_type: str, title: str = "Title", content: str = "Content",

@@ -23,13 +23,6 @@ from typing import Any
 from langchain_core.messages import HumanMessage
 
 from backend.analysis.gaps import Gap, GapType
-from backend.crew.batch_prompts import (
-    build_batch_phase3_prompt,
-    build_batch_phase5_prompt,
-    build_batch_phase7_prompt,
-    build_batch_phase8_prompt,
-    build_batch_phase10_prompt,
-)
 from backend.crew.phase_constraints import (
     reset_phase_constraints,
     set_phase_constraints,
@@ -37,6 +30,13 @@ from backend.crew.phase_constraints import (
 )
 from backend.crew.phase_context import phase_context
 from backend.crew.phase_steps import StepResult
+from backend.prompting.batch_prompts import (
+    build_batch_phase3_prompt,
+    build_batch_phase5_prompt,
+    build_batch_phase7_prompt,
+    build_batch_phase8_prompt,
+    build_batch_phase10_prompt,
+)
 from backend.server.forge_logger import forge_logger
 
 logger = logging.getLogger(__name__)

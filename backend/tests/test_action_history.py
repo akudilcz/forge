@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from backend.analysis.gaps import Gap, GapPriority, GapType
-from backend.crew.task_builder import build_task_description
+from backend.prompting.builder import build_task_description
 
 
 def test_build_task_description_returns_description_and_expected() -> None:

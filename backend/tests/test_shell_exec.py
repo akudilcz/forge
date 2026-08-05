@@ -29,7 +29,7 @@ def test_nonzero_exit_reported(tmp_path: Path) -> None:
     assert _tool(tmp_path)._execute(command="false").startswith("EXIT 1:")
 
 
-def test_unexpected_subprocess_failure_wrapped(tmp_path: Path, monkeypatch) -> None:
+def test_unexpected_subprocess_failure_wrapped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def _boom(*args: object, **kwargs: object) -> None:
         raise OSError("spawn failed")
 

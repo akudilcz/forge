@@ -45,7 +45,8 @@ async def flow(integration_config: ForgeConfig, tmp_path: Path) -> ForgeFlow:
 
 
 async def _project_nodes(flow: ForgeFlow) -> list[GraphNode]:
-    return await flow.graph.nodes_by_type(NodeType.PROJECT.value)
+    nodes: list[GraphNode] = await flow.graph.nodes_by_type(NodeType.PROJECT.value)
+    return nodes
 
 
 def _phase_status(flow: ForgeFlow, phase: int) -> str:

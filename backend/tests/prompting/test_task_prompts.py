@@ -14,8 +14,8 @@ from typing import Any
 import pytest
 
 from backend.analysis.gaps import Gap, GapPriority, GapType
-from backend.crew.task_builder import build_task_description
-from backend.crew.task_prompts import build_descriptions
+from backend.prompting.builder import build_task_description
+from backend.prompting.task_prompts import build_descriptions
 
 NODE_ID = "NODE-0042"
 SUITE_ID = "SUITE-0001"
@@ -63,8 +63,10 @@ class TestDispatchTableCoverage:
     ) -> None:
         """A gap with an EMPTY context must still build — no KeyError, no blanks."""
         description, expected_output = _entry(_gap(gap_type))
-        assert isinstance(description, str) and description.strip()
-        assert isinstance(expected_output, str) and expected_output.strip()
+        assert isinstance(description, str)
+        assert description.strip()
+        assert isinstance(expected_output, str)
+        assert expected_output.strip()
         assert NODE_ID in description, (
             f"{gap_type.value} description does not name the target node"
         )
@@ -240,7 +242,8 @@ class TestPhasePromptSpotChecks:
         assert "DOC-0001" in description
         assert "para_type" in description
         assert CTX_SENTINEL in description
-        assert "PARA" in expected_output and "DOC-0001" in expected_output
+        assert "PARA" in expected_output
+        assert "DOC-0001" in expected_output
 
     def test_architect_creates_architecture_and_modules(self) -> None:
         gap = _gap(GapType.UNARCHITECTED, node_id="PROJECT-0001")
@@ -250,7 +253,8 @@ class TestPhasePromptSpotChecks:
         assert "HLR" in description
         assert "PROJECT-0001" in description
         assert CTX_SENTINEL in description
-        assert "ARCHITECTURE" in expected_output and "MODULE" in expected_output
+        assert "ARCHITECTURE" in expected_output
+        assert "MODULE" in expected_output
 
     def test_contract_creates_contract_under_the_module(self) -> None:
         gap = _gap(GapType.UNCONTRACTED, node_id="MODULE-0002")
@@ -258,7 +262,8 @@ class TestPhasePromptSpotChecks:
         assert "CONTRACT" in description
         assert "MODULE-0002" in description
         assert CTX_SENTINEL in description
-        assert "CONTRACT" in expected_output and "MODULE-0002" in expected_output
+        assert "CONTRACT" in expected_output
+        assert "MODULE-0002" in expected_output
 
     def test_suite_prompt_demands_a_strategy_document(self) -> None:
         gap = _gap(GapType.UNSUITED, node_id="PROJECT-0001")
@@ -270,7 +275,8 @@ class TestPhasePromptSpotChecks:
         assert "## Tools" in description
         assert "## Entry / Exit Criteria" in description
         assert CTX_SENTINEL in description
-        assert "SUITE" in expected_output and "PROJECT-0001" in expected_output
+        assert "SUITE" in expected_output
+        assert "PROJECT-0001" in expected_output
 
     def test_test_hlr_embeds_suite_id_and_traces_the_requirement(self) -> None:
         gap = _gap(GapType.UNTESTED_HLR, node_id="HLR-0005")

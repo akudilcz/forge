@@ -39,7 +39,7 @@ from backend.crew.quality import (
     scan_qual_detect,
     semantic_gaps_for_type,
 )
-from backend.crew.task_builder import (
+from backend.prompting.builder import (
     build_ancestor_context,
     build_task_description,
     find_suite_id,
@@ -459,7 +459,7 @@ class ForgeFlow:
         self._set_phase_status(11, "active")
         logger.info("forge.flow.phase_start phase=11 (dashboard)")
         forge_logger.phase_start(11)
-        from backend.crew.dashboard import render_dashboard
+        from backend.rendering.dashboard import render_dashboard
 
         written = await render_dashboard(self.graph, self._workspace)
         forge_logger.emit(
@@ -507,7 +507,7 @@ class ForgeFlow:
         self._set_phase_status(14, "active")
         logger.info("forge.flow.phase_start phase=14 (deliverables)")
         forge_logger.phase_start(14)
-        from backend.crew.deliverables import build_deliverables_pack
+        from backend.rendering.deliverables import build_deliverables_pack
 
         zip_path = await build_deliverables_pack(self.graph, self._workspace)
         forge_logger.emit("INFO", "DLVR ", f"Deliverables pack built: {zip_path}")

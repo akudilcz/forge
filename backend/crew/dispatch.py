@@ -16,7 +16,7 @@ from backend.agents.definitions import GAP_AGENT_MAPPING
 from backend.analysis.gaps import Gap, GapType
 from backend.crew.phase_constraints import reset_phase_constraints, set_phase_constraints
 from backend.crew.phase_context import phase_context
-from backend.crew.task_builder import build_context_for_gap, build_task_description, find_suite_id
+from backend.prompting.builder import build_context_for_gap, build_task_description, find_suite_id
 from backend.server.forge_logger import forge_logger
 
 logger = logging.getLogger(__name__)

@@ -57,7 +57,9 @@ class TestSQLiteLLMCacheDirect:
         result = cache.lookup("prompt", "llm-string")
 
         assert result is not None
-        assert result[0].message.content == "cached-answer"
+        first = result[0]
+        assert isinstance(first, ChatGeneration)
+        assert first.message.content == "cached-answer"
 
     def test_directory_and_db_file_created_on_first_use(self, tmp_path: Path) -> None:
         db_path = tmp_path / ".cache" / "llm_cache.db"
@@ -204,4 +206,6 @@ class TestCacheKeyIncludesModelParams:
         assert row_count == 2
         hit = cache.lookup("same prompt", key_a)
         assert hit is not None
-        assert hit[0].message.content == "answer-at-0.1"
+        first = hit[0]
+        assert isinstance(first, ChatGeneration)
+        assert first.message.content == "answer-at-0.1"

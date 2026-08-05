@@ -1,4 +1,4 @@
-"""Tests for backend.crew.deliverables — Phase 14 deliverables pack builder."""
+"""Tests for backend.rendering.deliverables — Phase 14 deliverables pack builder."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.crew.deliverables import (
+from backend.rendering.deliverables import (
     _render_architecture,
     _render_coverage_report,
     _render_design,
@@ -20,8 +20,8 @@ from backend.crew.deliverables import (
     _render_traceability_matrix,
     build_deliverables_pack,
 )
-from backend.crew.deliverables_helpers import build_trace_map as _build_trace_map
-from backend.crew.deliverables_helpers import pct as _pct
+from backend.rendering.deliverables_helpers import build_trace_map as _build_trace_map
+from backend.rendering.deliverables_helpers import pct as _pct
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 

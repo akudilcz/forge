@@ -44,7 +44,7 @@ class _Graph:
 
 
 def test_build_peer_contracts_context_full_content() -> None:
-    from backend.crew.task_builder import build_peer_contracts_context
+    from backend.prompting.builder import build_peer_contracts_context
 
     ctr_a = _node(
         "CONTRACT-0001",
@@ -65,7 +65,7 @@ def test_build_peer_contracts_context_full_content() -> None:
 
 
 def test_build_peer_contracts_excludes_given_module() -> None:
-    from backend.crew.task_builder import build_peer_contracts_context
+    from backend.prompting.builder import build_peer_contracts_context
 
     own = _node("CONTRACT-0001", "CONTRACT", parent_id="MODULE-me", content="mine")
     peer = _node("CONTRACT-0002", "CONTRACT", parent_id="MODULE-other", content="theirs")
@@ -76,7 +76,7 @@ def test_build_peer_contracts_excludes_given_module() -> None:
 
 
 def test_build_design_for_llr_reverse_lookup() -> None:
-    from backend.crew.task_builder import build_design_for_llr
+    from backend.prompting.builder import build_design_for_llr
 
     hlr = _node("HLR-0001", "HLR", content="req")
     llr = _node("LLR-0001", "LLR", parent_id="HLR-0001", content="atomic req")
@@ -97,7 +97,7 @@ def test_build_design_for_llr_reverse_lookup() -> None:
 
 
 def test_build_cases_for_requirement_full_content() -> None:
-    from backend.crew.task_builder import build_cases_for_requirement
+    from backend.prompting.builder import build_cases_for_requirement
 
     c1 = _node("CASE-1", "CASE_HLR", trace_to=["HLR-0001"], content="Step 1: call foo")
     c2 = _node("CASE-2", "CASE_HLR", trace_to=["HLR-0002"], content="Step 2: unrelated")
@@ -108,7 +108,7 @@ def test_build_cases_for_requirement_full_content() -> None:
 
 
 def test_build_document_digest_filters_by_para_type() -> None:
-    from backend.crew.task_builder import build_document_digest
+    from backend.prompting.builder import build_document_digest
 
     rationale = _node(
         "PARA-1", "PARA",
@@ -133,7 +133,7 @@ def test_build_document_digest_filters_by_para_type() -> None:
 
 
 def test_build_all_llrs_context_full_content() -> None:
-    from backend.crew.task_builder import build_all_llrs_context
+    from backend.prompting.builder import build_all_llrs_context
 
     l1 = _node("LLR-0001", "LLR", parent_id="HLR-0001", content="The system shall X.")
     l2 = _node("LLR-0002", "LLR", parent_id="HLR-0001", content="The system shall Y.")
@@ -144,7 +144,7 @@ def test_build_all_llrs_context_full_content() -> None:
 
 
 def test_build_sibling_paras_context_excludes_self() -> None:
-    from backend.crew.task_builder import build_sibling_paras_context
+    from backend.prompting.builder import build_sibling_paras_context
 
     target = _node(
         "PARA-1", "PARA",

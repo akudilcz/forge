@@ -310,6 +310,7 @@ async def test_semantic_check_evaluates_llr_with_same_type_siblings() -> None:
     flow._build_semantic_checker.return_value = checker
     await run_semantic_check(flow, 7)
     checker.assert_awaited_once()
+    assert checker.await_args is not None
     assert checker.await_args.args[0] == "LLR-2"
 
 
@@ -326,6 +327,7 @@ async def test_semantic_check_evaluates_cases_with_overlapping_traces() -> None:
     await run_semantic_check(flow, 10)
     checker.assert_awaited_once()
     # Content passed to the checker is prefixed with the trace_to list.
+    assert checker.await_args is not None
     assert "trace_to=" in checker.await_args.args[1]
 
 

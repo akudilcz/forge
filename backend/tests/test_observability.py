@@ -392,6 +392,7 @@ def test_sqlite_sink_writer_disabled_when_db_unopenable(tmp_path: Path) -> None:
 
     with patch("backend.observability.log_sinks.sqlite3.connect", flaky_connect):
         sink = SQLiteLogSink(tmp_path / "l.db", flush_interval_s=0.01)
+        assert sink._thread is not None  # noqa: SLF001
         sink._thread.join(timeout=5.0)  # noqa: SLF001 — writer exits on failure
         sink.write(_record(msg="lost"))  # must not raise
     sink._thread = None  # noqa: SLF001 — avoid close() joining a dead thread
@@ -463,6 +464,7 @@ def test_file_sink_write_after_close_is_noop(tmp_path: Path) -> None:
 
 def test_file_sink_write_swallows_io_error(tmp_path: Path) -> None:
     sink = FileLogSink(tmp_path / "forge.log")
+    assert sink._file is not None  # noqa: SLF001
     sink._file.close()  # noqa: SLF001 — simulate underlying handle failure
     sink.write(_record(msg="x"))  # must not raise
     sink._file = None  # noqa: SLF001

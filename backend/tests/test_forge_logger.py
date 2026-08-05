@@ -7,7 +7,6 @@ session-scoped SQLite sink wired by conftest is left untouched.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 from backend.observability.log_record import LogRecord

@@ -223,7 +223,7 @@ def _clear_prompt_stores() -> Iterator[None]:
 
 class TestRolePrompts:
     def test_get_prompt_default(self) -> None:
-        with patch("backend.prompt_loader.render", return_value="rendered") as mock_render:
+        with patch("backend.prompting.loader.render", return_value="rendered") as mock_render:
             result = get_prompt("Console")
         assert result == "rendered"
         mock_render.assert_called_once_with("roles/console.j2")
@@ -395,7 +395,7 @@ class TestBuildLLM:
             with pytest.raises(TypeError, match="cacheable"):
                 build_llm(config)  # type: ignore[call-arg]
 
-    def test_build_llm_cacheable_true_gets_sqlite_cache(self, tmp_path) -> None:
+    def test_build_llm_cacheable_true_gets_sqlite_cache(self, tmp_path: Path) -> None:
         from backend.agents.llm_cache import SQLiteLLMCache
 
         config = _llm_config(
@@ -409,7 +409,7 @@ class TestBuildLLM:
             assert cache.db_path == tmp_path / "llm_cache.db"
 
     def test_build_llm_relative_cache_dir_resolves_to_repo_root(
-        self, tmp_path, monkeypatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A relative cache_dir must not land in the per-test cwd — repeated
         runs would each get a cold cache in a throwaway directory."""
@@ -431,7 +431,7 @@ class TestBuildLLM:
             repo_root = Path(__file__).resolve().parents[2]
             assert cache.db_path == repo_root / ".cache" / "llm_cache.db"
 
-    def test_build_llm_cacheable_false_constructs_uncached_model(self, tmp_path) -> None:
+    def test_build_llm_cacheable_false_constructs_uncached_model(self, tmp_path: Path) -> None:
         """cacheable=False must yield cache=False even with caching enabled —
         the dedup double-confirmation depends on genuinely independent calls."""
         config = _llm_config(
@@ -442,7 +442,7 @@ class TestBuildLLM:
             build_llm(config, cacheable=False)
             assert mock_llm.call_args[1]["cache"] is False
 
-    def test_build_llm_cache_enabled_false_disables_caching(self, tmp_path) -> None:
+    def test_build_llm_cache_enabled_false_disables_caching(self, tmp_path: Path) -> None:
         config = _llm_config(
             keyless=True, api_key_env="", cache_enabled=False, cache_dir=str(tmp_path)
         )

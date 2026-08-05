@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from backend.tools.python_lint import PythonLintTool
 
 
@@ -151,7 +153,7 @@ def test_has_docstring_node_without_body() -> None:
 # ── ruff integration (mocked) ─────────────────────────────────────────────────
 
 
-def test_find_ruff_falls_back_to_path(tmp_path: Path, monkeypatch) -> None:
+def test_find_ruff_falls_back_to_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import shutil
     import sys
 
@@ -163,14 +165,14 @@ def test_find_ruff_falls_back_to_path(tmp_path: Path, monkeypatch) -> None:
     assert _find_ruff() == shutil.which("ruff")
 
 
-def test_check_ruff_skipped_when_unavailable(tmp_path: Path, monkeypatch) -> None:
+def test_check_ruff_skipped_when_unavailable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import backend.tools.python_lint as pl
 
     monkeypatch.setattr(pl, "_find_ruff", lambda: None)
     assert pl._check_ruff(tmp_path / "any.py") == []
 
 
-def test_check_ruff_parses_issue_lines(tmp_path: Path, monkeypatch) -> None:
+def test_check_ruff_parses_issue_lines(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import subprocess
     from types import SimpleNamespace
 
@@ -191,7 +193,7 @@ def test_check_ruff_parses_issue_lines(tmp_path: Path, monkeypatch) -> None:
     assert issues == ["line 3:1: F401 'os' imported but unused"]
 
 
-def test_check_ruff_clean_exit_returns_empty(tmp_path: Path, monkeypatch) -> None:
+def test_check_ruff_clean_exit_returns_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import subprocess
     from types import SimpleNamespace
 
@@ -204,14 +206,14 @@ def test_check_ruff_clean_exit_returns_empty(tmp_path: Path, monkeypatch) -> Non
     assert pl._check_ruff(tmp_path / "file.py") == []
 
 
-def test_check_ruff_binary_vanished(tmp_path: Path, monkeypatch) -> None:
+def test_check_ruff_binary_vanished(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import backend.tools.python_lint as pl
 
     monkeypatch.setattr(pl, "_find_ruff", lambda: "/nonexistent/ruff-xyz")
     assert pl._check_ruff(tmp_path / "file.py") == []
 
 
-def test_check_ruff_unexpected_failure_swallowed(tmp_path: Path, monkeypatch) -> None:
+def test_check_ruff_unexpected_failure_swallowed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import subprocess
 
     import backend.tools.python_lint as pl

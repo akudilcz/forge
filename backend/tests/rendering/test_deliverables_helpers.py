@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
-from backend.crew.deliverables_helpers import (
+from backend.rendering.deliverables_helpers import (
     build_trace_map,
     node_lookup,
     nodes_by_type,

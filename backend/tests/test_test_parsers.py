@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from backend.crew.result_recorder import SingleTestResult
 from backend.crew.test_parsers import (
     _LcovCounters,
     extract_error_summary,
@@ -13,7 +14,6 @@ from backend.crew.test_parsers import (
     parse_lcov_file,
     read_log_tail,
 )
-from backend.crew.result_recorder import SingleTestResult
 
 
 def _result(

@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from backend.analysis.gaps import Gap, GapType
-from backend.crew.context_budget import (
+from backend.prompting.context_budget import (
     DEFAULT_BUDGET_TOKENS,
     P_ANCESTOR_CHAIN,
     P_EXISTING_PEERS,
@@ -24,7 +24,7 @@ from backend.crew.context_budget import (
     Section,
     pack,
 )
-from backend.crew.task_prompts import build_descriptions as _build_descriptions
+from backend.prompting.task_prompts import build_descriptions as _build_descriptions
 
 _NO_PREFETCH_CONTEXT: frozenset[GapType] = frozenset(
     {
@@ -506,7 +506,7 @@ def build_context_for_gap(graph: Any, gap: Gap) -> str:
         # by heading and pinned at highest peer priority so they survive budget cuts.
         arch_node = _find_architecture_node(graph)
         if arch_node and arch_node.content:
-            from backend.crew.markdown_sections import extract_sections  # noqa: PLC0415
+            from backend.prompting.markdown_sections import extract_sections  # noqa: PLC0415
             stack = extract_sections(
                 arch_node.content,
                 ["Technology Stack", "Cross-Cutting Concerns"],

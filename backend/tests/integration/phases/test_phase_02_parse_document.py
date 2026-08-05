@@ -109,7 +109,8 @@ async def parsed(
 
 
 async def _paras(flow: ForgeFlow) -> list[GraphNode]:
-    return await flow.graph.nodes_by_type(NodeType.PARA.value)
+    nodes: list[GraphNode] = await flow.graph.nodes_by_type(NodeType.PARA.value)
+    return nodes
 
 
 # ── Happy path: PARA tree shape ──────────────────────────────────────────────

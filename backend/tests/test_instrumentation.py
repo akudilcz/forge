@@ -94,7 +94,7 @@ def test_tool_base_logs_error_with_traceback(capture: _CaptureSink) -> None:
 
 
 def test_context_budget_logs_dropped_sections(capture: _CaptureSink) -> None:
-    from backend.crew.context_budget import Section, count_tokens, pack
+    from backend.prompting.context_budget import Section, count_tokens, pack
 
     a = "alpha " * 50
     b = "bravo " * 50

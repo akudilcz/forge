@@ -27,10 +27,10 @@ import pytest
 from backend.config.models import ForgeConfig
 from backend.crew.bazel_gen import init_bazel_workspace
 from backend.crew.code_gen import CodeGenResult, run_code_gen
-from backend.crew.dashboard import render_dashboard
 from backend.crew.trace_parser import analyse_traces
 from backend.crew.workspace_scanner import WorkspaceState, scan_workspace
 from backend.graph.engine import ProjectGraph
+from backend.rendering.dashboard import render_dashboard
 from backend.tests.integration.conftest import HAS_BAZEL
 from backend.tests.integration.scenarios._base import ExpectedOutcome
 from backend.tools.base import ForgeTool

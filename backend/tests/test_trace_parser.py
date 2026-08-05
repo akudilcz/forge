@@ -218,6 +218,7 @@ def test_walker_descends_nested_module_nodes() -> None:
 
     class _Wrapper(ast.AST):
         _fields = ("body",)
+        body: ast.Module
 
     wrapper = _Wrapper()
     wrapper.body = ast.parse("def foo():\n    pass\n")

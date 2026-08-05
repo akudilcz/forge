@@ -67,7 +67,8 @@ async def flow_without_spec(integration_config: ForgeConfig, tmp_path: Path) -> 
 
 
 async def _documents(flow: ForgeFlow) -> list[GraphNode]:
-    return await flow.graph.nodes_by_type(NodeType.DOCUMENT.value)
+    nodes: list[GraphNode] = await flow.graph.nodes_by_type(NodeType.DOCUMENT.value)
+    return nodes
 
 
 def _phase_status(flow: ForgeFlow, phase: int) -> str:

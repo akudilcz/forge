@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -160,10 +161,10 @@ def test_error_results_collected_and_success_section_omitted() -> None:
     assert "ERROR: Node not found: ghost" in result
 
 
-def test_run_async_failure_wrapped(monkeypatch) -> None:
+def test_run_async_failure_wrapped(monkeypatch: pytest.MonkeyPatch) -> None:
     import backend.tools.multi_graph_write as mgw
 
-    def _boom(coro, **kwargs):
+    def _boom(coro: Any, **kwargs: object) -> None:
         coro.close()
         raise RuntimeError("loop broke")
 

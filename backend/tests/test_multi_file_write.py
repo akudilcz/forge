@@ -93,7 +93,7 @@ def test_missing_content_key_raises_and_writes_nothing(tmp_path: Path) -> None:
 def test_missing_key_rejects_whole_batch(tmp_path: Path) -> None:
     """One bad entry blocks the entire batch — the valid entry is not written."""
     tool = MultiFileWriteTool(workspace=str(tmp_path))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="files\\[1\\]"):
         tool._execute(files=[
             {"path": "good.py", "content": "x = 1\n"},
             {"content": "# missing path"},

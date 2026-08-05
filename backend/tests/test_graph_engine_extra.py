@@ -10,6 +10,7 @@ import os
 import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -37,7 +38,7 @@ async def _add(
     node_id: str,
     node_type: str = NodeType.PARA.value,
     parent_id: str | None = None,
-    **extra: object,
+    **extra: Any,
 ) -> GraphNode:
     node = GraphNode(
         node_id=node_id, node_type=node_type, title=node_id,
@@ -217,7 +218,8 @@ async def test_find_node_by_slug_matches_and_misses(graph: ProjectGraph) -> None
         properties={"slug": "wanted"},
     )
     hit = await graph.find_node_by_slug("wanted")
-    assert hit is not None and hit.node_id == "doc-hit"
+    assert hit is not None
+    assert hit.node_id == "doc-hit"
     assert await graph.find_node_by_slug("nope") is None
 
 
@@ -251,5 +253,5 @@ async def test_predecessors_sync_skips_unresolvable_predecessor(graph: ProjectGr
         edge_type=EdgeType.IMPLEMENTS.value, source_id="src", target_id="tgt",
     ))
     original = graph.node_sync
-    graph.node_sync = lambda nid: None if nid == "src" else original(nid)  # type: ignore[method-assign]
+    graph.node_sync = lambda node_id: None if node_id == "src" else original(node_id)  # type: ignore[method-assign]
     assert graph.predecessors_sync("tgt") == []

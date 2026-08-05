@@ -56,7 +56,7 @@ class TestForwardTraceMatrix:
     """
 
     def _render(self, llr: GraphNode) -> str:
-        from backend.crew.deliverables import _render_forward_trace
+        from backend.rendering.deliverables import _render_forward_trace
 
         hlr = _node("HLR-0001", NodeType.HLR)
         design = _node(
@@ -109,7 +109,7 @@ class TestForwardTraceMatrix:
 
 class TestReverseTraceMatrix:
     def test_source_file_maps_back_to_its_hlr(self) -> None:
-        from backend.crew.deliverables import _render_reverse_trace
+        from backend.rendering.deliverables import _render_reverse_trace
 
         llr = _node("LLR-0001", NodeType.LLR, parent_id="HLR-0001")
         design = _node(
@@ -138,7 +138,7 @@ class TestCoverageMetrics:
         The mismatch meant the delivered Coverage Report always reported a 0%
         pass rate regardless of the real outcome.
         """
-        from backend.crew.deliverables import _compute_coverage_metrics
+        from backend.rendering.deliverables import _compute_coverage_metrics
 
         graph = _FakeGraph(
             [
@@ -160,7 +160,8 @@ class TestCoverageMetrics:
         """Pin the contract so the two modules cannot drift apart again."""
         import inspect
 
-        from backend.crew import deliverables, result_recorder
+        from backend.crew import result_recorder
+        from backend.rendering import deliverables
 
         recorder_src = inspect.getsource(result_recorder)
         assert '"passed"' in recorder_src or "'passed'" in recorder_src
@@ -190,7 +191,7 @@ class TestBundleCompleteness:
         Omitting the package shipped a bundle whose every module raised
         ImportError on its first line.
         """
-        from backend.crew.deliverables import _copy_workspace_files
+        from backend.rendering.deliverables import _copy_workspace_files
 
         ws = tmp_path / "workspace"
         (ws / "src").mkdir(parents=True)
@@ -217,7 +218,7 @@ class TestBundleCompleteness:
         import subprocess
         import sys
 
-        from backend.crew.deliverables import _copy_workspace_files, _create_zip
+        from backend.rendering.deliverables import _copy_workspace_files, _create_zip
 
         ws = tmp_path / "workspace"
         (ws / "src").mkdir(parents=True)

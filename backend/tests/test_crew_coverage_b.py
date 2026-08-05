@@ -96,22 +96,22 @@ class TestNeedsPrefetch:
     def test_unchunked_document_needs_prefetch(self) -> None:
         """UNCHUNKED_DOCUMENT now receives the DOCUMENT content inline rather
         than relying on the agent to graph_read for it."""
-        from backend.crew.task_builder import needs_prefetch
+        from backend.prompting.builder import needs_prefetch
 
         assert needs_prefetch(GapType.UNCHUNKED_DOCUMENT) is True
 
     def test_stale_trace_to_no_prefetch(self) -> None:
-        from backend.crew.task_builder import needs_prefetch
+        from backend.prompting.builder import needs_prefetch
 
         assert needs_prefetch(GapType.STALE_TRACE_TO) is False
 
     def test_uncovered_para_needs_prefetch(self) -> None:
-        from backend.crew.task_builder import needs_prefetch
+        from backend.prompting.builder import needs_prefetch
 
         assert needs_prefetch(GapType.UNCOVERED_PARA) is True
 
     def test_undesigned_needs_prefetch(self) -> None:
-        from backend.crew.task_builder import needs_prefetch
+        from backend.prompting.builder import needs_prefetch
 
         assert needs_prefetch(GapType.UNDESIGNED) is True
 
@@ -120,13 +120,13 @@ class TestBuildAncestorContext:
     """build_ancestor_context walks parent chain collecting content."""
 
     def test_node_not_found_returns_empty(self) -> None:
-        from backend.crew.task_builder import build_ancestor_context
+        from backend.prompting.builder import build_ancestor_context
 
         graph = _make_graph({})
         assert build_ancestor_context(graph, "missing") == ""
 
     def test_single_node_no_parent(self) -> None:
-        from backend.crew.task_builder import build_ancestor_context
+        from backend.prompting.builder import build_ancestor_context
 
         n = _make_node("n1", content="Hello")
         n.parent_id = None
@@ -136,7 +136,7 @@ class TestBuildAncestorContext:
         assert "Hello" in result
 
     def test_walks_parent_chain(self) -> None:
-        from backend.crew.task_builder import build_ancestor_context
+        from backend.prompting.builder import build_ancestor_context
 
         # DOCUMENT nodes are included as title-only breadcrumbs, not full content
         parent = _make_node("p1", node_type="DOCUMENT", content="Parent content skipped")
@@ -151,7 +151,7 @@ class TestBuildAncestorContext:
         assert "Parent content skipped" not in result
 
     def test_circular_ref_stops(self) -> None:
-        from backend.crew.task_builder import build_ancestor_context
+        from backend.prompting.builder import build_ancestor_context
 
         # Node points to itself as parent — should not infinite loop
         n = _make_node("loop1", content="Loopy", parent_id="loop1")
@@ -160,7 +160,7 @@ class TestBuildAncestorContext:
         assert "Loopy" in result
 
     def test_skips_empty_content_nodes(self) -> None:
-        from backend.crew.task_builder import build_ancestor_context
+        from backend.prompting.builder import build_ancestor_context
 
         parent = _make_node("p1", content="", parent_id=None)
         child = _make_node("c1", content="Child", parent_id="p1")
@@ -174,14 +174,14 @@ class TestBuildTraceToContext:
     """build_trace_to_context fetches referenced nodes from trace_to."""
 
     def test_node_not_found_returns_empty(self) -> None:
-        from backend.crew.task_builder import build_trace_to_context
+        from backend.prompting.builder import build_trace_to_context
 
         graph = _make_graph({})
         assert build_trace_to_context(graph, "missing") == ""
 
     def test_no_trace_to_returns_empty(self) -> None:
         """Empty trace_to: return empty string — no silent ancestor fallback."""
-        from backend.crew.task_builder import build_trace_to_context
+        from backend.prompting.builder import build_trace_to_context
 
         n = _make_node("n1", content="Hello", parent_id=None)
         n.trace_to = []
@@ -189,7 +189,7 @@ class TestBuildTraceToContext:
         assert build_trace_to_context(graph, "n1") == ""
 
     def test_trace_to_refs_found(self) -> None:
-        from backend.crew.task_builder import build_trace_to_context
+        from backend.prompting.builder import build_trace_to_context
 
         ref = _make_node("ref1", node_type="HLR", content="Requirement text")
         n = _make_node("n1", content="Case", parent_id=None)
@@ -203,7 +203,7 @@ class TestBuildTraceToContext:
         """Unresolved trace_to raises — fail loud rather than silent fallback."""
         import pytest
 
-        from backend.crew.task_builder import build_trace_to_context
+        from backend.prompting.builder import build_trace_to_context
 
         n = _make_node("n1", content="Case", parent_id=None)
         n.trace_to = ["missing_ref"]
@@ -216,20 +216,20 @@ class TestBuildSiblingReqContext:
     """build_sibling_req_context lists siblings for dedup checking."""
 
     def test_node_not_found(self) -> None:
-        from backend.crew.task_builder import build_sibling_req_context
+        from backend.prompting.builder import build_sibling_req_context
 
         graph = _make_graph({})
         assert build_sibling_req_context(graph, "missing") == ""
 
     def test_no_parent(self) -> None:
-        from backend.crew.task_builder import build_sibling_req_context
+        from backend.prompting.builder import build_sibling_req_context
 
         n = _make_node("n1", parent_id=None)
         graph = _make_graph({"n1": n})
         assert build_sibling_req_context(graph, "n1") == ""
 
     def test_siblings_with_content(self) -> None:
-        from backend.crew.task_builder import build_sibling_req_context
+        from backend.prompting.builder import build_sibling_req_context
 
         parent = _make_node("p1", node_type="DOCUMENT", content="", parent_id=None)
         s1 = _make_node("s1", node_type="HLR", content="Sibling one", parent_id="p1")
@@ -243,7 +243,7 @@ class TestBuildSiblingReqContext:
         assert "[t1]" not in result  # Excludes self
 
     def test_no_matching_siblings(self) -> None:
-        from backend.crew.task_builder import build_sibling_req_context
+        from backend.prompting.builder import build_sibling_req_context
 
         parent = _make_node("p1", node_type="DOCUMENT", content="", parent_id=None)
         target = _make_node("t1", node_type="HLR", content="Target", parent_id="p1")
@@ -257,14 +257,14 @@ class TestBuildAllPeersContext:
     """build_all_peers_context returns all same-type nodes excluding self."""
 
     def test_no_peers(self) -> None:
-        from backend.crew.task_builder import build_all_peers_context
+        from backend.prompting.builder import build_all_peers_context
 
         n = _make_node("n1", node_type="HLR", content="Content")
         graph = _make_graph({"n1": n})
         assert build_all_peers_context(graph, "n1", "HLR") == ""
 
     def test_case_type_filtering(self) -> None:
-        from backend.crew.task_builder import build_all_peers_context
+        from backend.prompting.builder import build_all_peers_context
 
         target = _make_node("c1", node_type="CASE_HLR", content="Target case")
         peer_hlr = _make_node("c2", node_type="CASE_HLR", content="HLR case")
@@ -275,7 +275,7 @@ class TestBuildAllPeersContext:
         assert "[c3]" not in result  # CASE_LLR filtered out for CASE_HLR
 
     def test_non_case_includes_all(self) -> None:
-        from backend.crew.task_builder import build_all_peers_context
+        from backend.prompting.builder import build_all_peers_context
 
         target = _make_node("h1", node_type="HLR", content="Target")
         peer = _make_node("h2", node_type="HLR", content="Peer content")
@@ -285,7 +285,7 @@ class TestBuildAllPeersContext:
         assert "[h2]" in result
 
     def test_peers_with_trace_to(self) -> None:
-        from backend.crew.task_builder import build_all_peers_context
+        from backend.prompting.builder import build_all_peers_context
 
         target = _make_node("h1", node_type="HLR", content="Target")
         peer = _make_node("h2", node_type="HLR", content="Peer")
@@ -299,14 +299,14 @@ class TestFindSuiteId:
     """find_suite_id returns the first SUITE node ID or empty string."""
 
     def test_suite_found(self) -> None:
-        from backend.crew.task_builder import find_suite_id
+        from backend.prompting.builder import find_suite_id
 
         s = _make_node("suite-1", node_type="SUITE", content="Suite")
         graph = _make_graph({"suite-1": s})
         assert find_suite_id(graph) == "suite-1"
 
     def test_no_suite(self) -> None:
-        from backend.crew.task_builder import find_suite_id
+        from backend.prompting.builder import find_suite_id
 
         n = _make_node("h1", node_type="HLR", content="Not a suite")
         graph = _make_graph({"h1": n})
@@ -317,7 +317,7 @@ class TestBuildExistingCasesContext:
     """build_existing_cases_context lists CASE_HLR or CASE_LLR nodes."""
 
     def test_hlr_type(self) -> None:
-        from backend.crew.task_builder import build_existing_cases_context
+        from backend.prompting.builder import build_existing_cases_context
 
         c = _make_node("ch1", node_type="CASE_HLR", content="HLR case content")
         c.trace_to = ["hlr-1"]
@@ -327,7 +327,7 @@ class TestBuildExistingCasesContext:
         assert "[ch1]" in result
 
     def test_llr_type(self) -> None:
-        from backend.crew.task_builder import build_existing_cases_context
+        from backend.prompting.builder import build_existing_cases_context
 
         c = _make_node("cl1", node_type="CASE_LLR", content="LLR case content")
         c.trace_to = []
@@ -336,7 +336,7 @@ class TestBuildExistingCasesContext:
         assert "EXISTING LLR CASE NODES" in result
 
     def test_no_cases(self) -> None:
-        from backend.crew.task_builder import build_existing_cases_context
+        from backend.prompting.builder import build_existing_cases_context
 
         graph = _make_graph({})
         assert build_existing_cases_context(graph, "hlr") == ""
@@ -346,7 +346,7 @@ class TestBuildExistingLlrsContext:
     """build_existing_llrs_context returns formatted LLR listing."""
 
     def test_llr_listing(self) -> None:
-        from backend.crew.task_builder import build_existing_llrs_context
+        from backend.prompting.builder import build_existing_llrs_context
 
         llr = _make_node("llr-1", node_type="LLR", content="LLR content", parent_id="hlr-1")
         graph = _make_graph({"llr-1": llr})
@@ -356,7 +356,7 @@ class TestBuildExistingLlrsContext:
         assert "parent=hlr-1" in result
 
     def test_no_llrs(self) -> None:
-        from backend.crew.task_builder import build_existing_llrs_context
+        from backend.prompting.builder import build_existing_llrs_context
 
         graph = _make_graph({})
         assert build_existing_llrs_context(graph) == ""
@@ -366,20 +366,20 @@ class TestBuildModuleDesignContext:
     """build_module_design_context fetches MODULE + CONTRACT + DESIGN context."""
 
     def test_llr_not_found(self) -> None:
-        from backend.crew.task_builder import build_module_design_context
+        from backend.prompting.builder import build_module_design_context
 
         graph = _make_graph({})
         assert build_module_design_context(graph, "missing") == ""
 
     def test_llr_no_parent(self) -> None:
-        from backend.crew.task_builder import build_module_design_context
+        from backend.prompting.builder import build_module_design_context
 
         llr = _make_node("llr-1", node_type="LLR", content="LLR", parent_id=None)
         graph = _make_graph({"llr-1": llr})
         assert build_module_design_context(graph, "llr-1") == ""
 
     def test_no_module_tracing(self) -> None:
-        from backend.crew.task_builder import build_module_design_context
+        from backend.prompting.builder import build_module_design_context
 
         llr = _make_node("llr-1", node_type="LLR", content="LLR", parent_id="hlr-1")
         hlr = _make_node("hlr-1", node_type="HLR", content="HLR")
@@ -387,7 +387,7 @@ class TestBuildModuleDesignContext:
         assert build_module_design_context(graph, "llr-1") == ""
 
     def test_full_module_context(self) -> None:
-        from backend.crew.task_builder import build_module_design_context
+        from backend.prompting.builder import build_module_design_context
 
         llr = _make_node("llr-1", node_type="LLR", content="LLR", parent_id="hlr-1")
         hlr = _make_node("hlr-1", node_type="HLR", content="HLR")
@@ -429,7 +429,7 @@ class TestBuildModuleDesignContext:
 
     def test_module_node_missing(self) -> None:
         """Module ID returned but node_sync for it returns None."""
-        from backend.crew.task_builder import build_module_design_context
+        from backend.prompting.builder import build_module_design_context
 
         llr = _make_node("llr-1", node_type="LLR", content="LLR", parent_id="hlr-1")
         hlr = _make_node("hlr-1", node_type="HLR", content="HLR")
@@ -443,7 +443,7 @@ class TestBuildAllHlrsContext:
     """build_all_hlrs_context returns formatted HLR listing."""
 
     def test_hlr_listing(self) -> None:
-        from backend.crew.task_builder import build_all_hlrs_context
+        from backend.prompting.builder import build_all_hlrs_context
 
         hlr = _make_node("hlr-1", node_type="HLR", content="HLR content", parent_id="doc-1")
         graph = _make_graph({"hlr-1": hlr})
@@ -453,13 +453,13 @@ class TestBuildAllHlrsContext:
         assert "parent=doc-1" in result
 
     def test_no_hlrs(self) -> None:
-        from backend.crew.task_builder import build_all_hlrs_context
+        from backend.prompting.builder import build_all_hlrs_context
 
         graph = _make_graph({})
         assert build_all_hlrs_context(graph) == ""
 
     def test_excludes_empty_content(self) -> None:
-        from backend.crew.task_builder import build_all_hlrs_context
+        from backend.prompting.builder import build_all_hlrs_context
 
         hlr = _make_node("hlr-1", node_type="HLR", content="", parent_id="doc-1")
         graph = _make_graph({"hlr-1": hlr})
@@ -470,7 +470,7 @@ class TestBuildArchitectureContext:
     """build_architecture_context returns ARCHITECTURE node content."""
 
     def test_architecture_found(self) -> None:
-        from backend.crew.task_builder import build_architecture_context
+        from backend.prompting.builder import build_architecture_context
 
         arch = _make_node("arch-1", node_type="ARCHITECTURE", content="Arch content")
         graph = _make_graph({"arch-1": arch})
@@ -479,13 +479,13 @@ class TestBuildArchitectureContext:
         assert "Arch content" in result
 
     def test_no_architecture(self) -> None:
-        from backend.crew.task_builder import build_architecture_context
+        from backend.prompting.builder import build_architecture_context
 
         graph = _make_graph({})
         assert build_architecture_context(graph) == ""
 
     def test_architecture_empty_content(self) -> None:
-        from backend.crew.task_builder import build_architecture_context
+        from backend.prompting.builder import build_architecture_context
 
         arch = _make_node("arch-1", node_type="ARCHITECTURE", content="")
         graph = _make_graph({"arch-1": arch})
@@ -496,7 +496,7 @@ class TestBuildTracedHlrsForModule:
     """build_traced_hlrs_for_module returns HLRs referenced by module trace_to."""
 
     def test_traced_hlrs(self) -> None:
-        from backend.crew.task_builder import build_traced_hlrs_for_module
+        from backend.prompting.builder import build_traced_hlrs_for_module
 
         hlr = _make_node("hlr-1", node_type="HLR", content="Requirement A")
         module = _make_node("mod-1", node_type="MODULE", content="Module", trace_to=["hlr-1"])
@@ -506,20 +506,20 @@ class TestBuildTracedHlrsForModule:
         assert "[HLR hlr-1]" in result
 
     def test_module_not_found(self) -> None:
-        from backend.crew.task_builder import build_traced_hlrs_for_module
+        from backend.prompting.builder import build_traced_hlrs_for_module
 
         graph = _make_graph({})
         assert build_traced_hlrs_for_module(graph, "missing") == ""
 
     def test_no_trace_to(self) -> None:
-        from backend.crew.task_builder import build_traced_hlrs_for_module
+        from backend.prompting.builder import build_traced_hlrs_for_module
 
         module = _make_node("mod-1", node_type="MODULE", content="Module", trace_to=[])
         graph = _make_graph({"mod-1": module})
         assert build_traced_hlrs_for_module(graph, "mod-1") == ""
 
     def test_skips_non_hlr_traces(self) -> None:
-        from backend.crew.task_builder import build_traced_hlrs_for_module
+        from backend.prompting.builder import build_traced_hlrs_for_module
 
         llr = _make_node("llr-1", node_type="LLR", content="Low level req")
         module = _make_node("mod-1", node_type="MODULE", content="Module", trace_to=["llr-1"])
@@ -531,7 +531,7 @@ class TestBuildAllModulesContext:
     """build_all_modules_context returns formatted MODULE listing."""
 
     def test_module_listing(self) -> None:
-        from backend.crew.task_builder import build_all_modules_context
+        from backend.prompting.builder import build_all_modules_context
 
         mod = _make_node("mod-1", node_type="MODULE", content="Module content", trace_to=["hlr-1"])
         graph = _make_graph({"mod-1": mod})
@@ -541,7 +541,7 @@ class TestBuildAllModulesContext:
         assert "trace_to=" in result
 
     def test_no_modules(self) -> None:
-        from backend.crew.task_builder import build_all_modules_context
+        from backend.prompting.builder import build_all_modules_context
 
         graph = _make_graph({})
         assert build_all_modules_context(graph) == ""
@@ -551,14 +551,14 @@ class TestBuildContextForGap:
     """build_context_for_gap dispatches to the right context builder."""
 
     def test_no_prefetch_gap_returns_empty(self) -> None:
-        from backend.crew.task_builder import build_context_for_gap
+        from backend.prompting.builder import build_context_for_gap
 
         gap = _make_gap(GapType.UNCHUNKED_DOCUMENT, "doc-1")
         graph = _make_graph({})
         assert build_context_for_gap(graph, gap) == ""
 
     def test_inconsistent_case_hlr_uses_trace_to(self) -> None:
-        from backend.crew.task_builder import build_context_for_gap
+        from backend.prompting.builder import build_context_for_gap
 
         ref = _make_node("hlr-1", node_type="HLR", content="Requirement")
         case = _make_node("c1", node_type="CASE_HLR", content="Case", parent_id=None)
@@ -569,7 +569,7 @@ class TestBuildContextForGap:
         assert "Requirement" in result
 
     def test_undesigned_appends_module_context(self) -> None:
-        from backend.crew.task_builder import build_context_for_gap
+        from backend.prompting.builder import build_context_for_gap
 
         llr = _make_node("llr-1", node_type="LLR", content="LLR text", parent_id="hlr-1")
         hlr = _make_node("hlr-1", node_type="HLR", content="HLR text")
@@ -586,7 +586,7 @@ class TestBuildContextForGap:
         assert "OWNING MODULE" in result
 
     def test_unrefined_hlr_appends_llrs(self) -> None:
-        from backend.crew.task_builder import build_context_for_gap
+        from backend.prompting.builder import build_context_for_gap
 
         hlr = _make_node("hlr-1", node_type="HLR", content="HLR text", parent_id=None)
         llr = _make_node("llr-1", node_type="LLR", content="Existing LLR", parent_id="hlr-1")
@@ -596,7 +596,7 @@ class TestBuildContextForGap:
         assert "EXISTING LLR NODES" in result
 
     def test_untested_hlr_appends_cases(self) -> None:
-        from backend.crew.task_builder import build_context_for_gap
+        from backend.prompting.builder import build_context_for_gap
 
         hlr = _make_node("hlr-1", node_type="HLR", content="HLR text", parent_id=None)
         case = _make_node("ch1", node_type="CASE_HLR", content="Case", parent_id=None)
@@ -607,7 +607,7 @@ class TestBuildContextForGap:
         assert "EXISTING HLR CASE NODES" in result
 
     def test_untested_llr_appends_cases(self) -> None:
-        from backend.crew.task_builder import build_context_for_gap
+        from backend.prompting.builder import build_context_for_gap
 
         llr = _make_node("llr-1", node_type="LLR", content="LLR text", parent_id=None)
         case = _make_node("cl1", node_type="CASE_LLR", content="Case", parent_id=None)
@@ -618,7 +618,7 @@ class TestBuildContextForGap:
         assert "EXISTING LLR CASE NODES" in result
 
     def test_duplicate_node_hlr_appends_siblings(self) -> None:
-        from backend.crew.task_builder import build_context_for_gap
+        from backend.prompting.builder import build_context_for_gap
 
         parent = _make_node("p1", node_type="DOCUMENT", content="Doc", parent_id=None)
         target = _make_node("h1", node_type="HLR", content="Target", parent_id="p1")
@@ -629,7 +629,7 @@ class TestBuildContextForGap:
         assert "SIBLING REQUIREMENTS" in result
 
     def test_unarchitected_appends_all_hlrs(self) -> None:
-        from backend.crew.task_builder import build_context_for_gap
+        from backend.prompting.builder import build_context_for_gap
 
         proj = _make_node("proj-1", node_type="PROJECT", content="Project", parent_id=None)
         hlr = _make_node("hlr-1", node_type="HLR", content="Requirement A", parent_id="proj-1")
@@ -642,7 +642,7 @@ class TestBuildContextForGap:
         assert "[hlr-2]" in result
 
     def test_uncontracted_appends_arch_and_traced_hlrs(self) -> None:
-        from backend.crew.task_builder import build_context_for_gap
+        from backend.prompting.builder import build_context_for_gap
 
         proj = _make_node("proj-1", node_type="PROJECT", content="Project", parent_id=None)
         arch = _make_node(
@@ -660,7 +660,7 @@ class TestBuildContextForGap:
         assert "[HLR hlr-1]" in result
 
     def test_unsuited_appends_arch_modules_hlrs(self) -> None:
-        from backend.crew.task_builder import build_context_for_gap
+        from backend.prompting.builder import build_context_for_gap
 
         proj = _make_node("proj-1", node_type="PROJECT", content="Project", parent_id=None)
         arch = _make_node(
@@ -687,9 +687,9 @@ class TestBuildContextForGap:
 class TestBuildTaskDescription:
     """build_task_description returns (description, expected_output) tuple."""
 
-    @patch("backend.crew.task_builder._build_descriptions")
+    @patch("backend.prompting.builder._build_descriptions")
     def test_first_attempt(self, mock_desc: MagicMock) -> None:
-        from backend.crew.task_builder import build_task_description
+        from backend.prompting.builder import build_task_description
 
         mock_desc.return_value = {
             GapType.UNCOVERED_PARA: ("Do the thing", "Thing done"),
@@ -700,9 +700,9 @@ class TestBuildTaskDescription:
         assert output == "Thing done"
         assert "ATTEMPT" not in desc
 
-    @patch("backend.crew.task_builder._build_descriptions")
+    @patch("backend.prompting.builder._build_descriptions")
     def test_retry_attempt_adds_prefix(self, mock_desc: MagicMock) -> None:
-        from backend.crew.task_builder import build_task_description
+        from backend.prompting.builder import build_task_description
 
         mock_desc.return_value = {
             GapType.UNCOVERED_PARA: ("Do the thing", "Thing done"),
@@ -712,9 +712,9 @@ class TestBuildTaskDescription:
         assert desc.startswith("ATTEMPT 3:")
         assert "Do the thing" in desc
 
-    @patch("backend.crew.task_builder._build_descriptions")
+    @patch("backend.prompting.builder._build_descriptions")
     def test_unknown_gap_type_fallback(self, mock_desc: MagicMock) -> None:
-        from backend.crew.task_builder import build_task_description
+        from backend.prompting.builder import build_task_description
 
         mock_desc.return_value = {}  # No entry for the gap type
         gap = _make_gap(GapType.ORPHAN_NODE, "x1", description="Orphan detected")

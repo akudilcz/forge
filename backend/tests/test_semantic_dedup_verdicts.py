@@ -232,7 +232,8 @@ class TestVerdictCache:
         # Re-judging identical content must not call the LLM again.
         second = await check("PARA-0242", "Do not delegate to list.sort", "[PARA-0001] other")
 
-        assert first is False and second is False
+        assert first is False
+        assert second is False
         assert llm.ainvoke.await_count == 1
         graph.delete_node.assert_not_awaited()
 

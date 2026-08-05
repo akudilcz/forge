@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from backend.tools.file_patch import FilePatchTool
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1342,7 +1344,7 @@ def test_unreadable_target_reports_read_error(tmp_path: Path) -> None:
     assert result.startswith("ERROR reading dir.py:")
 
 
-def test_write_failure_reports_write_error(tmp_path: Path, monkeypatch) -> None:
+def test_write_failure_reports_write_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write(tmp_path, "f.txt", "hello world\n")
     tool = _tool(tmp_path)
 

@@ -27,13 +27,13 @@ from backend.config.models import ForgeConfig, ProjectConfig
 from backend.core.phase_store import PhaseStore
 from backend.crew.flow import ForgeFlow
 from backend.crew.quality import PHASE_TO_NODE_TYPES
-from backend.crew.task_builder import (
+from backend.graph.engine import ProjectGraph
+from backend.graph.models import GraphNode, LifecycleState, NodeType
+from backend.prompting.builder import (
     build_context_for_gap,
     build_task_description,
     find_suite_id,
 )
-from backend.graph.engine import ProjectGraph
-from backend.graph.models import GraphNode, LifecycleState, NodeType
 
 # ── Scripted agent (pattern from test_phase_contracts_llm.py) ────────────────
 
@@ -403,7 +403,8 @@ class TestPhase09SuitePrompt:
         arch = _nodes(graph, NodeType.ARCHITECTURE)[0]
         modules = _nodes(graph, NodeType.MODULE)
         hlrs = _nodes(graph, NodeType.HLR)
-        assert modules and hlrs, "pipeline did not produce MODULEs/HLRs to embed"
+        assert modules, "pipeline did not produce MODULEs to embed"
+        assert hlrs, "pipeline did not produce HLRs to embed"
 
         assert f"[ARCHITECTURE {arch.node_id}]" in ctx
         assert "ALL MODULE NODES" in ctx

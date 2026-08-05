@@ -88,7 +88,8 @@ class SQLiteLLMCache(BaseCache):
             # langchain_core.load.loads is marked beta; the payload is our
             # own trusted serialization of core Generation objects.
             warnings.simplefilter("ignore")
-            return loads(row[0], allowed_objects="core")
+            generations: RETURN_VAL_TYPE = loads(row[0], allowed_objects="core")
+        return generations
 
     def update(self, prompt: str, llm_string: str, return_val: RETURN_VAL_TYPE) -> None:
         """Store the generations for the key, replacing any previous entry."""

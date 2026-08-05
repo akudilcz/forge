@@ -239,11 +239,11 @@ async def test_dispatch_exhausts_transient_retries_and_returns_empty() -> None:
 
 
 class _FakeAgent:
-    def __init__(self, events: list[dict]) -> None:
+    def __init__(self, events: list[dict[str, Any]]) -> None:
         self._events = events
-        self.captured_config: dict | None = None
+        self.captured_config: dict[str, Any] | None = None
 
-    async def astream_events(self, _input: Any, version: str, config: dict) -> Any:
+    async def astream_events(self, _input: Any, version: str, config: dict[str, Any]) -> Any:
         self.captured_config = config
         for e in self._events:
             yield e
@@ -269,14 +269,14 @@ def _run_task_patches() -> list[Any]:
 @pytest.mark.asyncio
 async def test_run_agent_task_collects_tool_calls_and_final_text() -> None:
     """Tool calls are logged; the final text-only message becomes the output."""
-    from types import SimpleNamespace as NS
+    from types import SimpleNamespace
 
     from backend.crew.dispatch import run_agent_task
 
-    tool_msg_dict = NS(tool_calls=[{"name": "file_write", "args": {"p": "x"}}], content="")
-    tool_msg_obj = NS(tool_calls=[NS(name="shell_exec", args={"cmd": "ls"})], content="")
-    wrapped = NS(message=NS(tool_calls=None, content="all done"))
-    events = [
+    tool_msg_dict = SimpleNamespace(tool_calls=[{"name": "file_write", "args": {"p": "x"}}], content="")
+    tool_msg_obj = SimpleNamespace(tool_calls=[SimpleNamespace(name="shell_exec", args={"cmd": "ls"})], content="")
+    wrapped = SimpleNamespace(message=SimpleNamespace(tool_calls=None, content="all done"))
+    events: list[dict[str, Any]] = [
         {"event": "on_tool_start"},  # ignored
         {"event": "on_chat_model_end", "data": {"output": None}},  # no message
         {"event": "on_chat_model_end", "data": {"output": tool_msg_dict}},
@@ -298,12 +298,12 @@ async def test_run_agent_task_collects_tool_calls_and_final_text() -> None:
 @pytest.mark.asyncio
 async def test_run_agent_task_warns_on_text_only_response() -> None:
     """A response with zero tool calls triggers a hallucination warning."""
-    from types import SimpleNamespace as NS
+    from types import SimpleNamespace
 
     from backend.crew.dispatch import run_agent_task
 
     events = [
-        {"event": "on_chat_model_end", "data": {"output": NS(tool_calls=None, content="just prose")}},
+        {"event": "on_chat_model_end", "data": {"output": SimpleNamespace(tool_calls=None, content="just prose")}},
     ]
     gap = _gap("LLR-1")
     ctx_patch, desc_patch = _run_task_patches()

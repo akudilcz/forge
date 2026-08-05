@@ -228,9 +228,9 @@ async def test_renders_all_docs_with_seeded_requirement_text(
 
     docs = _read_docs(flow)
     for _, hlr_content in _HLR_SPECS:
-        assert hlr_content in docs["03-HLR.md"], f"HLR text missing from 03-HLR.md"
+        assert hlr_content in docs["03-HLR.md"], "HLR text missing from 03-HLR.md"
     for _, llr_content in _LLR_SPECS:
-        assert llr_content in docs["07-LLR.md"], f"LLR text missing from 07-LLR.md"
+        assert llr_content in docs["07-LLR.md"], "LLR text missing from 07-LLR.md"
     # LLR docs inline the traced HLR text; CASE docs inline the requirement text.
     assert _HLR_SPECS[0][1] in docs["07-LLR.md"], "07-LLR.md does not inline HLR text"
     assert _HLR_SPECS[0][1] in docs["10-Verification.md"], (
@@ -248,7 +248,8 @@ async def test_renders_all_docs_with_seeded_requirement_text(
     gaps_after = {(g.type, g.node_id) for g in GapAnalyser().analyse(flow.graph)}
     assert gaps_after == gaps_before, "phase 11 changed the gap population"
     row = flow.phase_store.get(11)
-    assert row is not None and str(row["status"]) == "complete"
+    assert row is not None
+    assert str(row["status"]) == "complete"
 
 
 async def test_empty_graph_renders_without_crashing(forge_flow: ForgeFlow) -> None:
@@ -266,7 +267,8 @@ async def test_empty_graph_renders_without_crashing(forge_flow: ForgeFlow) -> No
             f"{name} lacks the empty-graph placeholder"
         )
     row = flow.phase_store.get(11)
-    assert row is not None and str(row["status"]) == "complete"
+    assert row is not None
+    assert str(row["status"]) == "complete"
 
 
 async def test_rerun_overwrites_cleanly_and_reproducibly(forge_flow: ForgeFlow) -> None:

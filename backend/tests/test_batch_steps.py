@@ -7,15 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.crew.batch_prompts import (
-    _format_node_list,
-    _format_para_list,
-    build_batch_phase3_prompt,
-    build_batch_phase5_prompt,
-    build_batch_phase7_prompt,
-    build_batch_phase8_prompt,
-    build_batch_phase10_prompt,
-)
 from backend.crew.batch_steps import (
     _node_to_dict,
     _run_batch_agent,
@@ -23,6 +14,15 @@ from backend.crew.batch_steps import (
     batch_phase5,
     batch_phase8,
     batch_phase10,
+)
+from backend.prompting.batch_prompts import (
+    _format_node_list,
+    _format_para_list,
+    build_batch_phase3_prompt,
+    build_batch_phase5_prompt,
+    build_batch_phase7_prompt,
+    build_batch_phase8_prompt,
+    build_batch_phase10_prompt,
 )
 
 if TYPE_CHECKING:
@@ -318,6 +318,7 @@ async def test_batch_phase10_passes_union_allow_gap_types() -> None:
 
     mock_run.assert_awaited_once()
     call = mock_run.await_args
+    assert call is not None
     assert call.args[1] == GapType.UNTESTED_HLR
     assert call.kwargs["allow_gap_types"] == [GapType.UNTESTED_HLR, GapType.UNTESTED_LLR]
 
@@ -508,7 +509,7 @@ async def test_run_batch_agent_counts_dict_and_object_tool_calls() -> None:
         {"name": "graph_add_node", "args": {"node_type": "HLR"}},
         _ObjectToolCall("graph_add_traces", {"node_id": "MOD-1"}),
     ])
-    events = [
+    events: list[dict[str, Any]] = [
         {"event": "on_chat_model_stream"},                    # ignored
         {"event": "on_chat_model_end", "data": {"output": msg}},
         {"event": "on_chat_model_end", "data": {}},           # no output: skipped

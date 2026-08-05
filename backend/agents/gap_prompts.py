@@ -15,7 +15,7 @@ Hierarchy (highest → lowest priority):
 
 from __future__ import annotations
 
-from backend.prompt_loader import render
+from backend.prompting.loader import render
 
 # Mapping from gap type value → template file name
 _GAP_TEMPLATE_MAP: dict[str, str] = {

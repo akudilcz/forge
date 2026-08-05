@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from backend.crew.markdown_sections import extract_sections
+from backend.prompting.markdown_sections import extract_sections
 
 _ARCH_DOC = """\
 # Project Architecture

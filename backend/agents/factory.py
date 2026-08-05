@@ -232,7 +232,7 @@ _ROLE_TEMPLATE_MAP: dict[str, str] = {
 
 def _build_default_prompt(role_name: str) -> str:
     """Return the default system prompt for *role_name* from Jinja templates."""
-    from backend.prompt_loader import render  # noqa: PLC0415
+    from backend.prompting.loader import render  # noqa: PLC0415
 
     template = _ROLE_TEMPLATE_MAP.get(role_name)
     if template:
