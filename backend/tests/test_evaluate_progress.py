@@ -83,10 +83,10 @@ def test_execute_happy_path(mock_run_async: MagicMock) -> None:
 @pytest.mark.asyncio
 @patch("backend.workspace.scanner.scan_files")
 @patch("backend.workspace.scanner._run_tests_and_coverage")
-@patch("backend.crew.gap_finder.find_gaps", return_value=[])
-@patch("backend.crew.mission_agent.compute_value", return_value=1.0)
-@patch("backend.crew.mission_agent._score_breakdown", return_value="Tests: 1/1 pass")
-@patch("backend.crew.mission_agent.format_gaps", return_value="No gaps remaining — all requirements satisfied.")
+@patch("backend.codegen.gap_finder.find_gaps", return_value=[])
+@patch("backend.codegen.mission_agent.compute_value", return_value=1.0)
+@patch("backend.codegen.mission_agent._score_breakdown", return_value="Tests: 1/1 pass")
+@patch("backend.codegen.mission_agent.format_gaps", return_value="No gaps remaining — all requirements satisfied.")
 @patch("backend.server.forge_logger.forge_logger")
 async def test_async_evaluate_no_gaps(
     _mock_logger: MagicMock,
@@ -133,10 +133,10 @@ async def test_async_evaluate_no_gaps(
 @pytest.mark.asyncio
 @patch("backend.workspace.scanner.scan_files")
 @patch("backend.workspace.scanner._run_tests_and_coverage")
-@patch("backend.crew.gap_finder.find_gaps")
-@patch("backend.crew.mission_agent.compute_value", return_value=0.5)
-@patch("backend.crew.mission_agent._score_breakdown", return_value="Tests: 1/2 pass")
-@patch("backend.crew.mission_agent.format_gaps", return_value="### FAILING_TESTS (1)\n- test_a")
+@patch("backend.codegen.gap_finder.find_gaps")
+@patch("backend.codegen.mission_agent.compute_value", return_value=0.5)
+@patch("backend.codegen.mission_agent._score_breakdown", return_value="Tests: 1/2 pass")
+@patch("backend.codegen.mission_agent.format_gaps", return_value="### FAILING_TESTS (1)\n- test_a")
 @patch("backend.server.forge_logger.forge_logger")
 async def test_async_evaluate_with_gaps(
     _mock_logger: MagicMock,
@@ -148,7 +148,7 @@ async def test_async_evaluate_with_gaps(
     mock_scan: MagicMock,
 ) -> None:
     """When gaps exist, all_gaps_closed should be False and gap_count > 0."""
-    from backend.crew.gap_finder import Gap, GapKind
+    from backend.codegen.gap_finder import Gap, GapKind
 
     mock_scan.return_value = (
         {"src/foo.py": _source_file_state()},
@@ -183,10 +183,10 @@ async def test_async_evaluate_with_gaps(
 @pytest.mark.asyncio
 @patch("backend.workspace.scanner.scan_files")
 @patch("backend.workspace.scanner._run_tests_and_coverage")
-@patch("backend.crew.gap_finder.find_gaps", return_value=[])
-@patch("backend.crew.mission_agent.compute_value", return_value=0.0)
-@patch("backend.crew.mission_agent._score_breakdown", return_value="Tests: 0/0")
-@patch("backend.crew.mission_agent.format_gaps", return_value="No gaps")
+@patch("backend.codegen.gap_finder.find_gaps", return_value=[])
+@patch("backend.codegen.mission_agent.compute_value", return_value=0.0)
+@patch("backend.codegen.mission_agent._score_breakdown", return_value="Tests: 0/0")
+@patch("backend.codegen.mission_agent.format_gaps", return_value="No gaps")
 @patch("backend.server.forge_logger.forge_logger")
 async def test_async_evaluate_none_coverage(
     _mock_logger: MagicMock,
@@ -223,10 +223,10 @@ async def test_async_evaluate_none_coverage(
 @pytest.mark.asyncio
 @patch("backend.workspace.scanner.scan_files")
 @patch("backend.workspace.scanner._run_tests_and_coverage")
-@patch("backend.crew.gap_finder.find_gaps", return_value=[])
-@patch("backend.crew.mission_agent.compute_value", return_value=0.0)
-@patch("backend.crew.mission_agent._score_breakdown", return_value="Tests: 0/0")
-@patch("backend.crew.mission_agent.format_gaps", return_value="No gaps")
+@patch("backend.codegen.gap_finder.find_gaps", return_value=[])
+@patch("backend.codegen.mission_agent.compute_value", return_value=0.0)
+@patch("backend.codegen.mission_agent._score_breakdown", return_value="Tests: 0/0")
+@patch("backend.codegen.mission_agent.format_gaps", return_value="No gaps")
 @patch("backend.server.forge_logger.forge_logger")
 async def test_async_evaluate_empty_workspace(
     _mock_logger: MagicMock,
@@ -275,10 +275,10 @@ async def test_async_evaluate_scan_files_error(
 @pytest.mark.asyncio
 @patch("backend.workspace.scanner.scan_files")
 @patch("backend.workspace.scanner._run_tests_and_coverage")
-@patch("backend.crew.gap_finder.find_gaps", return_value=[])
-@patch("backend.crew.mission_agent.compute_value", return_value=0.85)
-@patch("backend.crew.mission_agent._score_breakdown", return_value="ok")
-@patch("backend.crew.mission_agent.format_gaps", return_value="No gaps")
+@patch("backend.codegen.gap_finder.find_gaps", return_value=[])
+@patch("backend.codegen.mission_agent.compute_value", return_value=0.85)
+@patch("backend.codegen.mission_agent._score_breakdown", return_value="ok")
+@patch("backend.codegen.mission_agent.format_gaps", return_value="No gaps")
 @patch("backend.server.forge_logger.forge_logger")
 async def test_json_output_has_all_expected_keys(
     _mock_logger: MagicMock,
@@ -332,10 +332,10 @@ def test_execute_via_run(
 @pytest.mark.asyncio
 @patch("backend.workspace.scanner.scan_files")
 @patch("backend.workspace.scanner._run_tests_and_coverage")
-@patch("backend.crew.gap_finder.find_gaps", return_value=[])
-@patch("backend.crew.mission_agent.compute_value", return_value=0.33333333)
-@patch("backend.crew.mission_agent._score_breakdown", return_value="ok")
-@patch("backend.crew.mission_agent.format_gaps", return_value="No gaps")
+@patch("backend.codegen.gap_finder.find_gaps", return_value=[])
+@patch("backend.codegen.mission_agent.compute_value", return_value=0.33333333)
+@patch("backend.codegen.mission_agent._score_breakdown", return_value="ok")
+@patch("backend.codegen.mission_agent.format_gaps", return_value="No gaps")
 @patch("backend.server.forge_logger.forge_logger")
 async def test_score_is_rounded_to_3_decimals(
     _mock_logger: MagicMock,
@@ -362,10 +362,10 @@ async def test_score_is_rounded_to_3_decimals(
 @pytest.mark.asyncio
 @patch("backend.workspace.scanner.scan_files")
 @patch("backend.workspace.scanner._run_tests_and_coverage")
-@patch("backend.crew.gap_finder.find_gaps", return_value=[])
-@patch("backend.crew.mission_agent.compute_value", return_value=0.0)
-@patch("backend.crew.mission_agent._score_breakdown", return_value="ok")
-@patch("backend.crew.mission_agent.format_gaps", return_value="gaps")
+@patch("backend.codegen.gap_finder.find_gaps", return_value=[])
+@patch("backend.codegen.mission_agent.compute_value", return_value=0.0)
+@patch("backend.codegen.mission_agent._score_breakdown", return_value="ok")
+@patch("backend.codegen.mission_agent.format_gaps", return_value="gaps")
 @patch("backend.server.forge_logger.forge_logger")
 async def test_test_summary_counts_errors_as_failed(
     _mock_logger: MagicMock,

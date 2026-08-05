@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from backend.crew.code_gen import codegen_hash
+from backend.codegen.slice_gen import codegen_hash
 
 
 def test_codegen_hash_deterministic() -> None:

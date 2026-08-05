@@ -15,7 +15,7 @@ from backend.server.forge_logger import forge_logger
 
 async def sync_traces(graph: Any, workspace: Path) -> dict[str, Any]:
     """Re-scan workspace and persist traces — single code path with code_gen."""
-    from backend.crew.code_gen import _build_result, _persist_traces
+    from backend.codegen.slice_gen import _build_result, _persist_traces
 
     forge_logger.emit("INFO", "CGEN ", f"Sync traces — workspace={workspace}")
 

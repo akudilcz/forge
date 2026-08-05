@@ -11,10 +11,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from backend.crew.code_gen import CodeGenResult
+    from backend.codegen.slice_gen import CodeGenResult
     from backend.graph.engine import ProjectGraph
 
-from backend.crew.naming import slugify as _slugify
+from backend.codegen.naming import slugify as _slugify
 
 
 def find_available_modules(workspace: Path) -> set[str]:

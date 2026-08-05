@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import TYPE_CHECKING, Any
 
-from backend.crew.naming import slugify as _slugify
+from backend.codegen.naming import slugify as _slugify
 from backend.server.forge_logger import forge_logger
 
 if TYPE_CHECKING:
@@ -252,7 +252,7 @@ def _partition_dep_errors(
 
     Returns (dep_errors_with_module, other_failures).
     """
-    from backend.crew.build_env import detect_build_environment
+    from backend.codegen.build_env import detect_build_environment
 
     # Try to detect the build environment for smart error classification
     build_env = None
@@ -292,7 +292,7 @@ def _report_dep_error_clusters(
     gaps: list[Gap], dep_errors: list[tuple[Any, str]],
 ) -> None:
     """Cluster dependency errors by missing module into TEST_ENV_BROKEN gaps."""
-    from backend.crew.build_env import detect_build_environment
+    from backend.codegen.build_env import detect_build_environment
 
     build_env = None
     try:

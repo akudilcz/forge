@@ -62,7 +62,7 @@ class TestIsBazelTest:
 
 
 class TestRegenBuildFiles:
-    @patch("backend.crew.bazel_gen.init_bazel_workspace")
+    @patch("backend.codegen.bazel_gen.init_bazel_workspace")
     def test_calls_init_bazel_workspace(self, mock_init: MagicMock) -> None:
         _regen_build_files("/my/workspace")
         mock_init.assert_called_once_with(Path("/my/workspace"))

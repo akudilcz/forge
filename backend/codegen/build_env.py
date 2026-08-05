@@ -112,8 +112,8 @@ class PythonBazelEnvironment(BuildEnvironment):
 
     def check_health(self, workspace: Path) -> BuildHealth:
         """Check Python/Bazel build health."""
-        from backend.crew.bazel_gen import _parse_requirements
-        from backend.crew.known_modules import STDLIB_MODULES, WORKSPACE_MODULES
+        from backend.codegen.bazel_gen import _parse_requirements
+        from backend.codegen.known_modules import STDLIB_MODULES, WORKSPACE_MODULES
 
         health = BuildHealth(language="python", build_system="bazel")
         reqs = _parse_requirements(workspace)

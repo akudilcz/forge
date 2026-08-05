@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-from backend.crew.gap_finder import Gap, GapKind, _check_suspicious_names
+from backend.codegen.gap_finder import Gap, GapKind, _check_suspicious_names
 
 # ── _check_suspicious_names ──────────────────────────────────────────────────
 

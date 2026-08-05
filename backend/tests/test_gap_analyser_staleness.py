@@ -111,7 +111,7 @@ def test_stale_suite_no_suite_no_gap() -> None:
 
 
 def test_stale_code_fires_on_hash_mismatch() -> None:
-    from backend.crew.code_gen import codegen_hash
+    from backend.codegen.slice_gen import codegen_hash
 
     design = _node(
         "DES-1", "DESIGN",
@@ -128,7 +128,7 @@ def test_stale_code_fires_on_hash_mismatch() -> None:
 
 
 def test_stale_code_no_gap_when_hashes_match() -> None:
-    from backend.crew.code_gen import codegen_hash
+    from backend.codegen.slice_gen import codegen_hash
 
     design = _node(
         "DES-1", "DESIGN",

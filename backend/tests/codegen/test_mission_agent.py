@@ -1,4 +1,4 @@
-"""Tests for backend.crew.mission_agent — mission agent and helpers."""
+"""Tests for backend.codegen.mission_agent — mission agent and helpers."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.crew.gap_finder import Gap
-from backend.crew.mission_agent import (
+from backend.codegen.gap_finder import Gap
+from backend.codegen.mission_agent import (
     MissionStats,
     _include_existing_files,
     _include_rendered_docs,
@@ -271,8 +271,8 @@ class TestCreateMissionAgent:
         graph_tool = _named_tool("graph_read")
 
         with (
-            patch("backend.crew.mission_agent.build_llm"),
-            patch("backend.crew.mission_agent.create_react_agent") as mock_create,
+            patch("backend.codegen.mission_agent.build_llm"),
+            patch("backend.codegen.mission_agent.create_react_agent") as mock_create,
         ):
             create_mission_agent(config, [*required, graph_tool])
             _, kwargs = mock_create.call_args
@@ -288,8 +288,8 @@ class TestCreateMissionAgent:
         eval_tool = next(t for t in tools if t.name == "evaluate_progress")
 
         with (
-            patch("backend.crew.mission_agent.build_llm"),
-            patch("backend.crew.mission_agent.create_react_agent") as mock_create,
+            patch("backend.codegen.mission_agent.build_llm"),
+            patch("backend.codegen.mission_agent.create_react_agent") as mock_create,
         ):
             create_mission_agent(config, tools)
             _, kwargs = mock_create.call_args
@@ -305,8 +305,8 @@ class TestCreateMissionAgent:
         tools = [_named_tool("file_write"), _named_tool("shell_exec")]
 
         with (
-            patch("backend.crew.mission_agent.build_llm"),
-            patch("backend.crew.mission_agent.create_react_agent"),
+            patch("backend.codegen.mission_agent.build_llm"),
+            patch("backend.codegen.mission_agent.create_react_agent"),
             pytest.raises(RuntimeError, match="evaluate_progress"),
         ):
             create_mission_agent(config, tools)
@@ -316,8 +316,8 @@ class TestCreateMissionAgent:
         config.llm.model_for_phase.return_value = "gpt-4"
 
         with (
-            patch("backend.crew.mission_agent.build_llm"),
-            patch("backend.crew.mission_agent.create_react_agent"),
+            patch("backend.codegen.mission_agent.build_llm"),
+            patch("backend.codegen.mission_agent.create_react_agent"),
             pytest.raises(RuntimeError, match="file_write"),
         ):
             create_mission_agent(config, [])
@@ -334,13 +334,13 @@ class TestRunMissionAgent:
         ws = _ws_state()
 
         with (
-            patch("backend.crew.mission_agent.build_mission_context", return_value="ctx"),
-            patch("backend.crew.mission_agent.create_mission_agent"),
-            patch("backend.crew.mission_agent.scan_workspace", new_callable=AsyncMock, return_value=ws),
-            patch("backend.crew.mission_agent.find_gaps", return_value=[]),
-            patch("backend.crew.mission_agent.iter_agent_turns", return_value=aiter_empty()),
-            patch("backend.crew.mission_agent.work_queue"),
-            patch("backend.crew.mission_agent.forge_logger"),
+            patch("backend.codegen.mission_agent.build_mission_context", return_value="ctx"),
+            patch("backend.codegen.mission_agent.create_mission_agent"),
+            patch("backend.codegen.mission_agent.scan_workspace", new_callable=AsyncMock, return_value=ws),
+            patch("backend.codegen.mission_agent.find_gaps", return_value=[]),
+            patch("backend.codegen.mission_agent.iter_agent_turns", return_value=aiter_empty()),
+            patch("backend.codegen.mission_agent.work_queue"),
+            patch("backend.codegen.mission_agent.forge_logger"),
         ):
             ws_result, stats = await run_mission_agent(tmp_path, MagicMock(), config, [])
             assert ws_result is ws
@@ -359,13 +359,13 @@ class TestRunMissionAgent:
             yield  # unreachable
 
         with (
-            patch("backend.crew.mission_agent.build_mission_context", return_value="ctx"),
-            patch("backend.crew.mission_agent.create_mission_agent"),
-            patch("backend.crew.mission_agent.scan_workspace", new_callable=AsyncMock, return_value=ws),
-            patch("backend.crew.mission_agent.find_gaps", return_value=[_gap()]),
-            patch("backend.crew.mission_agent.iter_agent_turns", side_effect=failing_iter),
-            patch("backend.crew.mission_agent.work_queue"),
-            patch("backend.crew.mission_agent.forge_logger"),
+            patch("backend.codegen.mission_agent.build_mission_context", return_value="ctx"),
+            patch("backend.codegen.mission_agent.create_mission_agent"),
+            patch("backend.codegen.mission_agent.scan_workspace", new_callable=AsyncMock, return_value=ws),
+            patch("backend.codegen.mission_agent.find_gaps", return_value=[_gap()]),
+            patch("backend.codegen.mission_agent.iter_agent_turns", side_effect=failing_iter),
+            patch("backend.codegen.mission_agent.work_queue"),
+            patch("backend.codegen.mission_agent.forge_logger"),
         ):
             _, stats = await run_mission_agent(tmp_path, MagicMock(), config, [])
             # With the convergence loop, a persistently failing agent exhausts
@@ -391,13 +391,13 @@ class TestRunMissionAgent:
             yield turn2
 
         with (
-            patch("backend.crew.mission_agent.build_mission_context", return_value="ctx"),
-            patch("backend.crew.mission_agent.create_mission_agent"),
-            patch("backend.crew.mission_agent.scan_workspace", new_callable=AsyncMock, return_value=ws),
-            patch("backend.crew.mission_agent.find_gaps", return_value=[]),
-            patch("backend.crew.mission_agent.iter_agent_turns", return_value=multi_turn_iter()),
-            patch("backend.crew.mission_agent.work_queue"),
-            patch("backend.crew.mission_agent.forge_logger"),
+            patch("backend.codegen.mission_agent.build_mission_context", return_value="ctx"),
+            patch("backend.codegen.mission_agent.create_mission_agent"),
+            patch("backend.codegen.mission_agent.scan_workspace", new_callable=AsyncMock, return_value=ws),
+            patch("backend.codegen.mission_agent.find_gaps", return_value=[]),
+            patch("backend.codegen.mission_agent.iter_agent_turns", return_value=multi_turn_iter()),
+            patch("backend.codegen.mission_agent.work_queue"),
+            patch("backend.codegen.mission_agent.forge_logger"),
         ):
             _, stats = await run_mission_agent(tmp_path, MagicMock(), config, [])
             assert stats.total_tool_calls == 3
@@ -432,13 +432,13 @@ class TestRunMissionAgent:
         graph.all_nodes.return_value = [_node("LLR-1", "LLR")]
 
         with (
-            patch("backend.crew.mission_agent.build_mission_context", return_value="ctx"),
-            patch("backend.crew.mission_agent.create_mission_agent"),
-            patch("backend.crew.mission_agent.scan_workspace", new_callable=AsyncMock, return_value=ws),
-            patch("backend.crew.mission_agent.find_gaps", side_effect=find_gaps_side_effect),
-            patch("backend.crew.mission_agent.iter_agent_turns", return_value=aiter_empty()),
-            patch("backend.crew.mission_agent.work_queue"),
-            patch("backend.crew.mission_agent.forge_logger"),
+            patch("backend.codegen.mission_agent.build_mission_context", return_value="ctx"),
+            patch("backend.codegen.mission_agent.create_mission_agent"),
+            patch("backend.codegen.mission_agent.scan_workspace", new_callable=AsyncMock, return_value=ws),
+            patch("backend.codegen.mission_agent.find_gaps", side_effect=find_gaps_side_effect),
+            patch("backend.codegen.mission_agent.iter_agent_turns", return_value=aiter_empty()),
+            patch("backend.codegen.mission_agent.work_queue"),
+            patch("backend.codegen.mission_agent.forge_logger"),
         ):
             _, stats = await run_mission_agent(tmp_path, graph, config, [])
             assert stats.final_gap_count == 2
@@ -562,19 +562,19 @@ class TestExtraPrompt:
         ws = _ws_state()
 
         with (
-            patch("backend.crew.mission_agent.build_mission_context", return_value="ctx"),
-            patch("backend.crew.mission_agent.create_mission_agent"),
+            patch("backend.codegen.mission_agent.build_mission_context", return_value="ctx"),
+            patch("backend.codegen.mission_agent.create_mission_agent"),
             patch(
-                "backend.crew.mission_agent.scan_workspace",
+                "backend.codegen.mission_agent.scan_workspace",
                 new_callable=AsyncMock, return_value=ws,
             ),
-            patch("backend.crew.mission_agent.find_gaps", return_value=[]),
+            patch("backend.codegen.mission_agent.find_gaps", return_value=[]),
             patch(
-                "backend.crew.mission_agent._run_agent_iteration",
+                "backend.codegen.mission_agent._run_agent_iteration",
                 new_callable=AsyncMock, return_value=0,
             ) as run_iter,
-            patch("backend.crew.mission_agent.work_queue"),
-            patch("backend.crew.mission_agent.forge_logger"),
+            patch("backend.codegen.mission_agent.work_queue"),
+            patch("backend.codegen.mission_agent.forge_logger"),
         ):
             await run_mission_agent(
                 tmp_path, MagicMock(), config, [], extra_prompt="FOCUS ON X",
@@ -586,7 +586,7 @@ class TestExtraPrompt:
 class TestBuildFollowupPrompt:
     def test_uncovered_requirements_highlighted(self) -> None:
         """Uncovered-requirement gaps get their own priority section."""
-        from backend.crew.mission_agent import _build_followup_prompt
+        from backend.codegen.mission_agent import _build_followup_prompt
 
         gaps = [
             _gap(
@@ -600,7 +600,7 @@ class TestBuildFollowupPrompt:
         assert "OTHER REMAINING GAPS" not in out
 
     def test_other_gaps_rendered_without_uncovered_section(self) -> None:
-        from backend.crew.mission_agent import _build_followup_prompt
+        from backend.codegen.mission_agent import _build_followup_prompt
 
         gaps = [_gap(kind_name="MISSING_TEST", file_path="tests/test_a.py")]
         out = _build_followup_prompt("ctx", gaps, 3)

@@ -296,7 +296,7 @@ Hard cap: 40,000 chars (`builder.py:32`). DOCUMENT content skipped in ancestor w
 
 ## Phase 12 — Code generation (LLM)
 
-- **Pipeline**: default · **Driver**: `backend/crew/code_gen.py` (LLM-based, per design doc `design/22_phase_12_generate_code.md` referenced in code_gen.py:13).
+- **Pipeline**: default · **Driver**: `backend/codegen/slice_gen.py` (LLM-based, per design doc `design/22_phase_12_generate_code.md` referenced in code_gen.py:13).
 - **Context**: DESIGN node content + CONTRACT + any existing workspace file. Stores `file_path` on DESIGN / CASE `properties`.
 
 ### Issues found

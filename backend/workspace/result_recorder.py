@@ -17,7 +17,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from backend.crew.bazel_gen import init_bazel_workspace
+from backend.codegen.bazel_gen import init_bazel_workspace
 from backend.graph.models import GraphNode, LifecycleState, NodeType
 from backend.server.forge_logger import forge_logger
 

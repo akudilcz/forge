@@ -917,7 +917,7 @@ class GapAnalyser:
           means inputs have changed since the last successful generation,
           so the existing workspace file is out-of-sync.
         """
-        from backend.crew.code_gen import codegen_hash  # noqa: PLC0415
+        from backend.codegen.slice_gen import codegen_hash  # noqa: PLC0415
 
         # Index CONTRACT by MODULE for the hash-input recomputation.
         contracts_by_module: dict[str, str] = {}

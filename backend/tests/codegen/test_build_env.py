@@ -1,11 +1,11 @@
-"""Tests for backend.crew.build_env module."""
+"""Tests for backend.codegen.build_env module."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from backend.crew.build_env import (
+from backend.codegen.build_env import (
     BuildDiagnostic,
     BuildHealth,
     DepStatus,
@@ -105,8 +105,8 @@ class TestCheckHealth:
     def setup_method(self) -> None:
         self.env = PythonBazelEnvironment()
 
-    @patch("backend.crew.build_env._collect_py_imports")
-    @patch("backend.crew.bazel_gen._parse_requirements")
+    @patch("backend.codegen.build_env._collect_py_imports")
+    @patch("backend.codegen.bazel_gen._parse_requirements")
     def test_with_missing_deps(
         self,
         mock_reqs: MagicMock,
@@ -133,8 +133,8 @@ class TestCheckHealth:
         assert health.has_errors
         assert any("Unresolved imports" in d.message for d in health.diagnostics)
 
-    @patch("backend.crew.build_env._collect_py_imports")
-    @patch("backend.crew.bazel_gen._parse_requirements")
+    @patch("backend.codegen.build_env._collect_py_imports")
+    @patch("backend.codegen.bazel_gen._parse_requirements")
     def test_all_resolved(
         self,
         mock_reqs: MagicMock,
@@ -151,8 +151,8 @@ class TestCheckHealth:
         assert not health.has_errors
         assert all(d.resolved for d in health.deps)
 
-    @patch("backend.crew.build_env._collect_py_imports")
-    @patch("backend.crew.bazel_gen._parse_requirements")
+    @patch("backend.codegen.build_env._collect_py_imports")
+    @patch("backend.codegen.bazel_gen._parse_requirements")
     def test_empty_workspace(
         self,
         mock_reqs: MagicMock,
@@ -170,8 +170,8 @@ class TestCheckHealth:
         assert len(health.diagnostics) == 0
         assert not health.has_errors
 
-    @patch("backend.crew.build_env._collect_py_imports")
-    @patch("backend.crew.bazel_gen._parse_requirements")
+    @patch("backend.codegen.build_env._collect_py_imports")
+    @patch("backend.codegen.bazel_gen._parse_requirements")
     def test_stdlib_imports_excluded(
         self,
         mock_reqs: MagicMock,
@@ -187,8 +187,8 @@ class TestCheckHealth:
         assert len(health.deps) == 0
         assert not health.has_errors
 
-    @patch("backend.crew.build_env._collect_py_imports")
-    @patch("backend.crew.bazel_gen._parse_requirements")
+    @patch("backend.codegen.build_env._collect_py_imports")
+    @patch("backend.codegen.bazel_gen._parse_requirements")
     def test_internal_imports_excluded(
         self,
         mock_reqs: MagicMock,
@@ -204,8 +204,8 @@ class TestCheckHealth:
         assert len(health.deps) == 0
         assert not health.has_errors
 
-    @patch("backend.crew.build_env._collect_py_imports")
-    @patch("backend.crew.bazel_gen._parse_requirements")
+    @patch("backend.codegen.build_env._collect_py_imports")
+    @patch("backend.codegen.bazel_gen._parse_requirements")
     def test_build_files_collected(
         self,
         mock_reqs: MagicMock,
@@ -226,8 +226,8 @@ class TestCheckHealth:
         assert "pkg/BUILD.bazel" in health.build_files
         assert "py_library" in health.build_files["pkg/BUILD.bazel"]
 
-    @patch("backend.crew.build_env._collect_py_imports")
-    @patch("backend.crew.bazel_gen._parse_requirements")
+    @patch("backend.codegen.build_env._collect_py_imports")
+    @patch("backend.codegen.bazel_gen._parse_requirements")
     def test_hyphenated_package_normalization(
         self,
         mock_reqs: MagicMock,
@@ -243,8 +243,8 @@ class TestCheckHealth:
         resolved_names = {d.name for d in health.deps if d.resolved}
         assert "my_package" in resolved_names
 
-    @patch("backend.crew.build_env._collect_py_imports")
-    @patch("backend.crew.bazel_gen._parse_requirements")
+    @patch("backend.codegen.build_env._collect_py_imports")
+    @patch("backend.codegen.bazel_gen._parse_requirements")
     def test_missing_dep_fix_hints(
         self,
         mock_reqs: MagicMock,

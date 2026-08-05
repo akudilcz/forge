@@ -7,20 +7,20 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.crew.code_gen import (
+from backend.codegen.helpers import (
+    find_graph_orphans as _find_graph_orphans,
+)
+from backend.codegen.helpers import (
+    strip_markdown_fences as _strip_markdown_fences,
+)
+from backend.codegen.naming import slugify as _slugify
+from backend.codegen.slice_gen import (
     CodeGenIncompleteError,
     CodeGenResult,
     GeneratedFile,
     _enforce_coverage_gate,
     run_code_gen,
 )
-from backend.crew.codegen_helpers import (
-    find_graph_orphans as _find_graph_orphans,
-)
-from backend.crew.codegen_helpers import (
-    strip_markdown_fences as _strip_markdown_fences,
-)
-from backend.crew.naming import slugify as _slugify
 from backend.workspace.trace_parser import (
     LineTrace,
     parse_llr_traces,
@@ -245,11 +245,11 @@ def test_find_untraced_includes_private() -> None:
 # ── run_code_gen — vertical slice pipeline ───────────────────────────────────
 
 @pytest.mark.asyncio
-@patch("backend.crew.code_gen.find_gaps", return_value=[])
-@patch("backend.crew.code_gen._close_remaining_gaps")
+@patch("backend.codegen.slice_gen.find_gaps", return_value=[])
+@patch("backend.codegen.slice_gen._close_remaining_gaps")
 async def test_run_code_gen_empty_graph(mock_close_gaps: MagicMock, tmp_path: Path) -> None:
     """No DESIGN nodes → empty plan → no files generated."""
-    from backend.crew.mission_agent import MissionStats
+    from backend.codegen.mission_agent import MissionStats
     from backend.workspace.scanner import WorkspaceState
     mock_close_gaps.return_value = (WorkspaceState(), MissionStats())
     graph: Any = MagicMock()
@@ -271,13 +271,13 @@ async def test_run_code_gen_requires_config_and_tools(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-@patch("backend.crew.code_gen.find_gaps", return_value=[])
-@patch("backend.crew.code_gen._close_remaining_gaps")
+@patch("backend.codegen.slice_gen.find_gaps", return_value=[])
+@patch("backend.codegen.slice_gen._close_remaining_gaps")
 async def test_run_code_gen_gaps_resolved_true(
     mock_close_gaps: MagicMock, tmp_path: Path
 ) -> None:
     """gaps_resolved is True when final scan finds zero gaps."""
-    from backend.crew.mission_agent import MissionStats
+    from backend.codegen.mission_agent import MissionStats
     from backend.workspace.scanner import WorkspaceState
     mock_close_gaps.return_value = (WorkspaceState(), MissionStats())
     graph: Any = MagicMock()
@@ -297,7 +297,7 @@ async def test_tidy_up_preserves_agent_files(tmp_path: Path) -> None:
     File lifecycle is the mission agent's responsibility — tidy-up
     only removes __pycache__ and .pyc files.
     """
-    from backend.crew.code_gen import _tidy_up
+    from backend.codegen.slice_gen import _tidy_up
 
     src = tmp_path / "src"
     src.mkdir()
@@ -372,7 +372,7 @@ def test_validate_trace_ids_empty_graph() -> None:
 
 def test_compute_function_coverage_multiple_files() -> None:
     """Coverage aggregates traced/total across all source files."""
-    from backend.crew.codegen_helpers import compute_function_coverage as _compute_function_coverage
+    from backend.codegen.helpers import compute_function_coverage as _compute_function_coverage
 
     result = CodeGenResult(
         source_files=[
@@ -385,7 +385,7 @@ def test_compute_function_coverage_multiple_files() -> None:
 
 def test_compute_function_coverage_empty() -> None:
     """Empty result returns '0/0'."""
-    from backend.crew.codegen_helpers import compute_function_coverage as _compute_function_coverage
+    from backend.codegen.helpers import compute_function_coverage as _compute_function_coverage
 
     result = CodeGenResult()
     assert _compute_function_coverage(result) == "0/0"
@@ -393,7 +393,7 @@ def test_compute_function_coverage_empty() -> None:
 
 def test_compute_function_coverage_all_traced() -> None:
     """All functions traced shows N/N."""
-    from backend.crew.codegen_helpers import compute_function_coverage as _compute_function_coverage
+    from backend.codegen.helpers import compute_function_coverage as _compute_function_coverage
 
     result = CodeGenResult(
         source_files=[
@@ -407,7 +407,7 @@ def test_compute_function_coverage_all_traced() -> None:
 
 def test_compute_requirement_coverage_passing_tests() -> None:
     """Passing test functions covering LLRs are counted as covered."""
-    from backend.crew.codegen_helpers import (
+    from backend.codegen.helpers import (
         compute_requirement_coverage as _compute_requirement_coverage,
     )
 
@@ -439,7 +439,7 @@ def test_compute_requirement_coverage_needs_source_traces() -> None:
     """A passing traced test alone is NOT coverage — the LLR must also be
     cited by a source-file @traces (rank-1 live-run repro: 'Req 53/53'
     while 15 LLRs never reached src/)."""
-    from backend.crew.codegen_helpers import (
+    from backend.codegen.helpers import (
         compute_requirement_coverage_detail as _detail,
     )
 
@@ -465,7 +465,7 @@ def test_compute_requirement_coverage_needs_source_traces() -> None:
 
 def test_compute_requirement_coverage_failed_tests_not_counted() -> None:
     """Failed tests don't count as coverage evidence."""
-    from backend.crew.codegen_helpers import (
+    from backend.codegen.helpers import (
         compute_requirement_coverage as _compute_requirement_coverage,
     )
 
@@ -494,7 +494,7 @@ def test_compute_requirement_coverage_failed_tests_not_counted() -> None:
 
 def test_compute_requirement_coverage_no_llr_nodes() -> None:
     """No LLR nodes in graph returns '0/0'."""
-    from backend.crew.codegen_helpers import (
+    from backend.codegen.helpers import (
         compute_requirement_coverage as _compute_requirement_coverage,
     )
 
@@ -547,7 +547,7 @@ def test_find_graph_orphans_init_excluded(tmp_path: Path) -> None:
 
 def test_remove_broken_files_keeps_valid_test(tmp_path: Path) -> None:
     """A valid test file importing an existing src module is kept."""
-    from backend.crew.code_gen import _remove_broken_files
+    from backend.codegen.slice_gen import _remove_broken_files
 
     src = tmp_path / "src"
     src.mkdir()
@@ -566,7 +566,7 @@ def test_remove_broken_files_keeps_valid_test(tmp_path: Path) -> None:
 
 def test_remove_broken_files_removes_syntax_error(tmp_path: Path) -> None:
     """A test file with a syntax error is removed."""
-    from backend.crew.code_gen import _remove_broken_files
+    from backend.codegen.slice_gen import _remove_broken_files
 
     src = tmp_path / "src"
     src.mkdir()
@@ -581,7 +581,7 @@ def test_remove_broken_files_removes_syntax_error(tmp_path: Path) -> None:
 
 def test_remove_broken_files_removes_absent_src_import(tmp_path: Path) -> None:
     """A test file importing a src.* module absent from src/ is removed."""
-    from backend.crew.code_gen import _remove_broken_files
+    from backend.codegen.slice_gen import _remove_broken_files
 
     src = tmp_path / "src"
     src.mkdir()
@@ -604,7 +604,7 @@ def test_remove_broken_files_keeps_stdlib_imports(tmp_path: Path) -> None:
     The old 23-entry hand-list omitted these stdlib modules, so valid
     passing test files were deleted on every phase-12 (re-)entry.
     """
-    from backend.crew.code_gen import _remove_broken_files
+    from backend.codegen.slice_gen import _remove_broken_files
 
     (tmp_path / "src").mkdir()
     tests = tmp_path / "tests"
@@ -627,7 +627,7 @@ def test_remove_broken_files_keeps_stdlib_imports(tmp_path: Path) -> None:
 
 def test_remove_broken_files_keeps_unknown_third_party(tmp_path: Path) -> None:
     """Unknown third-party roots surface as gaps, never as deletions."""
-    from backend.crew.code_gen import _remove_broken_files
+    from backend.codegen.slice_gen import _remove_broken_files
 
     (tmp_path / "src").mkdir()
     tests = tmp_path / "tests"
@@ -644,7 +644,7 @@ def test_remove_broken_files_ignores_docstring_import_lines(tmp_path: Path) -> N
 
     The old regex scan matched them and deleted the file.
     """
-    from backend.crew.code_gen import _remove_broken_files
+    from backend.codegen.slice_gen import _remove_broken_files
 
     (tmp_path / "src").mkdir()
     tests = tmp_path / "tests"
@@ -664,7 +664,7 @@ def test_remove_broken_files_ignores_docstring_import_lines(tmp_path: Path) -> N
 @pytest.mark.asyncio
 async def test_persist_single_file_design_node() -> None:
     """Persist builds correct props for a DESIGN node."""
-    from backend.crew.code_gen import _persist_single_file
+    from backend.codegen.slice_gen import _persist_single_file
 
     node = _make_node("D-1", "DESIGN", "Auth", properties={})
     graph: Any = MagicMock()
@@ -693,7 +693,7 @@ async def test_persist_single_file_design_node() -> None:
 @pytest.mark.asyncio
 async def test_persist_single_file_case_injects_case_id() -> None:
     """CASE nodes get their node_id injected into trace case_ids."""
-    from backend.crew.code_gen import _persist_single_file
+    from backend.codegen.slice_gen import _persist_single_file
 
     node = _make_node("C-1", "CASE_HLR", "Login Test", properties={})
     graph: Any = MagicMock()
@@ -719,7 +719,7 @@ async def test_persist_single_file_case_injects_case_id() -> None:
 @pytest.mark.asyncio
 async def test_persist_single_file_missing_node() -> None:
     """If node not found in graph, persist is a no-op."""
-    from backend.crew.code_gen import _persist_single_file
+    from backend.codegen.slice_gen import _persist_single_file
 
     graph: Any = MagicMock()
     graph.node_sync.return_value = None
@@ -736,7 +736,7 @@ async def test_persist_single_file_missing_node() -> None:
 @pytest.mark.asyncio
 async def test_persist_traces_clears_stale_nodes() -> None:
     """Nodes with stale file_path not in result get trace props cleared."""
-    from backend.crew.code_gen import _persist_traces
+    from backend.codegen.slice_gen import _persist_traces
 
     current_node = _make_node("D-1", "DESIGN", "Active", properties={})
     stale_node = _make_node(
@@ -779,7 +779,7 @@ async def test_persist_traces_clears_stale_nodes() -> None:
 @pytest.mark.asyncio
 async def test_persist_traces_skips_non_design_case() -> None:
     """Non-DESIGN/CASE nodes are never cleaned even with stale props."""
-    from backend.crew.code_gen import _persist_traces
+    from backend.codegen.slice_gen import _persist_traces
 
     other_node = _make_node(
         "M-1", "MODULE", "Module",
@@ -802,7 +802,7 @@ async def test_persist_traces_skips_non_design_case() -> None:
 
 def test_compute_value_includes_mcdc() -> None:
     """MC/DC (branch coverage) is a gating dimension in compute_value."""
-    from backend.crew.mission_agent import compute_value
+    from backend.codegen.mission_agent import compute_value
     from backend.workspace.scanner import FileState, WorkspaceState
 
     ws = WorkspaceState(
@@ -828,7 +828,7 @@ def test_compute_value_includes_mcdc() -> None:
 
 def test_compute_value_all_100_returns_1() -> None:
     """All dimensions at 100% yields score 1.0."""
-    from backend.crew.mission_agent import compute_value
+    from backend.codegen.mission_agent import compute_value
     from backend.workspace.scanner import FileState, WorkspaceState
 
     ws = WorkspaceState(
@@ -856,7 +856,7 @@ def test_compute_value_all_100_returns_1() -> None:
 @pytest.mark.asyncio
 async def test_persist_coverage_metrics_happy_path() -> None:
     """DESIGN node updated with rounded coverage values."""
-    from backend.crew.code_gen import _persist_coverage_metrics
+    from backend.codegen.slice_gen import _persist_coverage_metrics
 
     design = _make_node("D-1", "DESIGN", "Main Design", properties={"existing": "keep"})
     graph: Any = MagicMock()
@@ -881,7 +881,7 @@ async def test_persist_coverage_metrics_happy_path() -> None:
 @pytest.mark.asyncio
 async def test_persist_coverage_metrics_last_state_none() -> None:
     """last_state is None → no-op, update_node never called."""
-    from backend.crew.code_gen import _persist_coverage_metrics
+    from backend.codegen.slice_gen import _persist_coverage_metrics
 
     graph: Any = MagicMock()
     graph.update_node = AsyncMock()
@@ -894,7 +894,7 @@ async def test_persist_coverage_metrics_last_state_none() -> None:
 @pytest.mark.asyncio
 async def test_persist_coverage_metrics_no_design_nodes() -> None:
     """No DESIGN nodes in graph → no-op."""
-    from backend.crew.code_gen import _persist_coverage_metrics
+    from backend.codegen.slice_gen import _persist_coverage_metrics
 
     graph: Any = MagicMock()
     graph.all_nodes.return_value = [
@@ -914,7 +914,7 @@ async def test_persist_coverage_metrics_no_design_nodes() -> None:
 @pytest.mark.asyncio
 async def test_persist_coverage_metrics_coverage_pct_none() -> None:
     """coverage_pct is None → statement_coverage not added to props."""
-    from backend.crew.code_gen import _persist_coverage_metrics
+    from backend.codegen.slice_gen import _persist_coverage_metrics
 
     design = _make_node("D-1", "DESIGN", "Design", properties={})
     graph: Any = MagicMock()
@@ -935,7 +935,7 @@ async def test_persist_coverage_metrics_coverage_pct_none() -> None:
 @pytest.mark.asyncio
 async def test_persist_coverage_metrics_branch_pct_none() -> None:
     """branch_coverage_pct is None → branch_coverage not added to props."""
-    from backend.crew.code_gen import _persist_coverage_metrics
+    from backend.codegen.slice_gen import _persist_coverage_metrics
 
     design = _make_node("D-1", "DESIGN", "Design", properties={})
     graph: Any = MagicMock()
@@ -956,7 +956,7 @@ async def test_persist_coverage_metrics_branch_pct_none() -> None:
 @pytest.mark.asyncio
 async def test_persist_coverage_metrics_preserves_existing_props() -> None:
     """Existing properties on DESIGN node are preserved after update."""
-    from backend.crew.code_gen import _persist_coverage_metrics
+    from backend.codegen.slice_gen import _persist_coverage_metrics
 
     design = _make_node(
         "D-1", "DESIGN", "Design",
@@ -984,8 +984,8 @@ async def test_persist_coverage_metrics_preserves_existing_props() -> None:
 
 def test_log_phase_statistics_calls_forge_logger() -> None:
     """_log_phase_statistics emits header and detail lines via forge_logger."""
-    from backend.crew.code_gen import _log_phase_statistics
-    from backend.crew.mission_agent import MissionStats
+    from backend.codegen.mission_agent import MissionStats
+    from backend.codegen.slice_gen import _log_phase_statistics
 
     stats = MissionStats(
         total_tool_calls=42,
@@ -995,7 +995,7 @@ def test_log_phase_statistics_calls_forge_logger() -> None:
         stop_reason="max_iterations",
     )
 
-    with patch("backend.crew.code_gen.forge_logger") as mock_logger:
+    with patch("backend.codegen.slice_gen.forge_logger") as mock_logger:
         _log_phase_statistics(stats)
 
         assert mock_logger.emit.call_count == 2
@@ -1013,12 +1013,12 @@ def test_log_phase_statistics_calls_forge_logger() -> None:
 
 def test_log_phase_statistics_default_values() -> None:
     """MissionStats with default values is handled without error."""
-    from backend.crew.code_gen import _log_phase_statistics
-    from backend.crew.mission_agent import MissionStats
+    from backend.codegen.mission_agent import MissionStats
+    from backend.codegen.slice_gen import _log_phase_statistics
 
     stats = MissionStats()
 
-    with patch("backend.crew.code_gen.forge_logger") as mock_logger:
+    with patch("backend.codegen.slice_gen.forge_logger") as mock_logger:
         _log_phase_statistics(stats)
 
         assert mock_logger.emit.call_count == 2
@@ -1199,7 +1199,7 @@ def test_gate_raises_when_llrs_present_but_no_tests_ran() -> None:
     """LLRs without any executed test are a gate failure on their own."""
     graph = MagicMock()
     with patch(
-        "backend.crew.code_gen._compute_requirement_coverage_detail",
+        "backend.codegen.slice_gen._compute_requirement_coverage_detail",
         return_value=_req_detail(["LLR-1"], [], [], 1),
     ):
         with pytest.raises(CodeGenIncompleteError, match="no tests executed"):
@@ -1208,15 +1208,15 @@ def test_gate_raises_when_llrs_present_but_no_tests_ran() -> None:
 
 def test_log_summary_warns_on_uncovered_llrs_without_stats() -> None:
     """Uncovered LLRs get a dedicated WARN record; no stats section logged."""
-    from backend.crew.code_gen import _log_summary
+    from backend.codegen.slice_gen import _log_summary
 
     graph = MagicMock()
     with (
         patch(
-            "backend.crew.code_gen._compute_requirement_coverage_detail",
+            "backend.codegen.slice_gen._compute_requirement_coverage_detail",
             return_value=_req_detail([], ["LLR-9"], [], 1),
         ),
-        patch("backend.crew.code_gen.forge_logger") as logger_mock,
+        patch("backend.codegen.slice_gen.forge_logger") as logger_mock,
     ):
         _log_summary(CodeGenResult(), _cov_state([]), graph, False, 1.0, None)
     warns = [
@@ -1232,7 +1232,7 @@ def test_log_summary_warns_on_uncovered_llrs_without_stats() -> None:
 
 
 def test_init_workspace_removes_broken_bazel_symlinks(tmp_path: Path) -> None:
-    from backend.crew.code_gen import _init_workspace
+    from backend.codegen.slice_gen import _init_workspace
 
     broken = tmp_path / "bazel-bin"
     broken.symlink_to(tmp_path / "does-not-exist")
@@ -1242,21 +1242,21 @@ def test_init_workspace_removes_broken_bazel_symlinks(tmp_path: Path) -> None:
 
 
 def test_remove_broken_files_no_tests_dir_is_noop(tmp_path: Path) -> None:
-    from backend.crew.code_gen import _remove_broken_files
+    from backend.codegen.slice_gen import _remove_broken_files
 
     _remove_broken_files(tmp_path)  # must not raise
 
 
 def test_remove_broken_files_unreadable_file_is_removed(tmp_path: Path) -> None:
     """A test file that cannot be read is treated as broken and deleted."""
-    from backend.crew.code_gen import _remove_broken_files
+    from backend.codegen.slice_gen import _remove_broken_files
 
     tests = tmp_path / "tests"
     tests.mkdir()
     target = tests / "test_x.py"
     target.write_text("assert True", encoding="utf-8")
     with (
-        patch("backend.crew.code_gen.find_available_modules", return_value=set()),
+        patch("backend.codegen.slice_gen.find_available_modules", return_value=set()),
         patch.object(Path, "read_text", side_effect=OSError("io")),
     ):
         _remove_broken_files(tmp_path)
@@ -1264,9 +1264,9 @@ def test_remove_broken_files_unreadable_file_is_removed(tmp_path: Path) -> None:
 
 
 def test_gap_counts_tallies_by_kind() -> None:
-    from backend.crew.code_gen import _gap_counts
-    from backend.crew.gap_finder import Gap as FGap
-    from backend.crew.gap_finder import GapKind
+    from backend.codegen.gap_finder import Gap as FGap
+    from backend.codegen.gap_finder import GapKind
+    from backend.codegen.slice_gen import _gap_counts
 
     gaps = [
         FGap(kind=GapKind.MISSING_SOURCE, node_id="a", file_path="", details=""),
@@ -1279,7 +1279,7 @@ def test_gap_counts_tallies_by_kind() -> None:
 
 
 def test_build_result_skips_dunder_and_conftest_files(tmp_path: Path) -> None:
-    from backend.crew.code_gen import _build_result
+    from backend.codegen.slice_gen import _build_result
 
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "__init__.py").write_text("", encoding="utf-8")
@@ -1302,7 +1302,7 @@ def test_build_result_skips_dunder_and_conftest_files(tmp_path: Path) -> None:
 
 def test_build_result_skips_files_that_vanish(tmp_path: Path) -> None:
     """Files that cannot be re-read (race) are omitted from the result."""
-    from backend.crew.code_gen import _build_result
+    from backend.codegen.slice_gen import _build_result
 
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "core.py").write_text("x = 1", encoding="utf-8")
@@ -1310,14 +1310,14 @@ def test_build_result_skips_files_that_vanish(tmp_path: Path) -> None:
     (tmp_path / "tests" / "test_core.py").write_text("x = 1", encoding="utf-8")
     graph = MagicMock()
     graph.all_nodes.return_value = []
-    with patch("backend.crew.code_gen._read_generated_file", return_value=None):
+    with patch("backend.codegen.slice_gen._read_generated_file", return_value=None):
         result = _build_result(tmp_path, graph)
     assert result.source_files == []
     assert result.test_files == []
 
 
 def test_read_generated_file_missing_returns_none(tmp_path: Path) -> None:
-    from backend.crew.code_gen import _read_generated_file
+    from backend.codegen.slice_gen import _read_generated_file
 
     assert _read_generated_file("DESIGN-1", "src/ghost.py", tmp_path) is None
 
@@ -1328,7 +1328,7 @@ def test_read_generated_file_missing_returns_none(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_persist_single_file_failure_stamps_codegen_error() -> None:
     """A persistence failure records codegen_error instead of raising."""
-    from backend.crew.code_gen import _persist_single_file
+    from backend.codegen.slice_gen import _persist_single_file
 
     node = _make_node("DESIGN-1", "DESIGN", properties={})
     graph = MagicMock()
@@ -1345,7 +1345,7 @@ async def test_persist_single_file_failure_stamps_codegen_error() -> None:
 
 @pytest.mark.asyncio
 async def test_stamp_codegen_error_missing_node_is_noop() -> None:
-    from backend.crew.code_gen import _stamp_codegen_error
+    from backend.codegen.slice_gen import _stamp_codegen_error
 
     graph = MagicMock()
     graph.node_sync.return_value = None
@@ -1357,7 +1357,7 @@ async def test_stamp_codegen_error_missing_node_is_noop() -> None:
 @pytest.mark.asyncio
 async def test_stamp_codegen_error_swallows_secondary_failure() -> None:
     """Failure-path code must never escalate, even if stamping fails too."""
-    from backend.crew.code_gen import _stamp_codegen_error
+    from backend.codegen.slice_gen import _stamp_codegen_error
 
     graph = MagicMock()
     graph.node_sync.side_effect = RuntimeError("also down")
@@ -1368,7 +1368,7 @@ async def test_stamp_codegen_error_swallows_secondary_failure() -> None:
 
 
 def test_owning_contract_content_returns_contract_sibling() -> None:
-    from backend.crew.code_gen import _owning_contract_content
+    from backend.codegen.slice_gen import _owning_contract_content
 
     design = _make_node("DESIGN-1", "DESIGN", parent_id="MOD-1")
     contract = _make_node("CON-1", "CONTRACT", parent_id="MOD-1", content="def api()")
@@ -1378,7 +1378,7 @@ def test_owning_contract_content_returns_contract_sibling() -> None:
 
 
 def test_owning_contract_content_no_contract_sibling_is_empty() -> None:
-    from backend.crew.code_gen import _owning_contract_content
+    from backend.codegen.slice_gen import _owning_contract_content
 
     design = _make_node("DESIGN-1", "DESIGN", parent_id="MOD-1")
     graph = MagicMock()
@@ -1391,7 +1391,7 @@ def test_owning_contract_content_no_contract_sibling_is_empty() -> None:
 
 @pytest.mark.asyncio
 async def test_persist_traces_skips_nodes_without_file_path_prop() -> None:
-    from backend.crew.code_gen import _persist_traces
+    from backend.codegen.slice_gen import _persist_traces
 
     node = _make_node("DESIGN-1", "DESIGN", properties={})
     graph = MagicMock()
@@ -1406,7 +1406,7 @@ async def test_persist_traces_skips_nodes_without_file_path_prop() -> None:
 
 @pytest.mark.asyncio
 async def test_tidy_up_removes_pyc_files_and_seeds_init(tmp_path: Path) -> None:
-    from backend.crew.code_gen import _tidy_up
+    from backend.codegen.slice_gen import _tidy_up
 
     (tmp_path / "src").mkdir()
     pyc = tmp_path / "src" / "core.pyc"
@@ -1421,7 +1421,7 @@ async def test_tidy_up_removes_pyc_files_and_seeds_init(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_run_trace_audit_audits_and_persists(tmp_path: Path) -> None:
-    from backend.crew.code_gen import _run_trace_audit
+    from backend.codegen.slice_gen import _run_trace_audit
 
     result = CodeGenResult(
         source_files=[GeneratedFile(node_id="DESIGN-1", file_path="src/core.py")],
@@ -1444,7 +1444,7 @@ async def test_run_trace_audit_audits_and_persists(tmp_path: Path) -> None:
 
 
 def test_owning_contract_content_skips_contentless_contract() -> None:
-    from backend.crew.code_gen import _owning_contract_content
+    from backend.codegen.slice_gen import _owning_contract_content
 
     design = _make_node("DESIGN-1", "DESIGN", parent_id="MOD-1")
     empty_contract = _make_node("CON-1", "CONTRACT", parent_id="MOD-1", content="")

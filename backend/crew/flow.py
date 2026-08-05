@@ -476,7 +476,7 @@ class ForgeFlow:
         self._set_phase_status(12, "active")
         logger.info("forge.flow.phase_start phase=12 (code gen)")
         forge_logger.phase_start(12)
-        from backend.crew.code_gen import run_code_gen
+        from backend.codegen.slice_gen import run_code_gen
 
         tool_instances = self._get_tool_instances()
         result = await run_code_gen(

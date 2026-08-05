@@ -11,7 +11,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from backend.crew.bazel_gen import init_bazel_workspace
+from backend.codegen.bazel_gen import init_bazel_workspace
 from backend.server.forge_logger import forge_logger
 from backend.workspace.result_recorder import SingleTestResult, purge_stale_test_artifacts
 from backend.workspace.test_reports import (

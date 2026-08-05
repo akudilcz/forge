@@ -24,9 +24,9 @@ from typing import Any
 
 import pytest
 
+from backend.codegen.bazel_gen import init_bazel_workspace
+from backend.codegen.slice_gen import CodeGenResult, run_code_gen
 from backend.config.models import ForgeConfig
-from backend.crew.bazel_gen import init_bazel_workspace
-from backend.crew.code_gen import CodeGenResult, run_code_gen
 from backend.graph.engine import ProjectGraph
 from backend.rendering.dashboard import render_dashboard
 from backend.tests.integration.conftest import HAS_BAZEL

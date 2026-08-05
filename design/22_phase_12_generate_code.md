@@ -44,7 +44,7 @@ The agent accumulates understanding across the entire session.
 The pipeline is **idempotent** — re-running Phase 12 on a complete
 workspace finds zero gaps and exits immediately.
 
-**Implementation:** `backend/crew/mission_agent.py`
+**Implementation:** `backend/codegen/mission_agent.py`
 
 ---
 
@@ -80,7 +80,7 @@ Imports are enumerated with `ast.parse` (never regex), so import-shaped
 lines inside docstrings are ignored. Unknown third-party roots are
 **never** grounds for deletion — they surface later as `TEST_ENV_BROKEN`
 gaps instead. Stdlib recognition uses the single shared constant in
-`backend/crew/known_modules.py` (`sys.stdlib_module_names` plus the
+`backend/codegen/known_modules.py` (`sys.stdlib_module_names` plus the
 workspace-internal modules `src`/`tests`/`tracing`/`conftest`), which is
 also the allowlist used by `bazel_gen` and `build_env` — one list, no
 drift.
@@ -307,7 +307,7 @@ structural and quality gaps used in Phases 2-10. Gaps are detected by
 deterministic workspace scanning (AST parsing, pytest results, coverage
 reports) and fed back to the mission agent.
 
-**Implementation:** `backend/crew/gap_finder.py`
+**Implementation:** `backend/codegen/gap_finder.py`
 
 ### GapKind Enum (Priority Order)
 

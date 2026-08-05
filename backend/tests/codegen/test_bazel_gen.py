@@ -1,4 +1,4 @@
-"""Tests for backend.crew.bazel_gen — bazel workspace generation."""
+"""Tests for backend.codegen.bazel_gen — bazel workspace generation."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from backend.crew.bazel_gen import (
+from backend.codegen.bazel_gen import (
     _parse_requirements,
     _pip_deps_for_files,
     _report_unresolved_deps,
     _scan_imports,
     init_bazel_workspace,
 )
-from backend.crew.known_modules import WORKSPACE_MODULES as _INTERNAL_MODULES
+from backend.codegen.known_modules import WORKSPACE_MODULES as _INTERNAL_MODULES
 
 
 def test_init_creates_module_bazel(tmp_path: Path) -> None:
@@ -392,7 +392,7 @@ def test_report_unresolved_deps_no_source_files(tmp_path: Path, monkeypatch: pyt
 def test_stdlib_modules_include_future_and_common_stdlib() -> None:
     """Rank-18 regression: __future__ (and other stdlib omitted by the old
     hand-list) must be recognised as stdlib."""
-    from backend.crew.known_modules import STDLIB_MODULES as _STDLIB_MODULES
+    from backend.codegen.known_modules import STDLIB_MODULES as _STDLIB_MODULES
 
     for mod in (
         "__future__", "datetime", "random", "unittest", "string",

@@ -1,4 +1,4 @@
-"""Tests for backend.crew.gap_finder."""
+"""Tests for backend.codegen.gap_finder."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from backend.crew.gap_finder import (
+from backend.codegen.gap_finder import (
     Gap,
     GapKind,
     _build_error_summaries,
@@ -19,7 +19,7 @@ from backend.crew.gap_finder import (
     _target_path,
     find_gaps,
 )
-from backend.crew.naming import slugify as _slugify
+from backend.codegen.naming import slugify as _slugify
 from backend.workspace.result_recorder import SingleTestResult
 from backend.workspace.scanner import FileState
 from backend.workspace.trace_parser import LineTrace, UntracedFunction
@@ -903,7 +903,7 @@ def test_partition_dep_errors_uses_detected_build_env(
     build_env = MagicMock()
     build_env.is_import_error.return_value = "numpy"
     with patch(
-        "backend.crew.build_env.detect_build_environment", return_value=build_env,
+        "backend.codegen.build_env.detect_build_environment", return_value=build_env,
     ):
         dep_errors, other = _partition_dep_errors([_failing_result("boom")])
     assert other == []
@@ -922,7 +922,7 @@ def test_report_dep_error_clusters_uses_build_env_manifest_and_hint(
     build_env.fix_hint_for_missing_dep.return_value = "Add numpy to pyproject.toml"
     gaps: list[Gap] = []
     with patch(
-        "backend.crew.build_env.detect_build_environment", return_value=build_env,
+        "backend.codegen.build_env.detect_build_environment", return_value=build_env,
     ):
         _report_dep_error_clusters(gaps, [(_failing_result("x"), "numpy")])
     assert gaps[0].kind == GapKind.TEST_ENV_BROKEN
@@ -1008,7 +1008,7 @@ def test_partition_dep_errors_falls_back_when_detection_raises(
 
     monkeypatch.setenv("FORGE_WORKSPACE", str(tmp_path))
     with patch(
-        "backend.crew.build_env.detect_build_environment",
+        "backend.codegen.build_env.detect_build_environment",
         side_effect=RuntimeError("no manifest"),
     ):
         dep_errors, other = _partition_dep_errors(
@@ -1027,7 +1027,7 @@ def test_report_dep_error_clusters_falls_back_when_detection_raises(
     monkeypatch.setenv("FORGE_WORKSPACE", str(tmp_path))
     gaps: list[Gap] = []
     with patch(
-        "backend.crew.build_env.detect_build_environment",
+        "backend.codegen.build_env.detect_build_environment",
         side_effect=RuntimeError("no manifest"),
     ):
         _report_dep_error_clusters(gaps, [(_failing_result("x"), "numpy")])

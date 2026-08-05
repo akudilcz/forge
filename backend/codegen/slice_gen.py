@@ -24,24 +24,24 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from backend.graph.engine import ProjectGraph
 
-from backend.config.models import ForgeConfig
-from backend.crew.bazel_gen import init_bazel_workspace
-from backend.crew.codegen_helpers import (
+from backend.codegen.bazel_gen import init_bazel_workspace
+from backend.codegen.gap_finder import Gap, GapKind, find_gaps
+from backend.codegen.helpers import (
     compute_requirement_coverage_detail as _compute_requirement_coverage_detail,
 )
-from backend.crew.codegen_helpers import (
+from backend.codegen.helpers import (
     find_available_modules,
     has_broken_imports,
     has_syntax_error,
 )
-from backend.crew.codegen_helpers import (
+from backend.codegen.helpers import (
     find_graph_orphans as _find_graph_orphans,  # noqa: F401 — re-exported for tests
 )
-from backend.crew.codegen_helpers import (
+from backend.codegen.helpers import (
     strip_markdown_fences as _strip_markdown_fences,  # noqa: F401 — re-exported for tests
 )
-from backend.crew.gap_finder import Gap, GapKind, find_gaps
-from backend.crew.naming import slugify as _slugify
+from backend.codegen.naming import slugify as _slugify
+from backend.config.models import ForgeConfig
 from backend.server.forge_logger import forge_logger
 from backend.workspace.result_recorder import is_failure, is_not_passing, is_passed
 from backend.workspace.trace_parser import LineTrace, UntracedFunction, analyse_traces
@@ -345,7 +345,7 @@ async def _close_remaining_gaps(
     extra_prompt: str = "",
 ) -> tuple[Any, Any]:
     """Mission-agent-based gap closing. Returns (WorkspaceState, MissionStats)."""
-    from backend.crew.mission_agent import run_mission_agent  # noqa: PLC0415
+    from backend.codegen.mission_agent import run_mission_agent  # noqa: PLC0415
 
     return await run_mission_agent(
         workspace,

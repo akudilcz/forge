@@ -11,10 +11,10 @@ import ast
 import re
 from pathlib import Path
 
-from backend.crew.known_modules import (
+from backend.codegen.known_modules import (
     STDLIB_MODULES as _STDLIB_MODULES,
 )
-from backend.crew.known_modules import (
+from backend.codegen.known_modules import (
     WORKSPACE_MODULES as _INTERNAL_MODULES,
 )
 from backend.server.forge_logger import forge_logger

@@ -94,7 +94,7 @@ def test_gap_phase_quality_routing(
 async def test_kickoff_resets_phase_context(flow: ForgeFlow, mock_deps: MockDeps) -> None:
     """kickoff_async resets phase context at start and per phase."""
     with patch("backend.crew.flow.phase_context") as mock_ctx:
-        with patch("backend.crew.code_gen.run_code_gen", new_callable=AsyncMock) as mock_cg:
+        with patch("backend.codegen.slice_gen.run_code_gen", new_callable=AsyncMock) as mock_cg:
             mock_cg.return_value = MagicMock(gaps_resolved=True, source_files=[], test_files=[])
             await flow.kickoff_async()
         mock_ctx.reset_all.assert_called_once()
@@ -112,7 +112,7 @@ async def test_run_phase_resets_phase_context(flow: ForgeFlow, mock_deps: MockDe
 @pytest.mark.asyncio
 async def test_kickoff_no_gaps_completes(flow: ForgeFlow, mock_deps: MockDeps) -> None:
     """Loop completes immediately when no gaps exist; dispatch silently skips when no agent."""
-    with patch("backend.crew.code_gen.run_code_gen", new_callable=AsyncMock) as mock_cg:
+    with patch("backend.codegen.slice_gen.run_code_gen", new_callable=AsyncMock) as mock_cg:
         mock_cg.return_value = MagicMock(gaps_resolved=True, source_files=[], test_files=[])
         await flow.kickoff_async()
     assert flow.state.loop_status == "complete"
@@ -1370,7 +1370,7 @@ async def test_code_gen_phase_warns_when_gaps_unresolved(flow: ForgeFlow) -> Non
     flow._get_tool_instances = MagicMock(return_value=[])  # type: ignore[method-assign]
     with (
         patch(
-            "backend.crew.code_gen.run_code_gen",
+            "backend.codegen.slice_gen.run_code_gen",
             new_callable=AsyncMock, return_value=result,
         ),
         patch("backend.crew.flow.forge_logger") as logger_mock,

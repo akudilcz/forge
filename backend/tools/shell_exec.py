@@ -131,7 +131,7 @@ def _regen_build_files(workspace: str) -> None:
     """
     from pathlib import Path  # noqa: PLC0415
 
-    from backend.crew.bazel_gen import init_bazel_workspace  # noqa: PLC0415
+    from backend.codegen.bazel_gen import init_bazel_workspace  # noqa: PLC0415
 
     init_bazel_workspace(Path(workspace))
 

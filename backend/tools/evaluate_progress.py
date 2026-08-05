@@ -68,8 +68,8 @@ class EvaluateProgressTool(ForgeTool):
 
     async def _async_evaluate(self, message: str) -> str:
         """Run the evaluation pipeline."""
-        from backend.crew.gap_finder import find_gaps
-        from backend.crew.mission_agent import (
+        from backend.codegen.gap_finder import find_gaps
+        from backend.codegen.mission_agent import (
             _score_breakdown,
             compute_value,
             format_gaps,
