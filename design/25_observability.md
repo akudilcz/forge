@@ -90,6 +90,44 @@ On startup, `prune_old_logs(db_path, max_age_days=30)` runs once. The
 bound is deterministic; there is no rotation/backup policy. A fresh run
 therefore sees roughly the last month of history.
 
+## LLM call trace
+
+Every LLM call — streaming or not, successful or failed — is durably
+recorded with its **complete request and response bodies** by
+`backend/observability/llm_trace.py::LLMTraceWriter`, wired into
+`ThrottledChatOpenAI._agenerate` / `._astream` in `agents/factory.py`.
+
+- **Location** — one append-only JSONL file per process:
+  `<llm.trace_dir>/trace.<pid>.jsonl`. A relative `llm.trace_dir`
+  (default `.forge/llm_trace`) resolves against the **repo root**, never
+  the process cwd — the same anchoring rule as the response cache
+  (`agents/llm_cache.py`), so per-phase integration tests that chdir into
+  throwaway workspaces still write to the repo-level directory.
+- **Record fields** — `ts_ms`, `call_id` (same correlation id as the
+  logs DB `call_id` column), `model`, `temperature`, `streamed`,
+  `duration_ms`, `prompt_tokens`, `completion_tokens`, `error`
+  (`None` on success; `"Type: message"` on failure — failures are traced
+  too), `request` (`messages` with role/content/tool_calls plus the bound
+  `tools` definitions when present in the call kwargs), `response`
+  (`text` — assembled from chunks on the streaming path — and
+  `tool_calls`), and `context` (the full `log_context` snapshot at the
+  call seam: `run_id`, `phase`, `cycle`, `gap_type`, `gap_id`,
+  `node_id`, `agent_id`, …).
+- **Configuration** — `llm.trace_enabled` (default `true`) and
+  `llm.trace_dir` in `backend/config/models.py::LLMConfig`. When
+  disabled, `build_llm` passes `trace_writer=None` and no file is
+  created.
+- **Durability** — each record is appended, flushed, and fsynced in one
+  operation; a crash loses at most the in-flight call.
+- **Relationship to other stores** — the logs DB keeps *metadata* per
+  call (tokens, duration, snippets); the trace keeps *full bodies* and
+  joins to it via `call_id`. The response cache (`llm_cache.db`) stores
+  full bodies only for cacheable non-streaming calls, keyed by prompt —
+  unlinked to phase/gap/time; the trace covers every call and carries
+  that linkage.
+- **Retention** — unbounded JSONL, one file per process. Follow-up:
+  add pruning of old trace files alongside `prune_old_logs`.
+
 ## Extension points
 
 - **New sink** — implement the `LogSink` protocol and register via

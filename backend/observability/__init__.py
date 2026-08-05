@@ -10,6 +10,7 @@ See ``design/25_observability.md`` for the architecture and
 * :func:`prune_old_logs` — retention helper
 """
 
+from backend.observability.llm_trace import LLMTraceWriter, resolve_trace_path
 from backend.observability.log_context import (
     current_context,
     log_context,
@@ -36,6 +37,7 @@ from backend.observability.query import query_logs
 
 __all__ = [
     "FileLogSink",
+    "LLMTraceWriter",
     "LogCategory",
     "LogRecord",
     "LogSink",
@@ -51,5 +53,6 @@ __all__ = [
     "normalise_category",
     "prune_old_logs",
     "query_logs",
+    "resolve_trace_path",
     "validate_category",
 ]

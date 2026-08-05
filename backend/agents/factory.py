@@ -7,6 +7,7 @@ from typing import Any
 
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
+from pydantic import Field
 
 from backend.agents.definitions import AGENT_REGISTRY, GAP_AGENT_MAPPING, AgentDefinition, AgentRole
 from backend.agents.gap_prompts import get_default_gap_prompt, has_default_gap_prompt
@@ -14,6 +15,11 @@ from backend.agents.llm_cache import SQLiteLLMCache, resolve_cache_db_path
 from backend.agents.throttle import llm_throttle
 from backend.analysis.gaps import GapType
 from backend.config.models import ForgeConfig
+from backend.observability.llm_trace import (
+    LLMTraceWriter,
+    extract_chunk_text,
+    resolve_trace_path,
+)
 from backend.server.forge_logger import forge_logger
 from backend.tools.registry import ToolRegistry
 
@@ -29,6 +35,46 @@ class LLMCallLimitExceededError(RuntimeError):
 
 class ThrottledChatOpenAI(ChatOpenAI):  # type: ignore[misc]
     """ChatOpenAI subclass that enforces a global minimum delay between API calls."""
+
+    #: Full request/response trace sink; ``None`` disables tracing.
+    #: Excluded from serialization so the cache key (``llm_string``) and
+    #: LangChain dumps are unaffected — same treatment as the ``cache`` field.
+    trace_writer: LLMTraceWriter | None = Field(default=None, exclude=True)
+
+    def _trace(
+        self,
+        *,
+        call_id: str,
+        messages: list[Any],
+        call_kwargs: dict[str, Any],
+        response_text: str,
+        tool_calls: list[Any],
+        prompt_tokens: int,
+        completion_tokens: int,
+        duration_ms: int,
+        streamed: bool,
+        error: str | None,
+    ) -> None:
+        """Write one full request/response trace record when tracing is on."""
+        if self.trace_writer is None:
+            return
+        from backend.observability import current_context  # noqa: PLC0415
+
+        self.trace_writer.record(
+            call_id=call_id,
+            model=self.model_name or "unknown",
+            temperature=self.temperature,
+            messages=messages,
+            tools=call_kwargs["tools"] if "tools" in call_kwargs else None,
+            response_text=response_text,
+            tool_calls=tool_calls,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            duration_ms=duration_ms,
+            streamed=streamed,
+            error=error,
+            context=current_context(),
+        )
 
     def _log_call(self, messages: list[Any]) -> None:
         """Log the outgoing LLM call with model name, context size, and prompt snippet.
@@ -83,6 +129,8 @@ class ThrottledChatOpenAI(ChatOpenAI):  # type: ignore[misc]
         completion_tokens = 0
         last_chunk: Any = None
         thinking_snippet: str | None = None
+        text_parts: list[str] = []
+        error_text: str | None = None
         try:
             # Obs #1: log_context entered BEFORE _log_call so the outbound
             # '→ model' record carries the same call_id as the subsequent
@@ -98,9 +146,11 @@ class ThrottledChatOpenAI(ChatOpenAI):  # type: ignore[misc]
                         completion_tokens = int(usage.get("output_tokens", 0) or 0) or completion_tokens
                     # Obs #8: capture thinking block if present.
                     thinking_snippet = thinking_snippet or _extract_thinking(chunk)
+                    text_parts.append(extract_chunk_text(chunk))
                     yield chunk
         except Exception as exc:  # noqa: BLE001
-            forge_logger.llm_error(self.model_name or "unknown", f"{type(exc).__name__}: {exc}")
+            error_text = f"{type(exc).__name__}: {exc}"
+            forge_logger.llm_error(self.model_name or "unknown", error_text)
             raise
         finally:
             dur = int((time.monotonic() - t0) * 1000)
@@ -132,6 +182,18 @@ class ThrottledChatOpenAI(ChatOpenAI):  # type: ignore[misc]
                 prompt_tokens=prompt_tokens or None,
                 completion_tokens=completion_tokens or None,
                 thinking=thinking_snippet,
+            )
+            self._trace(
+                call_id=call_id,
+                messages=args[0] if args else [],
+                call_kwargs=kwargs,
+                response_text="".join(text_parts),
+                tool_calls=getattr(last_chunk, "tool_calls", None) or [],
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                duration_ms=dur,
+                streamed=True,
+                error=error_text,
             )
 
     async def _agenerate(self, *args: Any, **kwargs: Any) -> Any:
@@ -180,10 +242,33 @@ class ThrottledChatOpenAI(ChatOpenAI):  # type: ignore[misc]
                 completion_tokens=completion_tokens or None,
                 thinking=thinking_snippet,
             )
+            self._trace(
+                call_id=call_id,
+                messages=args[0] if args else [],
+                call_kwargs=kwargs,
+                response_text=completion,
+                tool_calls=tool_calls,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                duration_ms=dur,
+                streamed=False,
+                error=None,
+            )
             return result
         except Exception as exc:
-            forge_logger.llm_error(
-                self.model_name or "unknown", f"{type(exc).__name__}: {exc}",
+            error_text = f"{type(exc).__name__}: {exc}"
+            forge_logger.llm_error(self.model_name or "unknown", error_text)
+            self._trace(
+                call_id=call_id,
+                messages=args[0] if args else [],
+                call_kwargs=kwargs,
+                response_text="",
+                tool_calls=[],
+                prompt_tokens=0,
+                completion_tokens=0,
+                duration_ms=int((time.monotonic() - t0) * 1000),
+                streamed=False,
+                error=error_text,
             )
             raise
 
@@ -339,6 +424,12 @@ def build_llm(
     if cacheable and config.llm.cache_enabled:
         cache = SQLiteLLMCache(resolve_cache_db_path(config.llm.cache_dir))
 
+    # Full request/response trace — every call, streaming or not, success or
+    # failure. See design/25_observability.md §"LLM call trace".
+    trace_writer: LLMTraceWriter | None = None
+    if config.llm.trace_enabled:
+        trace_writer = LLMTraceWriter(resolve_trace_path(config.llm.trace_dir))
+
     import httpx
 
     # Short connect timeout, long read timeout for streaming responses
@@ -359,6 +450,7 @@ def build_llm(
         # check, so the client retries transient transport failures itself.
         max_retries=2,
         cache=cache,
+        trace_writer=trace_writer,
     )
 
 

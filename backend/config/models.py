@@ -101,6 +101,12 @@ class LLMConfig(BaseModel):
     # resolves against the repo root (never the process cwd), so integration
     # tests running in throwaway workspaces share the warm repo-level cache.
     cache_dir: str = ".cache"
+    # Full request/response trace of every LLM call: one JSON record per call
+    # appended to <trace_dir>/trace.<pid>.jsonl. A relative trace_dir resolves
+    # against the repo root (same rule as cache_dir). See
+    # design/25_observability.md §"LLM call trace".
+    trace_enabled: bool = True
+    trace_dir: str = ".forge/llm_trace"
     num_ctx: int = 128000
     context_window_default: int = 128000
     options: LLMOptionsConfig = Field(default_factory=LLMOptionsConfig)
