@@ -1,5 +1,5 @@
-"""Tests for crew modules: design_consolidation, semantic_duplicate_check,
-dispatch, quality, and batch_steps.
+"""Cross-package orchestration coverage: pipeline (dispatch, batch_steps)
+and quality (design_consolidation, semantic_duplicate_check, checks).
 
 Maximise coverage for previously-uncovered lines.
 """

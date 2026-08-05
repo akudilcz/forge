@@ -428,7 +428,8 @@ class TestBuildLLM:
             assert isinstance(cache, SQLiteLLMCache)
             assert cache.db_path.is_absolute()
             assert not cache.db_path.is_relative_to(tmp_path)
-            repo_root = Path(__file__).resolve().parents[2]
+            import backend
+            repo_root = Path(backend.__file__).resolve().parent.parent
             assert cache.db_path == repo_root / ".cache" / "llm_cache.db"
 
     def test_build_llm_cacheable_false_constructs_uncached_model(self, tmp_path: Path) -> None:

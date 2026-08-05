@@ -1,4 +1,5 @@
-"""Tests for task_builder, workspace_sync, phase_steps, and work_queue modules.
+"""Cross-package coverage: prompting/builder, workspace/sync, pipeline/steps,
+and core/work_queue.
 
 Maximise coverage across four modules with focused behavioural tests.
 """

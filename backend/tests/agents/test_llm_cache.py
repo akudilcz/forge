@@ -144,7 +144,8 @@ class TestResolveCacheDbPath:
         monkeypatch.chdir(tmp_path)  # throwaway cwd must not matter
         resolved = resolve_cache_db_path(".cache")
 
-        repo_root = Path(__file__).resolve().parents[2]
+        import backend
+        repo_root = Path(backend.__file__).resolve().parent.parent
         assert resolved == repo_root / ".cache" / "llm_cache.db"
         assert resolved.is_absolute()
 
