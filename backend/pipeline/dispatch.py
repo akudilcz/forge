@@ -14,6 +14,7 @@ from langchain_core.messages import HumanMessage
 
 from backend.agents.definitions import GAP_AGENT_MAPPING
 from backend.analysis.gaps import Gap, GapType
+from backend.pipeline.duplicate_resolver import try_resolve_exact_duplicate
 from backend.pipeline.phase_constraints import reset_phase_constraints, set_phase_constraints
 from backend.pipeline.phase_context import phase_context
 from backend.prompting.builder import build_context_for_gap, build_task_description, find_suite_id
@@ -102,6 +103,13 @@ async def dispatch(flow: Any, gap: Gap, attempt: int = 1) -> str:
                 "dispatch", "fast_path", "existing DESIGN linked",
             )
             return "fast-path trace"
+
+        if await try_resolve_exact_duplicate(flow, gap):
+            forge_logger.decision(
+                "dispatch", "deterministic_dup_delete",
+                "byte-identical duplicate deleted without LLM",
+            )
+            return "deterministic duplicate deletion"
 
         agent = flow.pool.get_agent_for_gap(gap.type)
         if agent is None:
@@ -237,7 +245,7 @@ async def run_agent_task(
 
     phase = getattr(flow.state, "current_phase", 0)
 
-    thread_id = phase_context.get_thread_id(phase, gap.type)
+    thread_id = phase_context.get_thread_id(phase, gap.type, gap.node_id)
 
     config: dict[str, Any] = {
         "recursion_limit": 500,

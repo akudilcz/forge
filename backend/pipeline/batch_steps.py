@@ -97,7 +97,7 @@ async def _run_batch_agent(
     )
     t0 = time.monotonic()
 
-    thread_id = phase_context.get_thread_id(phase, gap_type)
+    thread_id = phase_context.get_thread_id(phase, gap_type, "batch")
     config: dict[str, Any] = {
         "recursion_limit": 500,
         "configurable": {"thread_id": thread_id},

@@ -511,7 +511,8 @@ class AgentFactory:
         accumulation across invocations sharing the same ``thread_id``.
 
         A ``pre_model_hook`` is attached to trim oldest messages when the
-        accumulated conversation exceeds the context window budget.
+        accumulated conversation exceeds ``llm.dispatch_token_budget``
+        (exact tiktoken count — see design/02_context_management.md).
         """
         from backend.pipeline.phase_context import make_trim_hook
 
@@ -523,13 +524,12 @@ class AgentFactory:
         model_name = self._config.llm.agents[definition.role.value]
         llm = build_llm(self._config, model=model_name, cacheable=True)
         prompt = prompt_override or get_prompt(definition.role.value)
-        ctx_window = self._config.llm.context_window_for_model(model_name)
         return create_react_agent(
             model=llm,
             tools=tools,
             prompt=prompt,
             checkpointer=checkpointer,
-            pre_model_hook=make_trim_hook(ctx_window),
+            pre_model_hook=make_trim_hook(self._config.llm.dispatch_token_budget),
         )
 
     def create_agent_for_gap(

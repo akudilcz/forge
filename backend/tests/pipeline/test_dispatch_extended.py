@@ -318,3 +318,48 @@ async def test_run_agent_task_warns_on_text_only_response() -> None:
         if c.args[0] == "WARN" and "No tool calls" in c.args[2]
     ]
     assert warns
+
+
+# ── per-gap thread scoping ───────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_run_agent_task_thread_scoped_per_gap() -> None:
+    """Two different gaps of the same type get distinct conversation threads."""
+    from backend.pipeline.dispatch import run_agent_task
+
+    gap_a = _gap("LLR-0001", GapType.STALE_NODE)
+    gap_b = _gap("LLR-0002", GapType.STALE_NODE)
+    agent_a, agent_b = _FakeAgent([]), _FakeAgent([])
+    ctx_patch, desc_patch = _run_task_patches()
+    with ctx_patch, desc_patch, patch("backend.pipeline.dispatch.forge_logger"):
+        await run_agent_task(_task_flow(), agent_a, gap_a, attempt=1, model="")
+        await run_agent_task(_task_flow(), agent_b, gap_b, attempt=1, model="")
+
+    assert agent_a.captured_config is not None
+    assert agent_b.captured_config is not None
+    tid_a = agent_a.captured_config["configurable"]["thread_id"]
+    tid_b = agent_b.captured_config["configurable"]["thread_id"]
+    assert tid_a != tid_b
+    assert "LLR-0001" in tid_a
+    assert "LLR-0002" in tid_b
+
+
+@pytest.mark.asyncio
+async def test_run_agent_task_retry_reuses_thread() -> None:
+    """A retry of the same gap reuses the same conversation thread."""
+    from backend.pipeline.dispatch import run_agent_task
+
+    gap = _gap("LLR-0001", GapType.STALE_NODE)
+    agent_1, agent_2 = _FakeAgent([]), _FakeAgent([])
+    ctx_patch, desc_patch = _run_task_patches()
+    with ctx_patch, desc_patch, patch("backend.pipeline.dispatch.forge_logger"):
+        await run_agent_task(_task_flow(), agent_1, gap, attempt=1, model="")
+        await run_agent_task(_task_flow(), agent_2, gap, attempt=2, model="")
+
+    assert agent_1.captured_config is not None
+    assert agent_2.captured_config is not None
+    assert (
+        agent_1.captured_config["configurable"]["thread_id"]
+        == agent_2.captured_config["configurable"]["thread_id"]
+    )

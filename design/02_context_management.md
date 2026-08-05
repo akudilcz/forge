@@ -74,6 +74,26 @@ Each returns full content, with no caps:
 | `build_sibling_req_context` | 13 DUPLICATE | Same-type, same-parent siblings |
 | `build_ancestor_context` | default | Full parent chain (DOCUMENT body skipped; breadcrumb only) |
 
+## Agent conversation threads (per-gap scoping)
+
+Agent-dispatch conversations are checkpointed by `backend/pipeline/phase_context.py::PhaseContext` (a `MemorySaver` shared across agents) and addressed by `thread_id`. A measured audit found 90–98% of per-gap dispatch tokens were re-sent dead conversation history: threads were scoped per `(phase, gap_type)`, so every gap of a type appended to one unbounded transcript and each new dispatch re-sent all prior gaps' transcripts (single-node repairs carried up to 106K tokens).
+
+Threads are therefore scoped **per gap**:
+
+* `get_thread_id(phase, gap_type, scope)` — `scope` is the gap's `node_id` for per-gap dispatch (`pipeline/dispatch.py`), so each gap starts a clean transcript containing only its own task. The ID is attempt-agnostic: **retries of the same gap reuse the same thread**, keeping the genuinely useful history of that gap's earlier attempts.
+* Batch steps (`pipeline/batch_steps.py`) pass the fixed scope `"batch"` — one thread per `(phase, gap_type)` batch step, unchanged behaviour.
+* `reset_phase` / `reset_all` still invalidate all threads via the nonce.
+
+**Follow-up (not built yet)**: cross-gap learning within a phase is no longer carried implicitly by the shared transcript. The audit showed most of that "learning" was pattern-shortcutting rather than useful transfer, so no summary mechanism is built in this round. If cross-gap transfer proves valuable, the shape would be a cheap per-(phase, gap_type) rolling summary injected into each fresh thread's first message — not a shared transcript.
+
+## Dispatch trim budget
+
+`make_trim_hook(budget_tokens)` (`pipeline/phase_context.py`, wired as the react agent's `pre_model_hook` in `agents/factory.py`) trims the oldest conversation messages before every LLM call:
+
+* **Exact token counting**: the counter is the same tiktoken `cl100k_base` `count_tokens` used by `context_budget.pack()`. The previous hook used LangChain's `"approximate"` counter, which undercounted — real prompts hit 106K tokens against an 89.6K intended cap.
+* **Explicit configured budget**: the cap is `llm.dispatch_token_budget` (`LLMConfig`, default **24 000** tokens), task-scaled rather than %-of-context-window. A per-gap repair task never legitimately needs anywhere near a model window of history.
+* **Loud but non-fatal**: over-budget history is trimmed (system message preserved, trimmed list starts on a human message) and logged; the hook never crashes mid-loop.
+
 ## Batch prompts
 
 The four batch phases (3, 5, 7, 8) follow a `[static prefix] + [dynamic suffix]` structure where the static prefix is the large cacheable graph snapshot and the dynamic suffix is the attempt-specific set of unresolved gaps. Retries inside a batch step benefit from Anthropic's prompt cache on the static prefix. Full content everywhere — no `[:N]` slices anywhere in `batch_prompts.py`.

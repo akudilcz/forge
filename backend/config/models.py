@@ -109,6 +109,12 @@ class LLMConfig(BaseModel):
     trace_dir: str = ".forge/llm_trace"
     num_ctx: int = 128000
     context_window_default: int = 128000
+    # Hard cap (tokens, exact tiktoken count) on the accumulated conversation
+    # history re-sent per agent dispatch. Task-scaled rather than a fraction
+    # of the model window — a per-gap repair never legitimately needs a full
+    # model window of history. Enforced by the pre_model_hook built in
+    # backend/pipeline/phase_context.py::make_trim_hook.
+    dispatch_token_budget: int = 24000
     options: LLMOptionsConfig = Field(default_factory=LLMOptionsConfig)
     # Per-agent model overrides; key = AgentRole.value, value = model name
     agents: dict[str, str] = Field(
