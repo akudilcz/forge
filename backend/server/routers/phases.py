@@ -24,40 +24,22 @@ from backend.server.dependencies import (
     get_phase_store,
     get_project_graph,
 )
+
+# Explicit re-exports: tests import/patch these on this module.
+from backend.server.routers.flow_control import (
+    _cancel_agent_work as _cancel_agent_work,
+)
+from backend.server.routers.flow_control import (
+    _cancel_existing_flow as _cancel_existing_flow,
+)
+from backend.server.routers.flow_control import (
+    _make_flow as _make_flow,
+)
+from backend.server.routers.workspace_reset import _reset_workspace as _reset_workspace
 from backend.server.websocket.broadcaster import EventBroadcaster
 from backend.server.websocket.events import WSEventType
 
 router = APIRouter(prefix="/phases", tags=["phases"])
-
-
-# ── Helpers ──────────────────────────────────────────────────────────────────
-
-
-async def _cancel_existing_flow(request: Request) -> None:
-    """Cancel and await any currently-running flow task before starting a new one."""
-    task: asyncio.Task[Any] | None = getattr(request.app.state, "flow_task", None)
-    if task is not None and not task.done():
-        task.cancel()
-        try:
-            await asyncio.wait_for(asyncio.shield(task), timeout=3.0)
-        except (TimeoutError, asyncio.CancelledError):
-            pass
-    request.app.state.flow_task = None
-
-
-def _make_flow(
-    pool: AgentPool, graph: ProjectGraph, config: ForgeConfig,
-    broadcaster: EventBroadcaster, phase_store: PhaseStore,
-    workspace: Path | None = None,
-) -> Any:
-    """Create a new ForgeFlow instance."""
-    from backend.pipeline.flow import ForgeFlow
-
-    return ForgeFlow(
-        pool=pool, graph=graph, config=config,
-        broadcaster=broadcaster, phase_store=phase_store,
-        workspace=workspace,
-    )
 
 
 # ── Phase listing ────────────────────────────────────────────────────────────
@@ -204,67 +186,6 @@ async def log_user_action(body: UserActionRequest) -> dict[str, str]:
 
 
 # ── Reset / Purge ────────────────────────────────────────────────────────────
-
-
-async def _cancel_agent_work(
-    request: Request,
-    broadcaster: EventBroadcaster | None,
-) -> None:
-    """Cancel running flow and console tasks, reset all agents to idle."""
-    for attr in ("flow_task", "console_task"):
-        task: asyncio.Task[Any] | None = getattr(request.app.state, attr, None)
-        if task is not None and not task.done():
-            task.cancel()
-            try:
-                await asyncio.wait_for(task, timeout=3.0)
-            except (TimeoutError, asyncio.CancelledError):
-                pass
-        setattr(request.app.state, attr, None)
-
-    if broadcaster is not None:
-        broadcaster.emit(WSEventType.PHASE_TRANSITION, {"loop_status": "idle"})
-        pool: AgentPool | None = getattr(request.app.state, "agent_pool", None)
-        if pool:
-            for agent_id in pool.all_ids():
-                broadcaster.agent_status_change(agent_id, "idle")
-
-
-def _reset_workspace(config: ForgeConfig) -> None:
-    """Remove generated artifacts from workspace, preserving user files.
-
-    Cleans: src/, tests/, docs/, tracing/, deliverables/, build artifacts.
-    Preserves: FORGE.MD, requirements.txt, .forge/, and any other user files.
-    """
-    import shutil
-
-    workspace = Path(config.project.workspace_dir)
-    if not workspace.is_dir():
-        return
-
-    # Directories created by phase 12 and other phases
-    for dirname in ("src", "tests", "docs", "tracing", "deliverables"):
-        target = workspace / dirname
-        if target.is_dir():
-            shutil.rmtree(target, ignore_errors=True)
-
-    # Build artifacts and coverage files
-    for pattern in (
-        "BUILD.bazel", "MODULE.bazel", "MODULE.bazel.lock",
-        ".bazelrc", ".coveragerc", ".coverage",
-        "coverage.lcov", "coverage-test-results.xml",
-        "deliverables.zip",
-    ):
-        for f in workspace.glob(pattern):
-            f.unlink(missing_ok=True)
-
-    # Bazel symlinks
-    for link in ("bazel-bin", "bazel-out", "bazel-testlogs", "bazel-workspace"):
-        p = workspace / link
-        if p.is_symlink() or p.is_dir():
-            if p.is_symlink():
-                p.unlink()
-            else:
-                shutil.rmtree(p, ignore_errors=True)
 
 
 @router.post("/reset")

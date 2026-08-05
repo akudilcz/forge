@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -41,9 +41,33 @@ from backend.codegen.helpers import (
     strip_markdown_fences as _strip_markdown_fences,  # noqa: F401 — re-exported for tests
 )
 from backend.codegen.naming import slugify as _slugify
+from backend.codegen.post_gen import (  # noqa: F401 — re-exported for tests
+    _persist_coverage_metrics as _persist_coverage_metrics,
+)
+from backend.codegen.post_gen import (
+    _record_test_results as _record_test_results,
+)
+from backend.codegen.post_gen import (
+    _run_trace_audit as _run_trace_audit,
+)
+from backend.codegen.trace_persistence import (  # noqa: F401 — re-exported for callers/tests
+    _owning_contract_content as _owning_contract_content,
+)
+from backend.codegen.trace_persistence import (
+    _persist_single_file as _persist_single_file,
+)
+from backend.codegen.trace_persistence import (
+    _persist_traces as _persist_traces,
+)
+from backend.codegen.trace_persistence import (
+    _stamp_codegen_error as _stamp_codegen_error,
+)
+from backend.codegen.trace_persistence import (
+    codegen_hash as codegen_hash,
+)
 from backend.config.models import ForgeConfig
 from backend.server.forge_logger import forge_logger
-from backend.workspace.result_recorder import is_failure, is_not_passing, is_passed
+from backend.workspace.result_recorder import is_not_passing, is_passed
 from backend.workspace.trace_parser import LineTrace, UntracedFunction, analyse_traces
 
 logger = logging.getLogger(__name__)
@@ -434,156 +458,6 @@ def _read_generated_file(
     )
 
 
-async def _persist_single_file(
-    gf: GeneratedFile,
-    graph: ProjectGraph,
-) -> None:
-    """Persist trace props for one generated file to the graph."""
-    try:
-        node = graph.node_sync(gf.node_id)
-        if not node:
-            return
-        props = dict(node.properties or {})
-
-        is_case = node.node_type in ("CASE_HLR", "CASE_LLR")
-        trace_dicts = []
-        for t in gf.line_traces:
-            td = asdict(t)
-            if is_case and gf.node_id not in td.get("case_ids", []):
-                td.setdefault("case_ids", []).append(gf.node_id)
-            trace_dicts.append(td)
-
-        props["file_path"] = gf.file_path
-        props["line_traces"] = trace_dicts
-        props["traced_llrs"] = sorted({lid for t in gf.line_traces for lid in t.llr_ids})
-        props["trace_coverage"] = {"total": gf.total_functions, "traced": gf.traced_functions}
-        props["untraced_functions"] = [asdict(uf) for uf in gf.untraced_functions]
-        props.pop("trace_audit", None)
-        props.pop("codegen_error", None)  # successful gen clears prior error
-
-        # Stamp a fingerprint of the inputs so future runs can detect when a
-        # DESIGN/CASE has been regenerated against changed upstream content
-        # (surfaces as STALE_CODE when inputs shift without a regeneration).
-        contract_content = _owning_contract_content(graph, node)
-        props["codegen_hash"] = codegen_hash(
-            node.content or "",
-            contract_content,
-            "",  # model — left blank for now; wire in when provider config is exposed
-        )
-
-        await graph.update_node(
-            gf.node_id,
-            content=None,
-            properties=props,
-            changed_by="code_gen",
-            change_reason="Persist line-level LLR traces",
-        )
-        forge_logger.emit(
-            "INFO",
-            "CGEN ",
-            f"  {gf.node_id} -> {gf.file_path} "
-            f"({len(gf.line_traces)} traces, {gf.traced_functions}/{gf.total_functions} funcs)",
-        )
-    except Exception as exc:  # noqa: BLE001
-        forge_logger.emit("ERROR", "CGEN", f"Failed to persist traces for {gf.node_id}: {exc}")
-        # Stamp the node so the next Gap Analysis pass detects it as STALE_CODE
-        # rather than silently skipping.
-        await _stamp_codegen_error(graph, gf.node_id, str(exc))
-
-
-async def _stamp_codegen_error(graph: ProjectGraph, node_id: str, error: str) -> None:
-    """Record a codegen failure on a DESIGN or CASE node so it surfaces as
-    a STALE_CODE gap. Never raises — failure-path code must not escalate.
-    """
-    try:
-        node = graph.node_sync(node_id)
-        if node is None:
-            return
-        props = dict(node.properties or {})
-        props["codegen_error"] = error
-        await graph.update_node(
-            node_id,
-            content=None,
-            properties=props,
-            changed_by="code_gen",
-            change_reason=f"Codegen failed: {error[:80]}",
-        )
-    except Exception as exc:  # noqa: BLE001
-        forge_logger.emit("ERROR", "CGEN", f"Could not stamp codegen_error on {node_id}: {exc}")
-
-
-def _owning_contract_content(graph: ProjectGraph, node: Any) -> str:
-    """Return the content of the CONTRACT sibling of a DESIGN (empty for CASEs).
-
-    Used by ``_persist_single_file`` to include the contract in the
-    codegen-hash fingerprint — a CONTRACT change should invalidate caches
-    on all DESIGNs that refer to it.
-    """
-    if node.node_type != "DESIGN" or not node.parent_id:
-        return ""
-    for child in graph.children_sync(node.parent_id):
-        if child.node_type == "CONTRACT" and child.content:
-            return child.content
-    return ""
-
-
-def codegen_hash(design_content: str, contract_content: str, model: str) -> str:
-    """Return a stable hash identifying the inputs to a codegen call.
-
-    Callers can compare a node's stored ``properties["codegen_hash"]`` with
-    this value and skip regeneration when unchanged.
-    """
-    import hashlib  # noqa: PLC0415
-    h = hashlib.sha256()
-    h.update((design_content or "").encode("utf-8"))
-    h.update(b"\x00")
-    h.update((contract_content or "").encode("utf-8"))
-    h.update(b"\x00")
-    h.update((model or "").encode("utf-8"))
-    return h.hexdigest()
-
-
-async def _persist_traces(result: CodeGenResult, graph: ProjectGraph) -> None:
-    """Store line_traces in each node's properties for frontend access.
-
-    Also clears stale trace props from CASE/DESIGN nodes not in the
-    current result but still carrying file_path from a previous run.
-    """
-    all_files = result.source_files + result.test_files
-    current_ids = {gf.node_id for gf in all_files}
-    forge_logger.emit("INFO", "CGEN ", f"Persisting traces for {len(all_files)} node(s)...")
-
-    for gf in all_files:
-        await _persist_single_file(gf, graph)
-
-    stale_keys = (
-        "file_path",
-        "line_traces",
-        "trace_coverage",
-        "untraced_functions",
-        "traced_llrs",
-        "trace_audit",
-    )
-    for node in graph.all_nodes():
-        if node.node_id in current_ids:
-            continue
-        if node.node_type not in ("DESIGN", "CASE_HLR", "CASE_LLR"):
-            continue
-        props = node.properties or {}
-        if not props.get("file_path"):
-            continue
-        cleaned = {k: v for k, v in props.items() if k not in stale_keys}
-        if len(cleaned) < len(props):
-            await graph.update_node(
-                node.node_id,
-                content=None,
-                properties=cleaned,
-                changed_by="code_gen",
-                change_reason="Clear stale trace props (file owned by another node)",
-            )
-            forge_logger.emit("INFO", "CGEN ", f"  cleared stale traces from {node.node_id}")
-
-
 async def _tidy_up(workspace: Path) -> None:
     """Deterministic workspace cleanup -- no LLM agent needed."""
     import shutil  # noqa: PLC0415
@@ -600,72 +474,3 @@ async def _tidy_up(workspace: Path) -> None:
     forge_logger.emit("INFO", "CGEN ", "Tidy-up complete")
 
 
-async def _run_trace_audit(
-    result: CodeGenResult,
-    workspace: Path,
-    graph: ProjectGraph,
-) -> None:
-    """Run LLM trace audit on generated files and persist results."""
-    from backend.quality.trace_auditor import audit_traces, persist_audit_results  # noqa: PLC0415
-
-    all_files = result.source_files + result.test_files
-    file_paths = [gf.file_path for gf in all_files]
-    file_node_map = {gf.file_path: gf.node_id for gf in all_files}
-
-    if not file_paths:
-        forge_logger.emit("INFO", "CGEN ", "No files to audit")
-        return
-
-    audit_results = await audit_traces(workspace, file_paths, graph)
-    await persist_audit_results(audit_results, graph, file_node_map)
-
-    fully_traced = sum(1 for r in audit_results if r.fully_traced)
-    total_suggested = sum(len(r.suggested_traces) for r in audit_results)
-    forge_logger.emit(
-        "INFO",
-        "CGEN ",
-        f"Trace audit complete — {fully_traced}/{len(audit_results)} fully traced, "
-        f"{total_suggested} suggestion(s)",
-    )
-
-
-async def _record_test_results(
-    workspace: Path,
-    graph: ProjectGraph,
-    last_state: Any | None = None,
-) -> None:
-    """Record test RESULT nodes and persist coverage metrics."""
-    from backend.workspace.result_recorder import record_results  # noqa: PLC0415
-
-    results = await record_results(workspace, graph, last_state)
-    passed = sum(1 for r in results if is_passed(r.status))
-    # Reporting semantics: skipped is counted as neither passed nor failed.
-    failed = sum(1 for r in results if is_failure(r.status))
-    forge_logger.emit(
-        "INFO",
-        "CGEN ",
-        f"{len(results)} test result(s) recorded — {passed} passed, {failed} failed",
-    )
-    await _persist_coverage_metrics(graph, last_state)
-
-
-async def _persist_coverage_metrics(graph: Any, last_state: Any) -> None:
-    """Store statement/branch coverage on the DESIGN node for the web UI."""
-    if not last_state:
-        return
-    designs = [n for n in graph.all_nodes() if n.node_type == "DESIGN"]
-    if not designs:
-        return
-    design = designs[0]
-    props = dict(design.properties or {})
-    if last_state.coverage_pct is not None:
-        props["statement_coverage"] = round(last_state.coverage_pct, 1)
-    if last_state.branch_coverage_pct is not None:
-        props["branch_coverage"] = round(last_state.branch_coverage_pct, 1)
-    await graph.update_node(
-        design.node_id,
-        None,
-        props,
-        "system",
-        "persist coverage metrics",
-    )

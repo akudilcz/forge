@@ -8,7 +8,7 @@ file per phase into `[workspace]/docs/`. These rendered documents become
 the primary context the mission agent reads during Phase 12 code
 generation.
 
-**Handler:** `_run_dashboard_phase` in `backend/pipeline/flow.py`
+**Handler:** `_run_dashboard_phase` in `backend/pipeline/special_phases.py` (mixed into `ForgeFlow`)
 **Renderer:** `render_dashboard` in `backend/rendering/dashboard.py`
 
 ---

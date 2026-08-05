@@ -1373,7 +1373,7 @@ async def test_code_gen_phase_warns_when_gaps_unresolved(flow: ForgeFlow) -> Non
             "backend.codegen.slice_gen.run_code_gen",
             new_callable=AsyncMock, return_value=result,
         ),
-        patch("backend.pipeline.flow.forge_logger") as logger_mock,
+        patch("backend.pipeline.special_phases.forge_logger") as logger_mock,
     ):
         await flow._run_code_gen_phase()
     warnings = [

@@ -11,7 +11,8 @@ directory and creates a DOCUMENT node as a child of PROJECT. The entire file
 content is stored in the DOCUMENT node's `content` field.
 
 There is no agent and no LLM involvement. The handler is
-`_run_ingest_phase` in `crew/flow.py`. If `forge.md` does not exist at the
+`_run_ingest_phase` in `backend/pipeline/special_phases.py` (mixed into
+`ForgeFlow`). If `forge.md` does not exist at the
 expected workspace path, the phase fails with a clear error message.
 
 The DOCUMENT node is the entry point for all downstream analysis -- every

@@ -17,7 +17,7 @@ Cross-checked against source (`backend/pipeline/` + `backend/prompting/`, `backe
 | 8 | `batch_phase8, quality_gaps, combined_quality, semantic, design_consolidation` |
 | 9 | default |
 | 10 | `batch_phase10, quality_gaps, combined_quality, semantic, case_trace_coverage` |
-| 11 | Deterministic (`_run_dashboard_phase` in `flow.py`) |
+| 11 | Deterministic (`_run_dashboard_phase` in `special_phases.py`) |
 | 12 | LLM code gen (`code_gen.py`) — enforces coverage gate (stmt + branch + requirement + test-pass must all be 100%) |
 | 13 | `workspace_sync` only (deterministic CODE/TEST node creation) |
 | 14 | Deterministic deliverables packaging |
@@ -28,20 +28,20 @@ Both entry points — the full-run loop (`kickoff_async` → `_run_phase`) and t
 
 ## Context assembly machinery
 
-1. Per-gap context: `builder.py::build_context_for_gap()` (line 297) — `structural` step path.
+1. Per-gap context: `builder.py::build_context_for_gap()` — `structural` step path. Section builders live in `graph_context.py` (re-exported by `builder.py`).
 2. Batch prompts: `batch_prompts.py` — for Phases 3/5/7/8 only.
-3. Per-gap task description: `task_prompts.py::build_descriptions()`.
+3. Per-gap task description: `task_prompts.py::build_descriptions()` (helper templates in `task_prompts_authoring.py` / `task_prompts_repair.py`, re-exported by `task_prompts.py`).
 4. Role prompts: `templates/roles/*.j2` via `agents/factory.py`.
 5. Tool allowlist per gap: `phase_constraints.py`.
 
-Hard cap: 40,000 chars (`builder.py:32`). DOCUMENT content skipped in ancestor walks (`builder.py:36`), included only as title breadcrumb. `_CHARS_PER_TOKEN=4` estimator exists in `batch_steps.py:40` but is never actually used to enforce a token budget.
+Hard cap: 40,000 chars (`builder.py:32`). DOCUMENT content skipped in ancestor walks (`graph_context.py::_SKIP_ANCESTOR_CONTENT`), included only as title breadcrumb. `_CHARS_PER_TOKEN=4` estimator exists in `batch_steps.py:40` but is never actually used to enforce a token budget.
 
 ## Truncation / cap inventory (ground truth)
 
 | Builder | Cap | Used by |
 |---|---|---|
 | `build_ancestor_context` | none (full content) | all structural paths |
-| `build_trace_to_context` | none; **silent fallback to ancestor walk** if refs empty/missing (`builder.py:94`) | CASE INCONSISTENT_CONTENT |
+| `build_trace_to_context` | none; **silent fallback to ancestor walk** if refs empty/missing (`graph_context.py::build_trace_to_context`) | CASE INCONSISTENT_CONTENT |
 | `build_sibling_req_context` | **none** (full content) | DUPLICATE_NODE for HLR/LLR |
 | `build_all_peers_context` | **none** (full content) | not called from build_context_for_gap |
 | `build_existing_cases_context` | title `[:60]`, **content omitted entirely** | UNTESTED_HLR/LLR |
@@ -63,7 +63,7 @@ Hard cap: 40,000 chars (`builder.py:32`). DOCUMENT content skipped in ancestor w
 
 - **Pipeline**: default (`structural`) · **Agent**: Document Specialist · **Gap**: `UNCHUNKED_DOCUMENT`
 - **Context**: **empty** — `UNCHUNKED_DOCUMENT` is in `_NO_PREFETCH_CONTEXT` (`builder.py:16`), so `build_context_for_gap` returns `""`. The agent must call `graph_read` to see the document.
-- **Prompt** (`_doc_chunk`, `task_prompts.py:61`): STEP 1 graph_read for document, STEP 2 stop if PARAs exist, STEP 3 build recursive PARA tree. para_type enum: `functional|rationale|constraint|non_functional|heading`.
+- **Prompt** (`_doc_chunk`, `task_prompts_authoring.py`): STEP 1 graph_read for document, STEP 2 stop if PARAs exist, STEP 3 build recursive PARA tree. para_type enum: `functional|rationale|constraint|non_functional|heading`.
 - **Tools**: `graph_read`, `graph_add_node`.
 
 ### Issues found
@@ -86,7 +86,7 @@ Hard cap: 40,000 chars (`builder.py:32`). DOCUMENT content skipped in ancestor w
 
 - **Pipeline**: `batch_phase3, quality_gaps, combined_quality, semantic` · **Agent**: Requirements Engineer · **Gap**: `UNCOVERED_PARA`
 - **Batch context** (`batch_prompts.py:10`): uncovered PARAs (content capped at 500 chars — `_format_para_list`); **all existing HLRs** via `_format_node_list` with `content` capped at 120 chars.
-- **Per-gap fallback context** (`_para_hlr`, `task_prompts.py:84`): ancestor chain (PARA full + breadcrumb to DOCUMENT) — the PARA text is regex-extracted from ancestor context and re-inserted into a `PARAGRAPH CONTENT` block to anchor the agent against hallucination.
+- **Per-gap fallback context** (`_para_hlr`, `task_prompts_authoring.py`): ancestor chain (PARA full + breadcrumb to DOCUMENT) — the PARA text is regex-extracted from ancestor context and re-inserted into a `PARAGRAPH CONTENT` block to anchor the agent against hallucination.
 - **Rule**: reparent existing HLR > create new via `derive_requirement`. HLR must be atomic "The system shall …".
 - **Tools**: `graph_add_node`, `graph_reparent_node`, `derive_requirement`. Batch blocks `graph_read` (all context inline). Per-gap fallback permits `graph_read(operation=nodes, node_type=HLR)`.
 
@@ -112,13 +112,13 @@ Hard cap: 40,000 chars (`builder.py:32`). DOCUMENT content skipped in ancestor w
 
 - **Pipeline**: default (per-gap structural) · **Agent**: Design Architect · **Gap**: `UNARCHITECTED` (parent = PROJECT)
 - **Context** (`build_context_for_gap` UNARCHITECTED branch, `builder.py:311`): ancestor walk (DOCUMENT breadcrumb title only, no content) + **all HLRs** listing (content capped at 200 chars via `build_all_hlrs_context`).
-- **Prompt** (`_architect`, `task_prompts.py:128`): mandatory markdown sections (Executive Summary, Tech Stack, Patterns, Module Design, Data Flow, Cross-Cutting, Key Decisions); output single MODULE with `trace_to=[all HLR ids]`.
+- **Prompt** (`_architect`, `task_prompts_authoring.py`): mandatory markdown sections (Executive Summary, Tech Stack, Patterns, Module Design, Data Flow, Cross-Cutting, Key Decisions); output single MODULE with `trace_to=[all HLR ids]`.
 - **Tools**: `graph_read`, `graph_add_node`.
 
 ### Issues found
 1. **[FIXED] DOCUMENT content stripped**: the whitepaper — including `rationale`, `constraint`, and `non_functional` PARAs — is excluded from context. Architect sees requirements but not *why*. Technology-stack decisions become guesses.
 2. **[FIXED] 200-char HLR preview** is enough for an atomic one-liner, so this is the rare case where the cap is adequate. But combined with the missing DOCUMENT, there is no signal for latency/scale/constraint.
-3. **[FIXED] Prompt mandates single MODULE** (`task_prompts.py:159`) — "Multiple classes within one module is fine — multiple modules is not, unless the whitepaper explicitly describes separate deployable components". This is a forced architecture, not an assessment.
+3. **[FIXED] Prompt mandates single MODULE** (`task_prompts_authoring.py`) — "Multiple classes within one module is fine — multiple modules is not, unless the whitepaper explicitly describes separate deployable components". This is a forced architecture, not an assessment.
 4. **[FIXED] No re-architecting rule**: if ARCHITECTURE already exists and is stale, UNARCHITECTED doesn't fire; there's no trigger to revise.
 5. **trace_to cardinality unbounded**: Architect must trace *every* HLR from the single MODULE. At 200 HLRs the trace_to list becomes unreadable and stale trace detection becomes brittle.
 
@@ -141,7 +141,7 @@ Hard cap: 40,000 chars (`builder.py:32`). DOCUMENT content skipped in ancestor w
 ### Issues found
 1. **[FIXED] MODULE content not sent**: agents assign HLRs based on MODULE *title* + existing `trace_to`. Title is 3–5 words; `trace_to` says "already linked to HLR-0017" but not *why*. This is too little signal for a correct assignment decision.
 2. **[FIXED] ARCHITECTURE 2000-char cap truncates the Module Design / Data Flow sections** — those are the sections that actually specify which module does what. Fixed-position truncation hits the most informative text.
-3. **[FIXED] Prompt says "Only create a NEW MODULE if the list is completely empty"** (`_modularise`, `task_prompts.py:182`) — harsher than the batch prompt which says "if no existing MODULE covers the HLR's concern". The per-gap path effectively forbids architectural splits that may be correct.
+3. **[FIXED] Prompt says "Only create a NEW MODULE if the list is completely empty"** (`_modularise`, `task_prompts_authoring.py`) — harsher than the batch prompt which says "if no existing MODULE covers the HLR's concern". The per-gap path effectively forbids architectural splits that may be correct.
 4. **[FIXED] HLR content 120-char cap** — acceptable for atomic requirements but will truncate qualifying clauses ("… when the request is authenticated …").
 5. **[FIXED] No CONTRACT visibility** — if CONTRACTs exist (Phase 6 may have run for some modules), they are the sharpest signal for responsibility but they are not in the prompt.
 
@@ -207,8 +207,8 @@ Hard cap: 40,000 chars (`builder.py:32`). DOCUMENT content skipped in ancestor w
 - **Pipeline**: `batch_phase8, quality_gaps, semantic, design_consolidation` · **Agent**: Software Engineer · **Gap**: `UNDESIGNED`
 - **Fast path** (`batch_steps.py:327, try_fast_trace`): deterministic trace linking for LLRs that map unambiguously to an existing DESIGN. Runs *before* any LLM call.
 - **Batch context** (`batch_prompts.py:111, grouped per MODULE`): MODULE content capped 2000; CONTRACT content capped 2000; undesigned LLRs (content 120); existing DESIGNs (fields = `node_id, title, trace_to`, no content).
-- **Per-gap fallback** (`build_module_design_context`, `builder.py:260`): MODULE full content + CONTRACT full content + *all* existing DESIGNs with full content.
-- **Prompt** (`_design`, `task_prompts.py:237`): match LLR to class plan; reuse existing DESIGN via `graph_add_traces`; consolidation rule `#DESIGNs ≤ #classes in class plan`.
+- **Per-gap fallback** (`build_module_design_context`, `graph_context.py`): MODULE full content + CONTRACT full content + *all* existing DESIGNs with full content.
+- **Prompt** (`_design`, `task_prompts_authoring.py`): match LLR to class plan; reuse existing DESIGN via `graph_add_traces`; consolidation rule `#DESIGNs ≤ #classes in class plan`.
 - **Post-step**: `design_consolidation` — merges DESIGN sprawl within a MODULE.
 - **Tools**: `graph_add_node`, `graph_add_traces`; `graph_delete` blocked.
 
@@ -331,7 +331,7 @@ Hard cap: 40,000 chars (`builder.py:32`). DOCUMENT content skipped in ancestor w
 ## Cross-cutting mechanisms
 
 ### [FIXED] `build_trace_to_context` silent fallback
-`builder.py:94` — returns an ancestor walk when trace_to refs are empty or missing. **Fix applied**: empty trace_to returns `""`; unresolved refs raise `RuntimeError`.
+`graph_context.py::build_trace_to_context` — returned an ancestor walk when trace_to refs are empty or missing. **Fix applied**: empty trace_to returns `""`; unresolved refs raise `RuntimeError`.
 
 ### [FIXED] `case_trace_check` silent fallback
 `case_trace_check.py:113` — LLM failure marks CASE as covering. **Fix applied**: the except-swallow removed; failures propagate.
@@ -340,7 +340,7 @@ Hard cap: 40,000 chars (`builder.py:32`). DOCUMENT content skipped in ancestor w
 `builder.py:368` — tail-chop replaced with `context_budget.pack()` which drops whole lowest-priority sections by tiktoken count.
 
 ### [FIXED] Content-truncation policy is inconsistent
-All `[:N]` caps removed from `prompting/builder.py` and `prompting/batch_prompts.py`. Full content everywhere; priority budget absorbs the consequences at scale.
+All `[:N]` caps removed from `prompting/builder.py`/`prompting/graph_context.py` and `prompting/batch_prompts.py`. Full content everywhere; priority budget absorbs the consequences at scale.
 
 ### Prompt caching is not exploited across retries
 _(Structural prep done: batch prompts split into static + dynamic sections. Provider-level `cache_control` wiring pending proxy support.)_

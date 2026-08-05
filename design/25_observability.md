@@ -9,7 +9,8 @@ pluggable sinks, with the SQLite sink as the canonical store.
 
 | Module | Role |
 |--------|------|
-| `backend/server/forge_logger.py` | `ForgeLogger` singleton + typed helpers for each event family. |
+| `backend/server/forge_logger.py` | `ForgeLogger` singleton — sink lifecycle + core `emit`. |
+| `backend/server/forge_logger_events.py` | `EventEmitters` mixin — typed helpers for each event family (inherited by `ForgeLogger`). |
 | `backend/observability/log_record.py` | Immutable `LogRecord` dataclass + `LogCategory` enum + `PROMOTED_META_KEYS`. |
 | `backend/observability/log_sinks.py` | `LogSink` protocol + concrete sinks: `SQLiteLogSink`, `FileLogSink`, `WSLogSink`, `StdoutLogSink`, `StderrLogSink`. |
 | `backend/observability/log_schema.py` | SQLite DDL (`logs`, `logs_dropped`, indexes). |

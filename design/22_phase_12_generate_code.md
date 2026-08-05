@@ -221,7 +221,9 @@ wasting tool calls discovering what to build:
 - **Contents of any existing workspace files** — for re-run scenarios
   where partial work already exists.
 
-Context assembly is in `build_mission_context()`.
+Context assembly is in `build_mission_context()`
+(`backend/codegen/mission_context.py`, re-exported by
+`mission_agent.py`).
 
 ---
 
@@ -307,7 +309,10 @@ structural and quality gaps used in Phases 2-10. Gaps are detected by
 deterministic workspace scanning (AST parsing, pytest results, coverage
 reports) and fed back to the mission agent.
 
-**Implementation:** `backend/codegen/gap_finder.py`
+**Implementation:** `backend/codegen/gap_finder.py` (facade; the
+`Gap`/`GapKind` model lives in `gap_model.py`, failing-test clustering in
+`failure_clustering.py`, and LLR coverage checks in
+`requirement_coverage.py`)
 
 ### GapKind Enum (Priority Order)
 

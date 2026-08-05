@@ -53,7 +53,7 @@ Callers then wrap the selected candidates back into a `Section`. The selector ne
 
 `markdown_sections.extract_sections(text, headings)` wraps `langchain_text_splitters.MarkdownHeaderTextSplitter` to pull named sections out of long markdown documents (e.g. ARCHITECTURE) without positional slicing. Used by Phase 6 to surface Tech Stack + Cross-Cutting Concerns at the top of the CONTRACT-authoring context.
 
-## Peer-artefact helpers (`prompting/builder.py`)
+## Peer-artefact helpers (`prompting/graph_context.py`, re-exported by `prompting/builder.py`)
 
 Each returns full content, with no caps:
 
@@ -93,7 +93,7 @@ The following items are tracked but depend on schema or orchestration changes ou
 
 ## Staleness detectors
 
-`gap_analyser.py` emits:
+`gap_analyser.py` (staleness checks in `gap_analyser_staleness.py`) emits:
 
 * `STALE_ARCHITECTURE` when >20% of current HLRs were added after the ARCHITECTURE's `created_at`.
 * `STALE_SUITE` when >20% of current HLRs+LLRs were added after a SUITE's `created_at`.
