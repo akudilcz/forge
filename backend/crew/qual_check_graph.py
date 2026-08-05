@@ -110,6 +110,10 @@ def create_qual_check_graph(flow: ForgeFlow) -> Any:
             try:
                 await flow._dispatch(gap)
             except DispatchQuotaError as exc:
+                # Propagate: quota exhaustion must halt the run loudly.
+                # Returning an empty queue here routed to finalize, which
+                # logged "qual check complete" with the remaining quality
+                # gaps silently dropped.
                 forge_logger.emit(
                     "ERROR", "FLOW ",
                     f"API quota exhausted — aborting phase {state['phase']}",
@@ -117,7 +121,7 @@ def create_qual_check_graph(flow: ForgeFlow) -> Any:
                 )
                 if wq_item:
                     work_queue.update_status(wq_item.id, "failed")
-                return {"pending_gaps": [], "total_checked": total}
+                raise
             if wq_item:
                 work_queue.update_status(wq_item.id, "done")
             all_gaps = flow._analyser.analyse(flow.graph)

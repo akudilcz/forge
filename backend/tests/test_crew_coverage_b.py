@@ -967,7 +967,7 @@ class TestWorkspaceSync:
 def _make_flow() -> MagicMock:
     """Create a mock flow object for phase_steps tests."""
     flow = MagicMock()
-    flow._run_phase = AsyncMock()
+    flow._run_structural_loop = AsyncMock()
     flow._graph_state_count = MagicMock(return_value=0)
     flow._dispatch = AsyncMock()
     flow.run_qual_check = AsyncMock()
@@ -979,7 +979,7 @@ def _make_flow() -> MagicMock:
 
 
 class TestStructuralStep:
-    """structural step delegates to flow._run_phase."""
+    """structural step delegates to flow._run_structural_loop."""
 
     @pytest.mark.asyncio
     async def test_returns_step_result(self) -> None:
@@ -987,7 +987,7 @@ class TestStructuralStep:
 
         flow = _make_flow()
         result = await structural(flow, 5)
-        flow._run_phase.assert_awaited_once_with(5, _skip_approval=True)
+        flow._run_structural_loop.assert_awaited_once_with(5, skip_approval=True)
         assert result["step_name"] == "structural"
         assert result["deletions"] == 0
 
@@ -1019,7 +1019,9 @@ class TestCombinedQualityStep:
         assert flow._dispatch.await_count == 2
 
     @pytest.mark.asyncio
-    async def test_quota_error_stops_dispatch(self) -> None:
+    async def test_quota_error_propagates(self) -> None:
+        """DispatchQuotaError propagates so quota exhaustion halts the run —
+        it is never converted into a completed step."""
         from backend.crew.dispatch import DispatchQuotaError
         from backend.crew.phase_steps import combined_quality
 
@@ -1029,8 +1031,8 @@ class TestCombinedQualityStep:
         node = _make_node("h1")
         flow.graph.node_sync = MagicMock(return_value=node)
         flow._dispatch = AsyncMock(side_effect=DispatchQuotaError("quota exceeded"))
-        result = await combined_quality(flow, 5)
-        assert result["step_name"] == "combined_quality"
+        with pytest.raises(DispatchQuotaError):
+            await combined_quality(flow, 5)
 
     @pytest.mark.asyncio
     async def test_skips_missing_node(self) -> None:
@@ -1124,6 +1126,9 @@ class TestCaseTraceCoverageStep:
         from backend.crew.phase_steps import case_trace_coverage
 
         flow = _make_flow()
+        case = _make_node("CASE_HLR-001", node_type="CASE_HLR", trace_to=["HLR-001"])
+        flow.graph = _make_graph({"CASE_HLR-001": case})
+        flow._last_checked_case_ids = None
         mock_checker = AsyncMock(return_value=7)
         with (
             patch("backend.agents.factory.build_llm", return_value=MagicMock()),
@@ -1136,6 +1141,21 @@ class TestCaseTraceCoverageStep:
         mock_checker.assert_awaited_once()
         assert result["step_name"] == "case_trace_coverage"
         assert result["deletions"] == 7
+
+    @pytest.mark.asyncio
+    async def test_no_case_nodes_skips_checker(self) -> None:
+        """With no CASE nodes there is nothing to verify — no LLM checker is built."""
+        from backend.crew.phase_steps import case_trace_coverage
+
+        flow = _make_flow()  # empty graph
+        flow._last_checked_case_ids = None
+        with patch(
+            "backend.crew.case_trace_check.create_case_trace_checker"
+        ) as mock_create:
+            result = await case_trace_coverage(flow, 10)
+        mock_create.assert_not_called()
+        assert result["step_name"] == "case_trace_coverage"
+        assert result["deletions"] == 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -297,8 +297,14 @@ class ForgeFlow:
 
     # ── Phase loop (kickoff_async path) ──────────────────────────────────────
 
-    async def _run_phase(self, phase: int, _skip_approval: bool = False) -> None:
-        """Drive the structural gap-resolution loop for a phase."""
+    async def _run_phase(self, phase: int) -> None:
+        """Run one phase on the full-run (kickoff) path.
+
+        Special phases have dedicated handlers; every other phase runs the
+        full phase pipeline — the same batch authoring, quality, dedup, and
+        coverage steps the per-phase route (``run_phase``) executes. There is
+        no structural-only shortcut.
+        """
         if phase == 0:
             await self._run_create_project_phase()
             return
@@ -310,20 +316,27 @@ class ForgeFlow:
             return await self._run_code_gen_phase()
         if phase == 14:
             return await self._run_deliverables_phase()
-        self._set_phase_status(phase, "active")
+        from backend.crew.phase_pipeline import run_phase_pipeline  # noqa: PLC0415
+
+        await run_phase_pipeline(self, phase)
+
+    async def _run_structural_loop(self, phase: int, skip_approval: bool) -> None:
+        """Run the structural gap-resolution loop for a phase.
+
+        Invoked by the ``structural`` pipeline step. Raises ``_SingleStepDone``
+        when single-step mode resolved one gap.
+        """
         logger.info("forge.flow.phase_start phase=%d", phase)
-        forge_logger.phase_start(phase)
         from backend.crew.structural_loop_graph import create_structural_loop_graph
 
         result = await create_structural_loop_graph(self).ainvoke(
             {
                 "phase": phase,
-                "skip_approval": _skip_approval,
+                "skip_approval": skip_approval,
                 "iteration": 0,
                 "gap_fail_counts": {},
                 "current_gaps": [],
                 "single_step_done": False,
-                "max_iter_reached": False,
                 "abandoned": set(),
             }
         )

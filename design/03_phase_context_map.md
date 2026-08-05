@@ -22,6 +22,8 @@ Cross-checked against source (`backend/crew/`, `backend/agents/`, `backend/tools
 | 13 | `workspace_sync` only (deterministic CODE/TEST node creation) |
 | 14 | Deterministic deliverables packaging |
 
+Both entry points — the full-run loop (`kickoff_async` → `_run_phase`) and the per-phase route (`run_phase`) — execute these step lists via `run_phase_pipeline`. Step failures propagate (the phase is marked `awaiting_approval` and the exception re-raises); `DispatchQuotaError` always propagates so quota exhaustion halts the run loudly.
+
 **Key correction vs earlier notes**: Phase 13 is *workspace_sync*, not a standalone quality audit. Quality audit runs *inside every phase's pipeline* via `quality_gaps` + `combined_quality` + `semantic` steps — where `combined_quality` is a single batched LLM call judging atomicity + EARS + title↔content match + title specificity on every authored node.
 
 ## Context assembly machinery

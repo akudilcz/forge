@@ -7,13 +7,16 @@ Topology:
     collect_gaps ──(no gaps)──────────────────────────────────→ finalize
         ↓ (has gaps)
     dispatch_gap ◀─(more in batch)─┐
-        ├── (single_step_done or quota_error) ──────────────→ finalize
+        ├── (single_step_done) ─────────────────────────────→ finalize
         ├── (batch exhausted) ──────────────────────────────→ collect_gaps
         └── (more in batch) ───────────────────────────────→ dispatch_gap
 
 Batch optimisation: gaps from a single collect are processed as a batch
 without re-scanning the graph between each dispatch.  A full re-scan
 (collect_gaps) only happens once the batch is exhausted.
+
+``DispatchQuotaError`` propagates out of the graph — quota exhaustion halts
+the run loudly rather than finalizing the phase.
 """
 
 from __future__ import annotations
@@ -65,7 +68,6 @@ class StructuralLoopState(TypedDict):
     gap_fail_counts: dict[str, int]  # {gap_key: attempt_count}
     current_gaps: list[Gap]  # gaps from the latest collect
     single_step_done: bool  # True when single_step=True and a gap resolved
-    max_iter_reached: bool  # True when iteration >= budget (quota only)
     abandoned: set[str]  # gap keys given up on this pass — never re-collected
 
 
@@ -193,7 +195,6 @@ def create_structural_loop_graph(flow: ForgeFlow) -> Any:
                 "gap_fail_counts": dict(state["gap_fail_counts"]),
                 "iteration": state["iteration"] + 1,
                 "single_step_done": False,
-                "max_iter_reached": False,
                 "abandoned": {*(state.get("abandoned") or set()), gap_key},
             }
 
@@ -210,7 +211,6 @@ def create_structural_loop_graph(flow: ForgeFlow) -> Any:
                 "gap_fail_counts": fail_counts,
                 "iteration": state["iteration"],
                 "single_step_done": False,
-                "max_iter_reached": False,
             }
 
         forge_logger.emit(
@@ -230,6 +230,8 @@ def create_structural_loop_graph(flow: ForgeFlow) -> Any:
         try:
             crew_out = await flow._dispatch(gap, attempt=attempt)
         except DispatchQuotaError as exc:
+            # Propagate: quota exhaustion must halt the run loudly instead
+            # of finalizing the phase as if its gaps had been processed.
             forge_logger.emit(
                 "ERROR",
                 "FLOW ",
@@ -238,13 +240,7 @@ def create_structural_loop_graph(flow: ForgeFlow) -> Any:
             )
             if wq_item:
                 work_queue.update_status(wq_item.id, "failed")
-            return {
-                "current_gaps": [],
-                "iteration": state["iteration"] + 1,
-                "gap_fail_counts": dict(state["gap_fail_counts"]),
-                "single_step_done": False,
-                "max_iter_reached": True,
-            }
+            raise
 
         post_count = flow._graph_state_count()
 
@@ -285,7 +281,6 @@ def create_structural_loop_graph(flow: ForgeFlow) -> Any:
             "iteration": iteration,
             "gap_fail_counts": fail_counts,
             "single_step_done": single_step_done,
-            "max_iter_reached": False,
         }
 
     async def finalize(state: StructuralLoopState) -> dict[str, Any]:
@@ -300,7 +295,7 @@ def create_structural_loop_graph(flow: ForgeFlow) -> Any:
 
     def route_after_dispatch(state: StructuralLoopState) -> str:
         """Route to finalize on stop conditions, continue batch, or rescan when batch empty."""
-        if state["single_step_done"] or state["max_iter_reached"]:
+        if state["single_step_done"]:
             return "finalize"
         if state["current_gaps"]:
             return "dispatch_gap"

@@ -257,9 +257,46 @@ def flow(graph: ProjectGraph, workspace: Path, tmp_path: Path) -> ForgeFlow:
 
 @pytest.fixture
 def scripted(graph: ProjectGraph, flow: ForgeFlow) -> Iterator[ScriptedAgent]:
+    """Close every LLM seam: per-gap dispatch plus the direct-LLM quality
+    checkers (semantic, combined-quality, case-trace, design-consolidation).
+
+    Checker failures propagate instead of failing open, so the fake must stand
+    in for those checkers explicitly with a clean verdict from each.
+    """
     agent = ScriptedAgent(graph)
     flow.pool.get_agent_for_gap.return_value = agent
-    with patch("backend.crew.dispatch.run_agent_task", new=agent):
+
+    async def _not_a_duplicate(node_id: str, node_content: str, peers_text: str) -> bool:
+        return False
+
+    async def _clean_combined_verdict(items: Any) -> list[Any]:
+        return []
+
+    async def _all_traces_valid(only_ids: Any) -> int:
+        return 0
+
+    async def _no_consolidation(**kwargs: Any) -> int:
+        return 0
+
+    with (
+        patch("backend.crew.dispatch.run_agent_task", new=agent),
+        patch(
+            "backend.crew.semantic_duplicate_check.create_semantic_checker",
+            return_value=_not_a_duplicate,
+        ),
+        patch(
+            "backend.crew.combined_quality_check.create_combined_quality_checker",
+            return_value=_clean_combined_verdict,
+        ),
+        patch(
+            "backend.crew.case_trace_check.create_case_trace_checker",
+            return_value=_all_traces_valid,
+        ),
+        patch(
+            "backend.crew.design_consolidation.create_design_consolidator",
+            return_value=_no_consolidation,
+        ),
+    ):
         yield agent
 
 

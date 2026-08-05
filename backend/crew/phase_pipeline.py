@@ -61,15 +61,23 @@ async def run_phase_pipeline(flow: Any, phase: int) -> dict[str, int]:
     """Execute the phase pipeline: run steps in order, cycle if deletions.
 
     Returns a summary dict with cycle count and total deletions.
+
+    Failure semantics — the pipeline never fails open. Any step exception
+    marks the phase ``awaiting_approval`` and re-raises; ``DispatchQuotaError``
+    included, so quota exhaustion halts the run loudly. ``_SingleStepDone``
+    is control flow, not a failure: it propagates untouched.
     """
     steps = get_steps(phase)
     step_names = [s.__name__ for s in steps]
+    flow._set_phase_status(phase, "active")
+    forge_logger.phase_start(phase)
     forge_logger.emit(
         "INFO",
         "PIPE ",
         f"Phase {phase} pipeline: {step_names}",
     )
 
+    from backend.crew.flow import _SingleStepDone  # noqa: PLC0415 — circular at module level
     from backend.observability import log_context  # noqa: PLC0415
 
     total_deletions = 0
@@ -90,7 +98,13 @@ async def run_phase_pipeline(flow: Any, phase: int) -> dict[str, int]:
             for step in steps:
                 try:
                     result = await step(flow, phase)
-                except Exception as exc:  # noqa: BLE001
+                except _SingleStepDone:
+                    raise
+                except Exception as exc:
+                    # No fail-open: a failed step is not a passed step. Mark
+                    # the phase as needing attention and halt loudly instead
+                    # of substituting a vacuous StepResult and completing the
+                    # phase on an unverified graph.
                     forge_logger.emit(
                         "ERROR",
                         "PIPE ",
@@ -98,7 +112,8 @@ async def run_phase_pipeline(flow: Any, phase: int) -> dict[str, int]:
                         f"{type(exc).__name__}: {exc}",
                         error_type=type(exc).__name__,
                     )
-                    result = StepResult(step_name=step.__name__, deletions=0)
+                    flow._set_phase_status(phase, "awaiting_approval")
+                    raise
                 cycle_deletions += result["deletions"]
                 forge_logger.emit(
                     "INFO",

@@ -299,14 +299,17 @@ async def run_combined_quality_check(flow: Any, phase: int) -> list[Gap]:
     )
     try:
         gaps: list[Gap] = await checker(items)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
+        # One retry for transient failures. A second failure propagates —
+        # returning [] here would be indistinguishable from a clean sweep,
+        # silently disabling the quality gate for the phase.
         forge_logger.emit(
             "WARN",
             "XQUAL",
             f"Combined quality check failed for phase {phase}: "
-            f"{type(exc).__name__}: {exc}",
+            f"{type(exc).__name__}: {exc} — retrying once",
         )
-        return []
+        gaps = await checker(items)
 
     forge_logger.emit(
         "INFO",

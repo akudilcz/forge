@@ -179,22 +179,33 @@ async def test_pipeline_forces_exit_at_max_cycles(mock_flow: MagicMock) -> None:
     mock_flow._request_approval.assert_awaited_once_with(5)
 
 
-@pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BUG: the per-step `except Exception` in run_phase_pipeline swallows "
-        "DispatchQuotaError along with every other step failure, substituting an "
-        "empty StepResult and continuing. Quota exhaustion should abort the "
-        "pipeline (CLAUDE.md: no silent fallbacks). Remove this marker once the "
-        "pipeline re-raises DispatchQuotaError."
-    ),
-)
-async def test_pipeline_propagates_dispatch_quota_error(mock_flow: MagicMock) -> None:
-    """DispatchQuotaError raised by a step must propagate out of run_phase_pipeline."""
+async def test_pipeline_marks_phase_active_on_start(mock_flow: MagicMock) -> None:
+    """Pipeline marks the phase active before running any step."""
 
+    async def no_deletions(flow: Any, phase: int) -> StepResult:
+        return StepResult(step_name="stable", deletions=0)
+
+    with patch(
+        "backend.crew.phase_pipeline.get_steps",
+        return_value=[no_deletions],
+    ):
+        await run_phase_pipeline(mock_flow, 5)
+
+    mock_flow._set_phase_status.assert_any_call(5, "active")
+
+
+# ── Failure semantics: no fail-open ──────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_pipeline_propagates_dispatch_quota_error(mock_flow: MagicMock) -> None:
+    """DispatchQuotaError from a step halts the pipeline loudly.
+
+    Quota exhaustion must never be converted into a vacuous 'step done
+    (deletions=0)' result that lets the phase finish and report complete.
+    """
     async def quota_step(flow: Any, phase: int) -> StepResult:
-        raise DispatchQuotaError("API quota exhausted")
+        raise DispatchQuotaError("quota exhausted")
 
     with patch(
         "backend.crew.phase_pipeline.get_steps",
@@ -202,3 +213,54 @@ async def test_pipeline_propagates_dispatch_quota_error(mock_flow: MagicMock) ->
     ):
         with pytest.raises(DispatchQuotaError):
             await run_phase_pipeline(mock_flow, 5)
+
+    # The phase never reaches finalization/approval.
+    mock_flow._request_approval.assert_not_awaited()
+    mock_flow._set_phase_status.assert_any_call(5, "awaiting_approval")
+
+
+@pytest.mark.asyncio
+async def test_pipeline_step_exception_fails_phase_loudly(mock_flow: MagicMock) -> None:
+    """Any step exception marks the phase awaiting_approval and re-raises.
+
+    Previously the failure was logged and replaced with StepResult(deletions=0),
+    indistinguishable from a clean pass — the fail-open bug.
+    """
+
+    async def broken_step(flow: Any, phase: int) -> StepResult:
+        raise RuntimeError("LLM call failed")
+
+    async def later_step(flow: Any, phase: int) -> StepResult:  # pragma: no cover
+        raise AssertionError("steps after a failed step must not run")
+
+    with patch(
+        "backend.crew.phase_pipeline.get_steps",
+        return_value=[broken_step, later_step],
+    ):
+        with pytest.raises(RuntimeError, match="LLM call failed"):
+            await run_phase_pipeline(mock_flow, 5)
+
+    mock_flow._set_phase_status.assert_any_call(5, "awaiting_approval")
+    mock_flow._request_approval.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_pipeline_single_step_done_propagates_without_failure(
+    mock_flow: MagicMock,
+) -> None:
+    """_SingleStepDone is control flow, not a failure — it propagates without
+    marking the phase awaiting_approval."""
+    from backend.crew.flow import _SingleStepDone
+
+    async def single_step(flow: Any, phase: int) -> StepResult:
+        raise _SingleStepDone()
+
+    with patch(
+        "backend.crew.phase_pipeline.get_steps",
+        return_value=[single_step],
+    ):
+        with pytest.raises(_SingleStepDone):
+            await run_phase_pipeline(mock_flow, 5)
+
+    statuses = [c.args for c in mock_flow._set_phase_status.call_args_list]
+    assert (5, "awaiting_approval") not in statuses

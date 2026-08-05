@@ -11,6 +11,7 @@ import pytest
 
 from backend.analysis.gaps import Gap, GapPriority, GapType
 from backend.crew.quality import (
+    run_combined_quality_check,
     run_design_consolidation,
     run_semantic_check,
     scan_qual_detect,
@@ -42,6 +43,79 @@ def _flow(nodes: list[SimpleNamespace]) -> MagicMock:
     flow._set_phase_status = MagicMock()
     flow._quality_gaps_for_types = MagicMock(return_value={})
     return flow
+
+
+# ── run_combined_quality_check: no fail-open ─────────────────────────────────
+
+
+def _llr_flow() -> MagicMock:
+    return _flow(
+        [_node("LLR-1", "LLR", title="Store files", content="The system shall store files.")]
+    )
+
+
+@pytest.mark.asyncio
+async def test_combined_quality_check_returns_checker_gaps() -> None:
+    """Happy path: the checker's gaps are returned unchanged."""
+    flow = _llr_flow()
+    gap = Gap(
+        type=GapType.NON_ATOMIC_REQUIREMENT,
+        priority=GapPriority.MAINTENANCE,
+        node_id="LLR-1",
+        description="not atomic",
+    )
+    checker = AsyncMock(return_value=[gap])
+    with (
+        patch("backend.agents.factory.build_llm", return_value=MagicMock()),
+        patch(
+            "backend.crew.combined_quality_check.create_combined_quality_checker",
+            return_value=checker,
+        ),
+    ):
+        gaps = await run_combined_quality_check(flow, phase=7)
+    assert gaps == [gap]
+    assert checker.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_combined_quality_check_retries_once_then_succeeds() -> None:
+    """A transient checker failure is retried once; the retry's gaps are returned."""
+    flow = _llr_flow()
+    gap = Gap(
+        type=GapType.NON_ATOMIC_REQUIREMENT,
+        priority=GapPriority.MAINTENANCE,
+        node_id="LLR-1",
+        description="not atomic",
+    )
+    checker = AsyncMock(side_effect=[RuntimeError("transient LLM error"), [gap]])
+    with (
+        patch("backend.agents.factory.build_llm", return_value=MagicMock()),
+        patch(
+            "backend.crew.combined_quality_check.create_combined_quality_checker",
+            return_value=checker,
+        ),
+    ):
+        gaps = await run_combined_quality_check(flow, phase=7)
+    assert gaps == [gap]
+    assert checker.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_combined_quality_check_double_failure_propagates() -> None:
+    """A second consecutive failure propagates — it is never converted into an
+    empty gap list, which would be indistinguishable from a clean sweep."""
+    flow = _llr_flow()
+    checker = AsyncMock(side_effect=RuntimeError("LLM down"))
+    with (
+        patch("backend.agents.factory.build_llm", return_value=MagicMock()),
+        patch(
+            "backend.crew.combined_quality_check.create_combined_quality_checker",
+            return_value=checker,
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="LLM down"):
+            await run_combined_quality_check(flow, phase=7)
+    assert checker.await_count == 2
 
 
 @pytest.mark.asyncio

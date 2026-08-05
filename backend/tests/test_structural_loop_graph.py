@@ -47,7 +47,6 @@ def _initial_state(phase: int = 5) -> StructuralLoopState:
         "abandoned": set(),
         "current_gaps": [],
         "single_step_done": False,
-        "max_iter_reached": False,
     }
 
 
@@ -146,8 +145,9 @@ async def test_gap_already_resolved_false_for_other_gap_types() -> None:
 
 
 @pytest.mark.asyncio
-async def test_quota_error_aborts_loop() -> None:
-    """DispatchQuotaError stops the loop immediately instead of continuing."""
+async def test_quota_error_propagates_out_of_loop() -> None:
+    """DispatchQuotaError propagates out of the loop — quota exhaustion halts
+    the run loudly instead of finalizing as if the phase had been processed."""
     from backend.crew.dispatch import DispatchQuotaError
 
     gap1 = _gap("MOD-0001")
@@ -163,11 +163,11 @@ async def test_quota_error_aborts_loop() -> None:
     flow._dispatch = AsyncMock(side_effect=DispatchQuotaError("quota exhausted"))
 
     graph = create_structural_loop_graph(flow)
-    result = await graph.ainvoke(_initial_state())
+    with pytest.raises(DispatchQuotaError):
+        await graph.ainvoke(_initial_state())
 
     # Only one dispatch attempted — the second gap is never reached
     assert flow._dispatch.await_count == 1
-    assert result["max_iter_reached"] is True
 
 
 @pytest.mark.asyncio

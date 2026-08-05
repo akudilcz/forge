@@ -239,6 +239,57 @@ async def test_broadcast_gap_list_called(flow: ForgeFlow, mock_deps: MockDeps) -
     mock_deps[3].gap_list_update.assert_called()
 
 
+# ── Full-run path runs the quality pipeline ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_kickoff_run_phase_executes_registered_pipeline_steps(
+    flow: ForgeFlow, mock_deps: MockDeps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """_run_phase (the kickoff_async path) executes the registered PHASE_STEPS
+    for a pipeline phase — batch authoring plus the quality/dedup steps — not
+    just the structural gap loop.
+
+    Phase 3's registered steps are batch_phase3, quality_gaps,
+    combined_quality, semantic; the quality steps must all run.
+    """
+    monkeypatch.setattr(flow, "_collect_phase_gaps", lambda phase, skipped: [])
+    qual = AsyncMock(return_value=0)
+    combined = AsyncMock(return_value=[])
+    semantic = AsyncMock(return_value=0)
+    approval = AsyncMock()
+    monkeypatch.setattr(flow, "run_qual_check", qual)
+    monkeypatch.setattr(flow, "run_combined_quality_check", combined)
+    monkeypatch.setattr(flow, "run_semantic_check", semantic)
+    monkeypatch.setattr(flow, "_request_approval", approval)
+
+    await flow._run_phase(3)
+
+    qual.assert_awaited_once_with(3, _broadcast_status=False)
+    combined.assert_awaited_once_with(3, _broadcast_status=False)
+    semantic.assert_awaited_once()
+    approval.assert_awaited_once_with(3)
+
+
+@pytest.mark.asyncio
+async def test_kickoff_quota_error_halts_run_with_error_status(
+    flow: ForgeFlow, mock_deps: MockDeps, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A DispatchQuotaError during a pipeline phase halts kickoff_async loudly:
+    loop_status becomes 'error', not 'complete'."""
+    from backend.crew.dispatch import DispatchQuotaError
+
+    flow.state.start_phase = 3
+    quota = AsyncMock(side_effect=DispatchQuotaError("quota exhausted"))
+    monkeypatch.setattr(flow, "run_qual_check", quota)
+    monkeypatch.setattr(flow, "_collect_phase_gaps", lambda phase, skipped: [])
+
+    await flow.kickoff_async()
+
+    assert flow.state.loop_status == "error"
+    assert "quota exhausted" in (flow.state.error or "")
+
+
 # ── Broadcasting / phase status ───────────────────────────────────────────────
 
 

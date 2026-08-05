@@ -67,6 +67,7 @@ def _node(node_id: str, node_type: str) -> MagicMock:
     return node
 
 
+
 def _gap(node_id: str) -> Gap:
     return Gap(
         type=GapType.EMPTY_CONTENT,
@@ -271,10 +272,14 @@ async def test_max_passes_cap_forces_finalize(
 
 
 @pytest.mark.asyncio
-async def test_dispatch_quota_error_aborts_pass(
+async def test_dispatch_quota_error_propagates(
     flow: ForgeFlow, mock_deps: MockDeps, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """DispatchQuotaError clears the pending queue and ends the pass without raising."""
+    """DispatchQuotaError propagates out of the qual-check graph.
+
+    Quota exhaustion mid-loop must halt the run loudly — never route to
+    finalize and log 'qual check complete' with the remaining gaps dropped.
+    """
     mock_deps[1].all_nodes.return_value = [
         _node("mod.a", MODULE_TYPE),
         _node("mod.b", MODULE_TYPE),
@@ -289,10 +294,7 @@ async def test_dispatch_quota_error_aborts_pass(
     quota_dispatch = AsyncMock(side_effect=DispatchQuotaError("quota exhausted"))
     monkeypatch.setattr(flow, "_dispatch", quota_dispatch)
 
-    result = await create_qual_check_graph(flow).ainvoke(
-        _initial_state(5, [MODULE_TYPE])
-    )
+    with pytest.raises(DispatchQuotaError):
+        await create_qual_check_graph(flow).ainvoke(_initial_state(5, [MODULE_TYPE]))
 
-    quota_dispatch.assert_awaited_once()  # aborts before the second gap
-    assert result["total_checked"] == 0
-    assert result["had_deletions"] is False
+    quota_dispatch.assert_awaited_once()  # halts before the second gap

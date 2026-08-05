@@ -201,7 +201,15 @@ async def test_a_gap_that_resolves_is_not_abandoned(
     agent = WorkingAgent()
     flow.pool.get_agent_for_gap.return_value = agent
 
-    with patch("backend.crew.dispatch.run_agent_task", new=agent):
+    # The created PARAs make the semantic step run its duplicate checker; mock
+    # the LLM boundary (step failures now propagate instead of failing open).
+    async def _no_dup_checker(node_id: str, node_content: str, peers_text: str) -> bool:
+        return False
+
+    with (
+        patch("backend.crew.dispatch.run_agent_task", new=agent),
+        patch.object(flow, "_build_semantic_checker", return_value=_no_dup_checker),
+    ):
         await flow.run_phase(2)
 
     remaining = {g.type for g in GapAnalyser().analyse(graph)}

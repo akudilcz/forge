@@ -586,7 +586,13 @@ Special phases have dedicated handlers:
 | 12 | `_run_code_gen_phase` | Gap-first code generation (mission agent) |
 | 14 | `_run_deliverables_phase` | Build deliverables ZIP |
 
-Agent-driven phases (2-10, 13) delegate to the phase pipeline.
+Agent-driven phases (2-10, 13) delegate to the phase pipeline. Both entry
+points run the same pipeline: the full-run loop (`kickoff_async` →
+`_run_phase`, launched by the UI "start build" route) and the per-phase route
+(`run_phase`). There is no structural-only shortcut — a full run gets exactly
+the same batch authoring, quality, dedup, and coverage steps as a single-phase
+run. The `structural` step invokes the structural gap-resolution loop via
+`_run_structural_loop`.
 
 ### 8.2 Pipeline Steps
 
@@ -617,9 +623,26 @@ Step functions:
 
 ### 8.3 Convergence
 
-After all steps complete, if any step reported deletions, the pipeline cycles -- re-runs all steps -- because deletions can uncover new gaps. When no deletions occur the phase is stable. There is no cycle cap.
+After all steps complete, if any step reported deletions, the pipeline cycles -- re-runs all steps -- because deletions can uncover new gaps. When no deletions occur the phase is stable. A cycle cap (12) bounds runaway delete/recreate loops.
 
-### 8.4 Cumulative Audit
+### 8.4 Failure Semantics
+
+Quality verification must never fail open: a failed check is not a passed
+check.
+
+- **Step exceptions propagate.** If any pipeline step raises, the pipeline
+  marks the phase `awaiting_approval` and re-raises. The run halts loudly
+  instead of continuing on an unverified graph and reporting the phase
+  complete.
+- **Quota exhaustion halts the run.** `DispatchQuotaError` propagates out of
+  the structural loop, the qual-check graph, and the `combined_quality`
+  dispatch loop -- it is never converted into an empty gap list or a
+  "check complete" log line.
+- **Combined quality check retries once.** A transient LLM failure is retried
+  a single time; a second failure propagates. It is never converted into an
+  empty gap list (which would be indistinguishable from a clean sweep).
+
+### 8.5 Cumulative Audit
 
 When a phase stabilises, `PhaseAuditor` checks that all gap types for this phase **and all prior phases** are absent:
 

@@ -11,7 +11,6 @@ from typing import Any
 
 from typing_extensions import TypedDict
 
-from backend.crew.dispatch import DispatchQuotaError
 from backend.server.forge_logger import forge_logger
 
 logger = logging.getLogger(__name__)
@@ -30,7 +29,7 @@ class StepResult(TypedDict):
 async def structural(flow: Any, phase: int) -> StepResult:
     """Run the StructuralLoopGraph to close structural gaps for this phase."""
     forge_logger.emit("INFO", "PIPE ", f"Phase {phase} · step: structural")
-    await flow._run_phase(phase, _skip_approval=True)
+    await flow._run_structural_loop(phase, skip_approval=True)
     # Structural step adds nodes, doesn't typically delete
     return StepResult(step_name="structural", deletions=0)
 
@@ -43,6 +42,8 @@ async def combined_quality(flow: Any, phase: int) -> StepResult:
     match + title specificity, then dispatches fixes.
 
     Replaces the former per-node ``req_quality`` and ``title_quality`` steps.
+    ``DispatchQuotaError`` propagates — quota exhaustion halts the run loudly
+    instead of dropping the remaining fixes and completing the step.
     """
     from backend.analysis.gaps import GapType
 
@@ -57,14 +58,7 @@ async def combined_quality(flow: Any, phase: int) -> StepResult:
         node = flow.graph.node_sync(gap.node_id)
         if node is None:
             continue
-        try:
-            await flow._dispatch(gap)
-        except DispatchQuotaError:
-            forge_logger.emit(
-                "ERROR", "FLOW ",
-                "API quota exhausted — aborting combined_quality step",
-            )
-            break
+        await flow._dispatch(gap)
 
     return StepResult(step_name="combined_quality", deletions=0)
 
@@ -141,6 +135,15 @@ async def case_trace_coverage(flow: Any, phase: int) -> StepResult:
     all_case_ids = {
         n.node_id for n in flow.graph.all_nodes() if n.node_type in ("CASE_HLR", "CASE_LLR")
     }
+
+    if not all_case_ids:
+        # Nothing to verify — don't build an LLM checker for zero cases.
+        forge_logger.emit(
+            "INFO", "PIPE ",
+            f"Phase {phase} · case_trace_coverage: no CASE nodes — nothing to check",
+        )
+        flow._last_checked_case_ids = all_case_ids
+        return StepResult(step_name="case_trace_coverage", deletions=0)
 
     if only_ids is not None:
         new_ids = all_case_ids - only_ids
