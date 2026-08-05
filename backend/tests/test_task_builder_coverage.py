@@ -229,3 +229,26 @@ def test_duplicate_node_llr_without_siblings_has_no_dedup_section() -> None:
     llr = _node("LLR-1", "LLR", parent_id="HLR-1", content="Shall do X.")
     ctx = build_context_for_gap(_Graph([hlr, llr]), _gap("LLR-1", GapType.DUPLICATE_NODE))
     assert "SIBLING REQUIREMENTS" not in ctx
+
+
+def test_shallow_context_skips_parent_without_content() -> None:
+    hlr = _node("HLR-1", "HLR", content="")
+    llr = _node("LLR-1", "LLR", parent_id="HLR-1", content="Req text.")
+    ctx = _build_shallow_req_context(_Graph([hlr, llr]), "LLR-1")
+    assert ctx == "[LLR LLR-1]\nReq text."
+
+
+def test_uncontracted_skips_non_llr_children_of_traced_hlrs() -> None:
+    hlr = _node("HLR-1", "HLR", content="Shall route.")
+    note = _node("PARA-9", "PARA", parent_id="HLR-1", content="note")
+    mod = _node("MOD-1", "MODULE", content="Router.", trace_to=["HLR-1"])
+    graph = _Graph([hlr, note, mod], tracing={"HLR-1": ["MOD-1"]})
+    ctx = build_context_for_gap(graph, _gap("MOD-1", GapType.UNCONTRACTED))
+    assert "LLRs UNDER TRACED HLRs" not in ctx
+
+
+def test_uncovered_para_without_siblings_has_no_sibling_section() -> None:
+    doc = _node("DOC-1", "DOCUMENT", title="Doc", content="doc")
+    para = _node("PARA-1", "PARA", parent_id="DOC-1", content="Behaviour text.")
+    ctx = build_context_for_gap(_Graph([doc, para]), _gap("PARA-1", GapType.UNCOVERED_PARA))
+    assert "SIBLING PARAGRAPHS" not in ctx

@@ -998,3 +998,38 @@ def test_uncovered_requirement_cites_linked_case_llr() -> None:
     gaps: list[Gap] = []
     _check_uncovered_requirement(gaps, {}, [], graph)
     assert "CASE_LLR-9" in gaps[0].details
+
+
+def test_partition_dep_errors_falls_back_when_detection_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any,
+) -> None:
+    """A build-env detection failure falls back to regex import matching."""
+    from unittest.mock import patch
+
+    monkeypatch.setenv("FORGE_WORKSPACE", str(tmp_path))
+    with patch(
+        "backend.crew.build_env.detect_build_environment",
+        side_effect=RuntimeError("no manifest"),
+    ):
+        dep_errors, other = _partition_dep_errors(
+            [_failing_result("ModuleNotFoundError: No module named 'numpy'")],
+        )
+    assert dep_errors[0][1] == "numpy"
+    assert other == []
+
+
+def test_report_dep_error_clusters_falls_back_when_detection_raises(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any,
+) -> None:
+    """Detection failure falls back to the requirements.txt manifest hint."""
+    from unittest.mock import patch
+
+    monkeypatch.setenv("FORGE_WORKSPACE", str(tmp_path))
+    gaps: list[Gap] = []
+    with patch(
+        "backend.crew.build_env.detect_build_environment",
+        side_effect=RuntimeError("no manifest"),
+    ):
+        _report_dep_error_clusters(gaps, [(_failing_result("x"), "numpy")])
+    assert gaps[0].file_path == "requirements.txt"
+    assert "Add 'numpy' to requirements.txt" in gaps[0].details

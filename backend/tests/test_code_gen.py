@@ -1441,3 +1441,13 @@ async def test_run_trace_audit_audits_and_persists(tmp_path: Path) -> None:
         await _run_trace_audit(result, tmp_path, graph)
     audit_mock.assert_awaited_once_with(tmp_path, ["src/core.py"], graph)
     persist_mock.assert_awaited_once()
+
+
+def test_owning_contract_content_skips_contentless_contract() -> None:
+    from backend.crew.code_gen import _owning_contract_content
+
+    design = _make_node("DESIGN-1", "DESIGN", parent_id="MOD-1")
+    empty_contract = _make_node("CON-1", "CONTRACT", parent_id="MOD-1", content="")
+    graph = MagicMock()
+    graph.children_sync.return_value = [empty_contract]
+    assert _owning_contract_content(graph, design) == ""

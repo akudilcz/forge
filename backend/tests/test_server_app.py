@@ -73,7 +73,7 @@ class TestWebSocketEndpoint:
         client = TestClient(app)
         with client.websocket_connect("/ws") as ws:
             data = ws.receive_json()
-        assert data["event_type"] == "session_snapshot"
+        assert data["event_type"] == "SESSION_SNAPSHOT"
         assert data["payload"]["session_id"] == "sess-test"
         assert data["payload"]["agents"] == [
             {"agent_id": "doc"}, {"agent_id": "req"},
@@ -100,6 +100,7 @@ class TestWebSocketEndpoint:
         app.state.session.model_dump.side_effect = RuntimeError("dead")
         client = TestClient(app)
         with client.websocket_connect("/ws") as ws:
+            # Server closes with 1011 instead of sending the snapshot.
             with pytest.raises(WebSocketDisconnect):
                 ws.receive_json()
 
@@ -141,7 +142,7 @@ class TestFrontendServing:
         (dist / "index.html").write_text("<html>SPA SHELL</html>")
         with patch("backend.server.app._FRONTEND_DIST", dist):
             app = _make_app()
-        resp = TestClient(app).get("/some/client/route")
+            resp = TestClient(app).get("/some/client/route")
         assert resp.status_code == 200
         assert "SPA SHELL" in resp.text
 

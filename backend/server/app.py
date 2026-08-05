@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from contextlib import suppress
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -210,7 +211,11 @@ def create_app(workspace_path: Path | None = None) -> FastAPI:
                 )
                 await manager.send_to(websocket, snapshot_event)
             except Exception:  # noqa: BLE001
-                return  # Connection already dead before we could send
+                # Snapshot construction/send failed — close loudly so the
+                # client sees a disconnect instead of hanging on receive.
+                with suppress(Exception):
+                    await websocket.close(code=1011)
+                return
 
             # Keep-alive loop: wait for client messages (or disconnect)
             try:

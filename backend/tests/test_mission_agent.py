@@ -623,3 +623,26 @@ class TestScoreBreakdownDetails:
         assert "UNCOVERED in src/a.py: lines 3, 4" in out
         assert "src/empty.py" not in out
         assert "MC/DC" not in out
+
+
+class TestContextSectionEdges:
+    def test_non_contract_module_children_are_skipped(self, tmp_path: Path) -> None:
+        mod = _node("MOD-1", "MODULE", "Core", "core logic")
+        design_child = _node("DESIGN-1", "DESIGN", "D", "class Foo")
+        graph = MagicMock()
+        graph.all_nodes.return_value = [mod, design_child]
+        graph.children_sync.return_value = [design_child]
+        result = build_mission_context(graph, tmp_path)
+        assert "CONTRACT:" not in result
+
+
+class TestScoreBreakdownNoCoverage:
+    def test_missing_coverage_metrics_are_omitted(self) -> None:
+        ws = _ws_state()
+        ws.coverage_pct = None
+        ws.branch_coverage_pct = 80.0
+        graph = MagicMock()
+        graph.all_nodes.return_value = []
+        out = _score_breakdown(ws, graph)
+        assert "Statement:" not in out
+        assert "MC/DC: 80%" in out
