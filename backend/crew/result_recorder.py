@@ -9,6 +9,7 @@ Graph chain: RESULT → TEST → CASE_HLR/CASE_LLR
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import subprocess
 from dataclasses import dataclass
@@ -16,6 +17,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from backend.crew.bazel_gen import init_bazel_workspace
 from backend.graph.models import GraphNode, LifecycleState, NodeType
 from backend.server.forge_logger import forge_logger
 
@@ -74,27 +76,59 @@ class SingleTestResult:
 # ── Pytest runner with JUnit XML output ──────────────────────────────────────
 
 
+def purge_stale_test_artifacts(workspace: Path) -> None:
+    """Delete leftover bazel/coverage artifacts so runs parse only fresh evidence.
+
+    Bazel leaves prior-run ``test.xml`` files for targets that later fail to
+    build, and coverage exports persist on disk. Parsing them would present
+    stale results as current, so every bazel invocation purges them first.
+    """
+    testlogs = workspace / "bazel-testlogs"
+    if testlogs.exists():
+        for xml in testlogs.rglob("test.xml"):
+            xml.unlink()
+    for artifact in (
+        workspace / "coverage.lcov",
+        workspace / "coverage-test-results.xml",
+        workspace / "bazel-out" / "_coverage" / "_coverage_report.dat",
+    ):
+        if artifact.exists():
+            artifact.unlink()
+
+
 def run_and_parse_tests(workspace: Path) -> list[SingleTestResult]:
-    """Run tests via bazel and parse results from bazel-testlogs XML."""
+    """Run tests via bazel and parse fresh results from bazel-testlogs XML.
+
+    Regenerates BUILD files first (so tests written since the last run have
+    targets), purges stale artifacts, and raises loudly when bazel exits
+    nonzero without producing any fresh results — never returns stale or
+    silently empty evidence.
+    """
     tests_dir = workspace / "tests"
-    if not any(tests_dir.glob("test_*.py")):
+    if not tests_dir.exists() or not any(tests_dir.glob("test_*.py")):
         return []
 
-    from backend.crew.test_parsers import parse_bazel_testlogs
+    from backend.crew.test_parsers import extract_error_summary, parse_bazel_testlogs
 
-    try:
-        subprocess.run(
-            ["bazel", "test", "//tests/...",
-             "--test_output=all"],
-            cwd=str(workspace),
-            capture_output=True,
-            text=True,
-            timeout=600,
+    init_bazel_workspace(workspace)
+    purge_stale_test_artifacts(workspace)
+
+    proc = subprocess.run(
+        ["bazel", "test", "//tests/...",
+         "--test_output=all"],
+        cwd=str(workspace),
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    results = parse_bazel_testlogs(workspace)
+    if proc.returncode != 0 and not results:
+        summary = extract_error_summary(proc.stdout + proc.stderr)
+        forge_logger.emit("ERROR", "CGEN ", f"Test run produced no fresh results: {summary}")
+        raise RuntimeError(
+            f"bazel test failed (rc={proc.returncode}) with no fresh results: {summary}"
         )
-        return parse_bazel_testlogs(workspace)
-    except Exception as exc:  # noqa: BLE001
-        forge_logger.emit("WARN", "CGEN ", f"Test run for results failed: {exc}")
-        return []
+    return results
 
 
 # ── RESULT node creation ────────────────────────────────────────────────────
@@ -227,9 +261,11 @@ async def record_results(
 
 
 def _result_node_id(tr: SingleTestResult) -> str:
-    """Generate a stable RESULT node ID from the test identifier."""
-    # Use a deterministic ID so re-runs update the same node
+    """Generate a stable, collision-free RESULT node ID from the test identifier."""
+    # Deterministic ID so re-runs update the same node. The slug is truncated
+    # to keep IDs readable; the sha256 suffix keeps long test_ids sharing a
+    # 60-char prefix distinct (the graph stores with INSERT OR REPLACE, so a
+    # collision would silently overwrite test evidence).
     slug = tr.test_id.replace("/", "_").replace("::", "_").replace(".", "_")
-    # Truncate to keep node IDs manageable
-    slug = slug[:60]
-    return f"RESULT-{slug}"
+    digest = hashlib.sha256(tr.test_id.encode("utf-8")).hexdigest()[:8]
+    return f"RESULT-{slug[:60]}-{digest}"

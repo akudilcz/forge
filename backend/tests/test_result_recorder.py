@@ -90,8 +90,30 @@ def test_result_node_id_truncated() -> None:
         status="passed",
     )
     node_id = _result_node_id(tr)
-    # RESULT- prefix (7) + max 60 chars
-    assert len(node_id) <= 67
+    # RESULT- prefix (7) + max 60 slug chars + "-" + 8 hash chars
+    assert len(node_id) <= 76
+
+
+def test_result_node_id_long_shared_prefix_no_collision() -> None:
+    """Two long test_ids sharing a 60-char prefix produce distinct node IDs."""
+    shared = "tests/test_verify_run_gallop_constant_values.py::test_constant"
+    tr_a = SingleTestResult(
+        test_id=shared + "_values_hold_for_ascending_input",
+        file_path="tests/test_verify_run_gallop_constant_values.py",
+        function_name="test_constant_values_hold_for_ascending_input",
+        status="failed",
+    )
+    tr_b = SingleTestResult(
+        test_id=shared + "_values_hold_for_descending_input",
+        file_path="tests/test_verify_run_gallop_constant_values.py",
+        function_name="test_constant_values_hold_for_descending_input",
+        status="passed",
+    )
+    id_a = _result_node_id(tr_a)
+    id_b = _result_node_id(tr_b)
+    assert id_a != id_b
+    assert len(id_a) <= 76
+    assert len(id_b) <= 76
 
 
 # ── _find_trace_targets ─────────────────────────────────────────────────────
@@ -508,6 +530,141 @@ async def test_record_results_parent_id_set_from_first_candidate() -> None:
 
     created_node = graph.add_node.call_args[0][0]
     assert created_node.parent_id == "CASE_LLR-001"
+
+
+# ── run_and_parse_tests: fresh evidence guarantee ──────────────────────────
+
+from backend.crew.result_recorder import (
+    purge_stale_test_artifacts,
+    run_and_parse_tests,
+)
+
+
+def _stale_testlog(workspace: Path, target: str, xml: str) -> Path:
+    """Write a bazel-testlogs test.xml simulating a leftover prior run."""
+    d = workspace / "bazel-testlogs" / "tests" / target
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / "test.xml"
+    path.write_text(xml)
+    return path
+
+
+_PASSING_XML = (
+    '<testsuite tests="1">\n'
+    '  <testcase classname="tests.test_x" name="test_old" time="0.1"/>\n'
+    '</testsuite>\n'
+)
+
+
+def test_purge_stale_test_artifacts_removes_all(tmp_path: Path) -> None:
+    """Purge deletes testlogs XML, coverage.lcov, junit XML, and LCOV report."""
+    stale_xml = _stale_testlog(tmp_path, "test_x", _PASSING_XML)
+    (tmp_path / "coverage.lcov").write_text("SF:src/foo.py\n")
+    (tmp_path / "coverage-test-results.xml").write_text("<testsuite/>")
+    lcov_dir = tmp_path / "bazel-out" / "_coverage"
+    lcov_dir.mkdir(parents=True)
+    report = lcov_dir / "_coverage_report.dat"
+    report.write_text("SF:src/foo.py\n")
+
+    purge_stale_test_artifacts(tmp_path)
+
+    assert not stale_xml.exists()
+    assert not (tmp_path / "coverage.lcov").exists()
+    assert not (tmp_path / "coverage-test-results.xml").exists()
+    assert not report.exists()
+
+
+def test_purge_stale_test_artifacts_empty_workspace(tmp_path: Path) -> None:
+    """Purge on a workspace with no artifacts is a no-op, not an error."""
+    purge_stale_test_artifacts(tmp_path)
+
+
+@patch("backend.crew.result_recorder.init_bazel_workspace")
+@patch("backend.crew.result_recorder.subprocess.run")
+def test_run_and_parse_tests_stale_xml_after_failed_bazel_raises(
+    mock_run: MagicMock, mock_init: MagicMock, tmp_path: Path,
+) -> None:
+    """Nonzero bazel exit with only pre-existing XML raises — never stale results."""
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("def test_old(): pass\n")
+    _stale_testlog(tmp_path, "test_x", _PASSING_XML)
+
+    mock_run.return_value = MagicMock(
+        returncode=1, stdout="", stderr="ERROR: build failed: syntax error\n",
+    )
+    with pytest.raises(RuntimeError, match="bazel test failed"):
+        run_and_parse_tests(tmp_path)
+
+
+@patch("backend.crew.result_recorder.init_bazel_workspace")
+@patch("backend.crew.result_recorder.subprocess.run")
+def test_run_and_parse_tests_regenerates_build_and_parses_fresh(
+    mock_run: MagicMock, mock_init: MagicMock, tmp_path: Path,
+) -> None:
+    """init_bazel_workspace runs before bazel, stale XML is purged, fresh XML parsed."""
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("def test_fresh(): pass\n")
+    _stale_testlog(tmp_path, "test_x", _PASSING_XML)
+
+    def fake_bazel(cmd: list[str], **kwargs: Any) -> MagicMock:
+        assert mock_init.called, "BUILD files must be regenerated before bazel runs"
+        assert not (
+            tmp_path / "bazel-testlogs" / "tests" / "test_x" / "test.xml"
+        ).exists(), "stale XML must be purged before bazel runs"
+        _stale_testlog(
+            tmp_path, "test_x",
+            '<testsuite tests="1">\n'
+            '  <testcase classname="tests.test_x" name="test_fresh" time="0.1"/>\n'
+            '</testsuite>\n',
+        )
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    mock_run.side_effect = fake_bazel
+    results = run_and_parse_tests(tmp_path)
+
+    mock_init.assert_called_once_with(tmp_path)
+    assert [r.function_name for r in results] == ["test_fresh"]
+
+
+@patch("backend.crew.result_recorder.init_bazel_workspace")
+@patch("backend.crew.result_recorder.subprocess.run")
+def test_run_and_parse_tests_nonzero_exit_with_fresh_results_returns_them(
+    mock_run: MagicMock, mock_init: MagicMock, tmp_path: Path,
+) -> None:
+    """Bazel exit 3 (tests failed) with freshly written XML returns those results."""
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("def test_bad(): assert False\n")
+
+    def fake_bazel(cmd: list[str], **kwargs: Any) -> MagicMock:
+        _stale_testlog(
+            tmp_path, "test_x",
+            '<testsuite tests="1">\n'
+            '  <testcase classname="tests.test_x" name="test_bad" time="0.1">\n'
+            '    <failure message="assert False"/>\n'
+            '  </testcase>\n'
+            '</testsuite>\n',
+        )
+        return MagicMock(returncode=3, stdout="", stderr="")
+
+    mock_run.side_effect = fake_bazel
+    results = run_and_parse_tests(tmp_path)
+    assert len(results) == 1
+    assert results[0].status == "failed"
+
+
+@patch("backend.crew.result_recorder.init_bazel_workspace")
+@patch("backend.crew.result_recorder.subprocess.run")
+def test_run_and_parse_tests_no_test_files_returns_empty(
+    mock_run: MagicMock, mock_init: MagicMock, tmp_path: Path,
+) -> None:
+    """No test files: returns [] without touching bazel."""
+    (tmp_path / "tests").mkdir()
+    assert run_and_parse_tests(tmp_path) == []
+    mock_run.assert_not_called()
+    mock_init.assert_not_called()
 
 
 @pytest.mark.asyncio

@@ -108,6 +108,27 @@ All post-agent steps except the trace audit are deterministic (no LLM):
    (`passed`/`failed`/`skipped`/`error`), closing the traceability
    chain: `HLR -> LLR -> DESIGN -> CODE` and `CASE -> TEST -> RESULT`.
 
+#### Fresh test evidence guarantee
+
+Every bazel invocation made by the workspace scanner or the result
+recorder must produce evidence describing the *current* workspace
+revision. Three rules enforce this:
+
+1. **BUILD regeneration** — `init_bazel_workspace(workspace)`
+   (idempotent) is called before every `bazel test` run, so tests
+   written via file tools between runs always have bazel targets.
+2. **Artifact purge** — before each run, leftover
+   `bazel-testlogs/**/test.xml`, `coverage.lcov`,
+   `coverage-test-results.xml`, and the bazel LCOV report are deleted
+   (`purge_stale_test_artifacts`). Bazel leaves prior-run `test.xml`
+   files for targets that later fail to build; without the purge those
+   parse as current results.
+3. **Loud failures** — a nonzero bazel exit with no freshly produced
+   XML is a `test_run_error` (scanner) or a raised `RuntimeError`
+   (result recorder), never an empty result list. Coverage measurement
+   never falls back to a stale on-disk LCOV: a missing `coverage`
+   binary or a failed LCOV export raises instead of degrading.
+
 There is deliberately no test-deduplication step. Earlier pipelines
 removed tests that shared an LLR set under the theory they were
 redundant, but LLR identity does not imply coverage identity (MC/DC
@@ -485,7 +506,12 @@ Phase 12 creates two node types in the project graph:
 CODE nodes store `file_path`, `line_traces`, and coverage metrics.
 TEST nodes store `file_path`, `line_traces`, and linked CASE IDs.
 RESULT nodes (one per test function) are children of TEST nodes with
-status: `passed`, `failed`, `skipped`, or `error`.
+status: `passed`, `failed`, `skipped`, or `error`. RESULT node IDs are
+`RESULT-{slug[:60]}-{sha256(test_id)[:8]}` — the truncated slug keeps
+IDs readable while the hash suffix keeps long test IDs sharing a
+60-char prefix collision-free (the graph stores nodes with
+`INSERT OR REPLACE`, so an ID collision would silently overwrite
+evidence).
 
 ---
 

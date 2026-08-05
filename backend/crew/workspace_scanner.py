@@ -11,14 +11,14 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from backend.crew.result_recorder import SingleTestResult
+from backend.crew.bazel_gen import init_bazel_workspace
+from backend.crew.result_recorder import SingleTestResult, purge_stale_test_artifacts
 from backend.crew.test_parsers import (
     LcovResult,
     extract_error_summary,
     merge_test_results,
     parse_bazel_testlogs,
     parse_junit_xml,
-    parse_lcov_coverage,
     parse_lcov_file,
 )
 from backend.crew.trace_parser import LineTrace, TraceAnalysis, UntracedFunction, analyse_traces
@@ -136,6 +136,11 @@ def _run_bazel_tests(
 ) -> tuple[list[SingleTestResult], LcovResult, str]:
     """Run tests via bazel test, then collect coverage via coverage.py."""
     try:
+        # Regenerate BUILD files so tests written since the last run have
+        # targets, then purge stale artifacts so only fresh evidence parses.
+        init_bazel_workspace(workspace)
+        purge_stale_test_artifacts(workspace)
+
         forge_logger.emit("INFO", "SCAN ", "Running bazel test //tests/... (up to 10 min)")
         proc = subprocess.run(
             ["bazel", "test", "//tests/...",
@@ -147,6 +152,8 @@ def _run_bazel_tests(
         output = proc.stdout + proc.stderr
         results = parse_bazel_testlogs(workspace)
 
+        # Artifacts were purged before the run, so any parsed XML is fresh:
+        # nonzero exit with no results means the run produced no evidence.
         if proc.returncode != 0 and not results:
             error_summary = extract_error_summary(output)
             forge_logger.emit("WARN", "SCAN ", f"Bazel tests failed: {error_summary}")
@@ -172,47 +179,54 @@ def _run_bazel_tests(
 
 
 def _run_coverage_py(workspace: Path) -> LcovResult:
-    """Run coverage.py directly for accurate statement + branch coverage."""
+    """Run coverage.py directly for accurate statement + branch coverage.
+
+    Raises loudly on any failure — there is deliberately no fallback to a
+    leftover on-disk LCOV report, which would present stale coverage from a
+    previous workspace revision as current.
+    """
     import shutil
 
     coverage_bin = shutil.which("coverage")
     if not coverage_bin:
-        forge_logger.emit("WARN", "SCAN ", "coverage binary not found, falling back to bazel LCOV")
-        return parse_lcov_coverage(workspace)
+        raise RuntimeError(
+            "coverage binary not found on PATH — cannot measure fresh coverage"
+        )
 
     tests_dir = workspace / "tests"
     if not tests_dir.exists() or not any(tests_dir.glob("test_*.py")):
         return LcovResult()
 
-    try:
-        import os
-        env = {**os.environ, "PYTHONPATH": str(workspace / "src")}
+    import os
+    env = {**os.environ, "PYTHONPATH": str(workspace / "src")}
 
-        test_count = len(list((workspace / "tests").glob("test_*.py")))
-        forge_logger.emit("INFO", "SCAN ", f"Running coverage analysis — {test_count} test file(s)")
+    test_count = len(list((workspace / "tests").glob("test_*.py")))
+    forge_logger.emit("INFO", "SCAN ", f"Running coverage analysis — {test_count} test file(s)")
 
-        cov_result = _run_coverage_with_progress(coverage_bin, workspace, env)
-        if cov_result.returncode != 0:
-            forge_logger.emit(
-                "WARN", "SCAN ",
-                f"coverage run failed (rc={cov_result.returncode}): "
-                + (cov_result.stderr or cov_result.stdout)[:200],
-            )
-
-        forge_logger.emit("INFO", "SCAN ", "Exporting coverage report")
-        lcov_path = workspace / "coverage.lcov"
-        subprocess.run(
-            [coverage_bin, "lcov", "-o", str(lcov_path)],
-            cwd=str(workspace), capture_output=True, text=True, timeout=30,
+    cov_result = _run_coverage_with_progress(coverage_bin, workspace, env)
+    if cov_result.returncode != 0:
+        # Failing tests give a nonzero rc but still produce fresh coverage
+        # data; the failures themselves are reported via the JUnit XML.
+        forge_logger.emit(
+            "WARN", "SCAN ",
+            f"coverage run failed (rc={cov_result.returncode}): "
+            + (cov_result.stderr or cov_result.stdout)[:200],
         )
 
-        if lcov_path.exists():
-            return parse_lcov_file(lcov_path)
-        forge_logger.emit("WARN", "SCAN ", "coverage.lcov not created")
-    except Exception as exc:  # noqa: BLE001
-        forge_logger.emit("WARN", "SCAN ", f"coverage.py failed: {exc}")
-
-    return parse_lcov_coverage(workspace)
+    forge_logger.emit("INFO", "SCAN ", "Exporting coverage report")
+    lcov_path = workspace / "coverage.lcov"
+    export = subprocess.run(
+        [coverage_bin, "lcov", "-o", str(lcov_path)],
+        cwd=str(workspace), capture_output=True, text=True, timeout=30,
+    )
+    if export.returncode != 0:
+        raise RuntimeError(
+            f"coverage lcov export failed (rc={export.returncode}): "
+            + (export.stderr or export.stdout)[:200]
+        )
+    if not lcov_path.exists():
+        raise RuntimeError("coverage.lcov not created by coverage lcov export")
+    return parse_lcov_file(lcov_path)
 
 
 def _run_coverage_with_progress(

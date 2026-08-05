@@ -181,34 +181,71 @@ def test_parse_junit_xml_bazel_stub_format(tmp_path: Path) -> None:
 
 # ── _run_tests_and_coverage ─────────────────────────────────────────────────
 
+@patch("backend.crew.workspace_scanner._run_coverage_py")
+@patch("backend.crew.workspace_scanner.init_bazel_workspace")
 @patch("backend.crew.workspace_scanner.subprocess.run")
 def test_run_tests_parses_bazel_testlogs(
-    mock_run: MagicMock, tmp_path: Path,
+    mock_run: MagicMock, mock_init: MagicMock, mock_cov: MagicMock, tmp_path: Path,
 ) -> None:
-    """Should parse results from bazel-testlogs/tests/*/test.xml."""
+    """Should parse results freshly written by the bazel run."""
     tests = tmp_path / "tests"
     tests.mkdir()
     (tests / "test_x.py").write_text("")
 
-    # Simulate bazel-testlogs output with per-function detail
-    testlog_dir = tmp_path / "bazel-testlogs" / "tests" / "test_x"
-    testlog_dir.mkdir(parents=True)
-    (testlog_dir / "test.xml").write_text(
-        '<testsuite tests="2">\n'
-        '  <testcase classname="tests.test_x" name="test_a" time="0.1"/>\n'
-        '  <testcase classname="tests.test_x" name="test_b" time="0.2"/>\n'
-        '</testsuite>\n'
-    )
+    def fake_bazel(cmd: list[str], **kwargs: object) -> MagicMock:
+        # BUILD files must be regenerated before bazel runs
+        assert mock_init.called
+        testlog_dir = tmp_path / "bazel-testlogs" / "tests" / "test_x"
+        testlog_dir.mkdir(parents=True)
+        (testlog_dir / "test.xml").write_text(
+            '<testsuite tests="2">\n'
+            '  <testcase classname="tests.test_x" name="test_a" time="0.1"/>\n'
+            '  <testcase classname="tests.test_x" name="test_b" time="0.2"/>\n'
+            '</testsuite>\n'
+        )
+        return MagicMock(returncode=0, stdout="", stderr="")
 
-    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+    mock_run.side_effect = fake_bazel
+    mock_cov.return_value = LcovResult()
+
     results, lcov, error = _run_tests_and_coverage(tmp_path)
     assert len(results) == 2
     assert error == ""
     assert results[0].function_name == "test_a"
-    # First subprocess call should be bazel test (second is coverage.py)
-    first_call = mock_run.call_args_list[0]
-    cmd = first_call[0][0]
+    mock_init.assert_called_once_with(tmp_path)
+    cmd = mock_run.call_args_list[0][0][0]
     assert cmd[0] == "bazel"
+
+
+@patch("backend.crew.workspace_scanner._run_coverage_py")
+@patch("backend.crew.workspace_scanner.init_bazel_workspace")
+@patch("backend.crew.workspace_scanner.subprocess.run")
+def test_run_tests_stale_xml_after_failed_bazel_is_error(
+    mock_run: MagicMock, mock_init: MagicMock, mock_cov: MagicMock, tmp_path: Path,
+) -> None:
+    """Nonzero bazel exit with only pre-existing XML yields an error, not results."""
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("")
+
+    # Leftover green XML from a prior run — must NOT be reported as current
+    testlog_dir = tmp_path / "bazel-testlogs" / "tests" / "test_x"
+    testlog_dir.mkdir(parents=True)
+    stale_xml = testlog_dir / "test.xml"
+    stale_xml.write_text(
+        '<testsuite tests="1">\n'
+        '  <testcase classname="tests.test_x" name="test_old_green" time="0.1"/>\n'
+        '</testsuite>\n'
+    )
+
+    mock_run.return_value = MagicMock(
+        returncode=1, stdout="", stderr="ERROR: build failed: syntax error\n",
+    )
+    results, lcov, error = _run_tests_and_coverage(tmp_path)
+    assert results == []
+    assert error != ""
+    assert not stale_xml.exists()
+    mock_cov.assert_not_called()
 
 
 def test_parse_bazel_testlogs_multiple_targets(tmp_path: Path) -> None:
@@ -269,9 +306,10 @@ async def test_scan_workspace_returns_complete_state(
     assert state.test_results == []
 
 
+@patch("backend.crew.workspace_scanner.init_bazel_workspace")
 @patch("backend.crew.workspace_scanner.subprocess.run")
 def test_run_tests_nonzero_exit_no_results_is_error(
-    mock_run: MagicMock, tmp_path: Path,
+    mock_run: MagicMock, mock_init: MagicMock, tmp_path: Path,
 ) -> None:
     """Non-zero exit with no parsed results should return test_run_error."""
     tests = tmp_path / "tests"
@@ -286,6 +324,55 @@ def test_run_tests_nonzero_exit_no_results_is_error(
     results, lcov, error = _run_tests_and_coverage(tmp_path)
     assert results == []
     assert "ModuleNotFoundError" in error
+
+
+# ── _run_coverage_py: no stale-LCOV fallback ─────────────────────────────────
+
+
+@patch("shutil.which", return_value=None)
+def test_coverage_binary_missing_raises_instead_of_stale_lcov(
+    mock_which: MagicMock, tmp_path: Path,
+) -> None:
+    """Missing coverage binary raises loudly — never parses leftover LCOV."""
+    import pytest
+
+    from backend.crew.workspace_scanner import _run_coverage_py
+
+    # Leftover LCOV report from a prior run — must NOT be silently reused
+    lcov_dir = tmp_path / "bazel-out" / "_coverage"
+    lcov_dir.mkdir(parents=True)
+    (lcov_dir / "_coverage_report.dat").write_text("SF:src/foo.py\nLF:10\nLH:8\nend_of_record\n")
+
+    with pytest.raises(RuntimeError, match="coverage binary not found"):
+        _run_coverage_py(tmp_path)
+
+
+@patch("backend.crew.workspace_scanner._run_coverage_with_progress")
+@patch("backend.crew.workspace_scanner.subprocess.run")
+@patch("shutil.which", return_value="/usr/bin/coverage")
+def test_coverage_lcov_not_created_raises(
+    mock_which: MagicMock, mock_run: MagicMock, mock_progress: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """Failed LCOV export raises loudly — never falls back to stale on-disk LCOV."""
+    import subprocess as _subprocess
+
+    import pytest
+
+    from backend.crew.workspace_scanner import _run_coverage_py
+
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("def test_a(): pass\n")
+
+    mock_progress.return_value = _subprocess.CompletedProcess(
+        args=[], returncode=0, stdout="", stderr="",
+    )
+    # LCOV export subprocess "succeeds" but produces no coverage.lcov file
+    mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+    with pytest.raises(RuntimeError, match="coverage.lcov"):
+        _run_coverage_py(tmp_path)
 
 
 # ── _parse_lcov_coverage ──────────────────────────────────────────────────────
