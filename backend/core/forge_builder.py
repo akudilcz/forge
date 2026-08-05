@@ -6,7 +6,7 @@ build a real pipeline in one call.
 
 Usage::
 
-    from backend.forge_builder import ForgeBuilder
+    from backend.core.forge_builder import ForgeBuilder
 
     builder = ForgeBuilder(config=config, workspace=Path("/tmp/ws"))
     flow = await builder.build()

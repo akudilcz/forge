@@ -75,7 +75,7 @@ class QueueAddTool(_QueueTool):
         importance: str = "medium",
         rationale: str = "",
     ) -> str:
-        from backend.work_queue import work_queue
+        from backend.core.work_queue import work_queue
 
         if effort not in ("low", "medium", "high"):
             return f"ERROR: effort must be low, medium, or high (got '{effort}')"
@@ -109,7 +109,7 @@ class QueueRemoveTool(_QueueTool):
     args_schema: type[BaseModel] = _RemoveArgs
 
     def _invoke(self, item_id: str) -> str:
-        from backend.work_queue import work_queue
+        from backend.core.work_queue import work_queue
 
         if work_queue.remove(item_id):
             return f"OK: removed {item_id}"
@@ -137,7 +137,7 @@ class QueuePromoteTool(_QueueTool):
         self, item_id: str,
         urgency: str = "", importance: str = "",
     ) -> str:
-        from backend.work_queue import work_queue
+        from backend.core.work_queue import work_queue
 
         if work_queue.promote(
             item_id,

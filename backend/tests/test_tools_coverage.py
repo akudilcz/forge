@@ -593,7 +593,7 @@ from backend.tools.work_queue_tools import (
 
 
 class TestQueueAddTool:
-    @patch("backend.work_queue.work_queue")
+    @patch("backend.core.work_queue.work_queue")
     def test_add_success(self, mock_wq: MagicMock) -> None:
         mock_wq.add.return_value = "wq-001"
         tool = QueueAddTool(phase=3)
@@ -608,7 +608,7 @@ class TestQueueAddTool:
         mock_wq.add.assert_called_once()
         assert mock_wq.add.call_args[1]["phase"] == 3
 
-    @patch("backend.work_queue.work_queue")
+    @patch("backend.core.work_queue.work_queue")
     def test_add_invalid_effort(self, mock_wq: MagicMock) -> None:
         tool = QueueAddTool()
         result = tool._execute(
@@ -618,7 +618,7 @@ class TestQueueAddTool:
         assert "extreme" in result
         mock_wq.add.assert_not_called()
 
-    @patch("backend.work_queue.work_queue")
+    @patch("backend.core.work_queue.work_queue")
     def test_add_with_all_fields(self, mock_wq: MagicMock) -> None:
         mock_wq.add.return_value = "wq-002"
         tool = QueueAddTool(phase=5)
@@ -640,7 +640,7 @@ class TestQueueAddTool:
 
 
 class TestQueueRemoveTool:
-    @patch("backend.work_queue.work_queue")
+    @patch("backend.core.work_queue.work_queue")
     def test_remove_success(self, mock_wq: MagicMock) -> None:
         mock_wq.remove.return_value = True
         tool = QueueRemoveTool()
@@ -648,7 +648,7 @@ class TestQueueRemoveTool:
         assert "OK" in result
         assert "wq-001" in result
 
-    @patch("backend.work_queue.work_queue")
+    @patch("backend.core.work_queue.work_queue")
     def test_remove_not_found(self, mock_wq: MagicMock) -> None:
         mock_wq.remove.return_value = False
         tool = QueueRemoveTool()
@@ -658,7 +658,7 @@ class TestQueueRemoveTool:
 
 
 class TestQueuePromoteTool:
-    @patch("backend.work_queue.work_queue")
+    @patch("backend.core.work_queue.work_queue")
     def test_promote_urgency(self, mock_wq: MagicMock) -> None:
         mock_wq.promote.return_value = True
         tool = QueuePromoteTool()
@@ -666,7 +666,7 @@ class TestQueuePromoteTool:
         assert "OK" in result
         assert "urgency=critical" in result
 
-    @patch("backend.work_queue.work_queue")
+    @patch("backend.core.work_queue.work_queue")
     def test_promote_importance(self, mock_wq: MagicMock) -> None:
         mock_wq.promote.return_value = True
         tool = QueuePromoteTool()
@@ -674,7 +674,7 @@ class TestQueuePromoteTool:
         assert "OK" in result
         assert "importance=high" in result
 
-    @patch("backend.work_queue.work_queue")
+    @patch("backend.core.work_queue.work_queue")
     def test_promote_both(self, mock_wq: MagicMock) -> None:
         mock_wq.promote.return_value = True
         tool = QueuePromoteTool()
@@ -684,7 +684,7 @@ class TestQueuePromoteTool:
         assert "urgency=high" in result
         assert "importance=high" in result
 
-    @patch("backend.work_queue.work_queue")
+    @patch("backend.core.work_queue.work_queue")
     def test_promote_not_found(self, mock_wq: MagicMock) -> None:
         mock_wq.promote.return_value = False
         tool = QueuePromoteTool()

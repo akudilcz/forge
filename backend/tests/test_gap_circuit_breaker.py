@@ -226,7 +226,7 @@ async def test_dispatch_outcomes_are_recorded_in_the_work_queue_history(
     permanently blank. Every dispatch now records its outcome, derived from the
     same node-count delta the loop already uses to judge progress.
     """
-    from backend.work_queue import work_queue
+    from backend.core.work_queue import work_queue
 
     # work_queue is a module singleton and history is deliberately append-only,
     # so measure the delta rather than the absolute contents.

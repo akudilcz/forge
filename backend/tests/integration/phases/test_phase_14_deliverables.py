@@ -22,7 +22,7 @@ from typing import Any
 import pytest
 
 from backend.config.models import ForgeConfig
-from backend.forge_builder import ForgeBuilder
+from backend.core.forge_builder import ForgeBuilder
 from backend.graph.models import GraphNode, LifecycleState, NodeType
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.timeout(900)]

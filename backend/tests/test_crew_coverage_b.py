@@ -15,7 +15,7 @@ from backend.analysis.gaps import Gap, GapPriority, GapType
 from backend.graph.models import NodeType
 
 if TYPE_CHECKING:
-    from backend.work_queue import WorkQueueService
+    from backend.core.work_queue import WorkQueueService
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -1167,27 +1167,27 @@ class TestWorkItem:
     """WorkItem sort_key and to_dict."""
 
     def test_sort_key_ordering(self) -> None:
-        from backend.work_queue import WorkItem
+        from backend.core.work_queue import WorkItem
 
         low_effort = WorkItem(id="wq-001", phase=1, category="c", description="d", effort="low")
         high_effort = WorkItem(id="wq-002", phase=1, category="c", description="d", effort="high")
         assert low_effort.sort_key < high_effort.sort_key
 
     def test_sort_key_urgency(self) -> None:
-        from backend.work_queue import WorkItem
+        from backend.core.work_queue import WorkItem
 
         critical = WorkItem(id="wq-001", phase=1, category="c", description="d", urgency="critical")
         low = WorkItem(id="wq-002", phase=1, category="c", description="d", urgency="low")
         assert critical.sort_key < low.sort_key
 
     def test_sort_key_bad_id(self) -> None:
-        from backend.work_queue import WorkItem
+        from backend.core.work_queue import WorkItem
 
         item = WorkItem(id="bad", phase=1, category="c", description="d")
         assert item.sort_key[3] == 9999
 
     def test_to_dict(self) -> None:
-        from backend.work_queue import WorkItem
+        from backend.core.work_queue import WorkItem
 
         item = WorkItem(id="wq-001", phase=1, category="cat", description="desc", target="tgt")
         d = item.to_dict()
@@ -1198,19 +1198,19 @@ class TestWorkItem:
         assert d["status"] == "pending"
 
     def test_invalid_urgency_defaults(self) -> None:
-        from backend.work_queue import WorkItem
+        from backend.core.work_queue import WorkItem
 
         item = WorkItem(id="wq-001", phase=1, category="c", description="d", urgency="bogus")
         assert item.urgency == "medium"
 
     def test_invalid_importance_defaults(self) -> None:
-        from backend.work_queue import WorkItem
+        from backend.core.work_queue import WorkItem
 
         item = WorkItem(id="wq-001", phase=1, category="c", description="d", importance="bogus")
         assert item.importance == "medium"
 
     def test_invalid_effort_defaults(self) -> None:
-        from backend.work_queue import WorkItem
+        from backend.core.work_queue import WorkItem
 
         item = WorkItem(id="wq-001", phase=1, category="c", description="d", effort="bogus")
         assert item.effort == "medium"
@@ -1220,7 +1220,7 @@ class TestActionRecord:
     """ActionRecord to_dict."""
 
     def test_to_dict(self) -> None:
-        from backend.work_queue import ActionRecord
+        from backend.core.work_queue import ActionRecord
 
         rec = ActionRecord(
             round=1,
@@ -1241,7 +1241,7 @@ class TestActionRecord:
         assert d["files_modified"] == ["a.py"]
 
     def test_defaults(self) -> None:
-        from backend.work_queue import ActionRecord
+        from backend.core.work_queue import ActionRecord
 
         rec = ActionRecord(round=1, work_item_id="wq-001", phase=1, category="c")
         d = rec.to_dict()
@@ -1254,7 +1254,7 @@ class TestWorkQueueService:
     """WorkQueueService queue operations."""
 
     def _make_service(self) -> WorkQueueService:
-        from backend.work_queue import WorkQueueService
+        from backend.core.work_queue import WorkQueueService
 
         svc = WorkQueueService()
         # Mock WS manager to avoid real broadcasts
@@ -1325,7 +1325,7 @@ class TestWorkQueueService:
         svc.update_status("wq-999", "done")
 
     def test_record_action(self) -> None:
-        from backend.work_queue import ActionRecord
+        from backend.core.work_queue import ActionRecord
 
         svc = self._make_service()
         rec = ActionRecord(round=1, work_item_id="wq-001", phase=1, category="c")
@@ -1350,7 +1350,7 @@ class TestWorkQueueService:
         count trailing failures *across* attempts — could never see past the
         current batch, and the Control Station History panel reset each cycle.
         """
-        from backend.work_queue import ActionRecord
+        from backend.core.work_queue import ActionRecord
 
         svc = self._make_service()
         svc.add(phase=1, category="c", description="d")
@@ -1383,7 +1383,7 @@ class TestWorkQueueService:
         assert svc.next_pending(1) is None
 
     def test_category_failure_count_trailing(self) -> None:
-        from backend.work_queue import ActionRecord
+        from backend.core.work_queue import ActionRecord
 
         svc = self._make_service()
         svc.record_action(
@@ -1398,7 +1398,7 @@ class TestWorkQueueService:
         assert svc.category_failure_count("lint") == 2
 
     def test_category_failure_count_reset_on_success(self) -> None:
-        from backend.work_queue import ActionRecord
+        from backend.core.work_queue import ActionRecord
 
         svc = self._make_service()
         svc.record_action(
@@ -1417,7 +1417,7 @@ class TestWorkQueueService:
         assert svc.category_failure_count("lint") == 0
 
     def test_category_failure_count_ignores_other_categories(self) -> None:
-        from backend.work_queue import ActionRecord
+        from backend.core.work_queue import ActionRecord
 
         svc = self._make_service()
         svc.record_action(
@@ -1434,7 +1434,7 @@ class TestWorkQueueService:
 
 
     def test_broadcast_no_ws_manager(self) -> None:
-        from backend.work_queue import WorkQueueService
+        from backend.core.work_queue import WorkQueueService
 
         svc = WorkQueueService()
         # Should not raise when _ws_manager is None
@@ -1458,7 +1458,7 @@ class TestWorkQueueService:
         assert items[0]["category"] == "c"
 
     def test_all_history_property(self) -> None:
-        from backend.work_queue import ActionRecord
+        from backend.core.work_queue import ActionRecord
 
         svc = self._make_service()
         svc.record_action(ActionRecord(round=1, work_item_id="w1", phase=1, category="c"))
@@ -1475,7 +1475,7 @@ class TestWorkQueueService:
         assert items[0].phase == 1
 
     def test_history_for_category(self) -> None:
-        from backend.work_queue import ActionRecord
+        from backend.core.work_queue import ActionRecord
 
         svc = self._make_service()
         svc.record_action(ActionRecord(round=1, work_item_id="w1", phase=1, category="lint"))
@@ -1485,7 +1485,7 @@ class TestWorkQueueService:
         assert history[0].category == "lint"
 
     def test_initialise_ws_manager(self) -> None:
-        from backend.work_queue import WorkQueueService
+        from backend.core.work_queue import WorkQueueService
 
         svc = WorkQueueService()
         ws = MagicMock()

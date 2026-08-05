@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.config.models import ForgeConfig
-from backend.forge_builder import ForgeBuilder
+from backend.core.forge_builder import ForgeBuilder
 
 
 @pytest.fixture
@@ -76,10 +76,10 @@ async def test_build_wires_graph_pool_and_flow(
     fake_pool = MagicMock()
 
     with (
-        patch("backend.forge_builder.ProjectGraph", return_value=fake_graph),
-        patch("backend.forge_builder.AgentFactory") as fac_cls,
-        patch("backend.forge_builder.PhaseStore") as ps_cls,
-        patch("backend.forge_builder.ForgeFlow") as flow_cls,
+        patch("backend.core.forge_builder.ProjectGraph", return_value=fake_graph),
+        patch("backend.core.forge_builder.AgentFactory") as fac_cls,
+        patch("backend.core.forge_builder.PhaseStore") as ps_cls,
+        patch("backend.core.forge_builder.ForgeFlow") as flow_cls,
     ):
         fac_instance = MagicMock()
         fac_instance.create_pool = AsyncMock(return_value=fake_pool)

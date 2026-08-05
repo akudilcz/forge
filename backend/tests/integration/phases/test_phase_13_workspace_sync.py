@@ -23,7 +23,7 @@ import pytest
 from backend.analysis.gap_analyser import GapAnalyser
 from backend.analysis.gaps import GapType
 from backend.config.models import ForgeConfig
-from backend.forge_builder import ForgeBuilder
+from backend.core.forge_builder import ForgeBuilder
 from backend.graph.models import GraphNode, LifecycleState, NodeType
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.timeout(900)]

@@ -228,7 +228,7 @@ def _init_events(
         "INFO", "SYS  ", "FORGE server starting", startup_event=True,
     )
 
-    from backend.work_queue import work_queue
+    from backend.core.work_queue import work_queue
     work_queue.initialise(ws_manager)
 
     _register_litellm_callback()

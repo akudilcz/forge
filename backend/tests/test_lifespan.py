@@ -182,7 +182,7 @@ class TestStartup:
             patch("backend.server.lifespan.ToolRegistry"),
             patch("backend.server.routers.secrets.inject_secrets_into_env"),
             patch("backend.server.forge_logger.forge_logger"),
-            patch("backend.work_queue.work_queue"),
+            patch("backend.core.work_queue.work_queue"),
             patch("backend.server.lifespan.PhaseStore"),
             patch("backend.server.lifespan.ForgeSession"),
         ):
@@ -315,7 +315,7 @@ class TestInitEvents:
                 "backend.observability.log_retention.prune_old_logs",
                 return_value=7,
             ) as mock_prune,
-            patch("backend.work_queue.work_queue"),
+            patch("backend.core.work_queue.work_queue"),
             patch("backend.server.lifespan._register_litellm_callback"),
             patch("backend.server.lifespan._configure_throttle"),
         ):
@@ -339,7 +339,7 @@ class TestInitEvents:
                 "backend.observability.log_retention.prune_old_logs",
                 side_effect=RuntimeError("db locked"),
             ),
-            patch("backend.work_queue.work_queue"),
+            patch("backend.core.work_queue.work_queue"),
             patch("backend.server.lifespan._register_litellm_callback"),
             patch("backend.server.lifespan._configure_throttle"),
         ):

@@ -6,6 +6,11 @@
 - Keep functions small (no more than 50 lines).
 - Keep files small too (aim for no more than 500 lines).
 - Apply SOLID principles at all times.
+- New backend code lives in the package matching its concern (pipeline /
+  quality / codegen / workspace / rendering / prompting / core / ...) — no new
+  top-level orphan modules.
+- Module names describe the artifact, not its history: no `_helpers`-by-
+  extraction names, no `test_` prefix outside `backend/tests/`.
 - No silent fallbacks: missing preconditions raise loud errors rather than
   degrading output. No default function arguments, no implicit
   `.get(key, default)` fallbacks.
@@ -26,8 +31,8 @@
   requirements embodied in the design material.
 - Whenever new functionality is added or an existing function changes, write or
   update the corresponding tests in `backend/tests/`.
-- Test files mirror the module they cover: `backend/foo/bar.py` →
-  `backend/tests/test_bar.py`.
+- Test files mirror the module they cover, including its package:
+  `backend/foo/bar.py` → `backend/tests/foo/test_bar.py`.
 - Each new public function or method must have at least one happy-path test and
   one error/edge-case test.
 - Run `make test-unit` after every change and fix any failures before considering

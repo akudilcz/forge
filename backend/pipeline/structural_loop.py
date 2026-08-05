@@ -28,9 +28,9 @@ from langgraph.graph import END, StateGraph
 from typing_extensions import TypedDict
 
 from backend.analysis.gaps import Gap
+from backend.core.work_queue import ActionRecord, work_queue
 from backend.pipeline.dispatch import DispatchQuotaError
 from backend.server.forge_logger import forge_logger
-from backend.work_queue import ActionRecord, work_queue
 
 if TYPE_CHECKING:
     from backend.pipeline.flow import ForgeFlow

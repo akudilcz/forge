@@ -188,7 +188,7 @@ async def test_failed_dispatch_resets_wq_status_to_pending(
     flow._collect_phase_gaps.side_effect = collect_side
 
     # Track work_queue.update_status calls
-    from backend.work_queue import work_queue
+    from backend.core.work_queue import work_queue
 
     status_updates: list[tuple[str, str]] = []
     orig_update = work_queue.update_status

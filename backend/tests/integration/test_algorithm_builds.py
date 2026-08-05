@@ -37,7 +37,7 @@ from typing import Any
 import pytest
 
 from backend.config.models import ForgeConfig
-from backend.forge_builder import ForgeBuilder
+from backend.core.forge_builder import ForgeBuilder
 from backend.graph.models import NodeType
 from backend.tests.integration.oracles import (
     binary_search,
