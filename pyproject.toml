@@ -154,7 +154,7 @@ ignore_errors = true
 asyncio_mode = "auto"
 testpaths = ["backend/tests"]
 pythonpath = [".", "workspace"]
-addopts = "--cov=backend --cov-report=term-missing --import-mode=importlib -m 'not integration and not slow'"
+addopts = "--cov=backend --cov-report=term-missing --import-mode=importlib -m 'not integration and not slow' --timeout=120 --timeout-method=thread"
 markers = [
     "integration: end-to-end tests with real LLM agents (slow, requires API key)",
     "slow: tests that run external subprocesses (bazel, docker, etc.) — opt in via -m slow",
