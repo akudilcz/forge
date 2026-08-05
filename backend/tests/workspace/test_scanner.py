@@ -657,3 +657,228 @@ def test_read_log_tail_existing_file(tmp_path: Path) -> None:
 def test_read_log_tail_nonexistent(tmp_path: Path) -> None:
     """Missing file returns empty string."""
     assert _read_log_tail(tmp_path / "nope.log") == ""
+
+
+# ── _run_bazel_tests error handling ─────────────────────────────────────────
+
+
+@patch("backend.workspace.scanner.init_bazel_workspace")
+@patch("backend.workspace.scanner.subprocess.run", side_effect=FileNotFoundError)
+def test_run_tests_bazel_not_on_path(
+    mock_run: MagicMock, mock_init: MagicMock, tmp_path: Path,
+) -> None:
+    """Missing bazel binary yields a clear error, not a crash."""
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("")
+
+    results, lcov, error = _run_tests_and_coverage(tmp_path)
+    assert results == []
+    assert lcov.line_pct is None
+    assert error == "bazel not found on PATH"
+
+
+@patch("backend.workspace.scanner.init_bazel_workspace", side_effect=RuntimeError("boom"))
+def test_run_tests_unexpected_exception_captured(
+    mock_init: MagicMock, tmp_path: Path,
+) -> None:
+    """Any unexpected failure is captured as a test_run_error string."""
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("")
+
+    results, lcov, error = _run_tests_and_coverage(tmp_path)
+    assert results == []
+    assert error == "Bazel test run failed: boom"
+
+
+@patch("backend.workspace.scanner._run_coverage_py")
+@patch("backend.workspace.scanner.init_bazel_workspace")
+@patch("backend.workspace.scanner.subprocess.run")
+def test_run_tests_merges_coverage_junit_results(
+    mock_run: MagicMock, mock_init: MagicMock, mock_cov: MagicMock, tmp_path: Path,
+) -> None:
+    """Fresh coverage JUnit XML results are merged over bazel results."""
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("")
+
+    def fake_bazel(cmd: list[str], **kwargs: object) -> MagicMock:
+        testlog_dir = tmp_path / "bazel-testlogs" / "tests" / "test_x"
+        testlog_dir.mkdir(parents=True)
+        (testlog_dir / "test.xml").write_text(
+            '<testsuite tests="1">\n'
+            '  <testcase classname="tests.test_x" name="test_a" time="0.1">\n'
+            '    <error message="sandbox import error"/>\n'
+            '  </testcase>\n'
+            '</testsuite>\n'
+        )
+        # Coverage run writes its own JUnit XML showing the test passing
+        (tmp_path / "coverage-test-results.xml").write_text(
+            '<testsuite tests="1">\n'
+            '  <testcase classname="tests.test_x" name="test_a" time="0.1"/>\n'
+            '</testsuite>\n'
+        )
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    mock_run.side_effect = fake_bazel
+    mock_cov.return_value = LcovResult(line_pct=88.0)
+
+    results, lcov, error = _run_tests_and_coverage(tmp_path)
+    assert error == ""
+    assert lcov.line_pct == 88.0
+    assert len(results) == 1
+    assert results[0].status == "passed"
+
+
+# ── _run_coverage_py branches ───────────────────────────────────────────────
+
+
+@patch("shutil.which", return_value="/usr/bin/coverage")
+def test_coverage_py_no_test_files_returns_empty(
+    mock_which: MagicMock, tmp_path: Path,
+) -> None:
+    """No test files means no coverage run — empty LcovResult."""
+    from backend.workspace.scanner import _run_coverage_py
+
+    (tmp_path / "tests").mkdir()
+    result = _run_coverage_py(tmp_path)
+    assert result.line_pct is None
+
+
+@patch("backend.workspace.scanner._run_coverage_with_progress")
+@patch("backend.workspace.scanner.subprocess.run")
+@patch("shutil.which", return_value="/usr/bin/coverage")
+def test_coverage_py_exports_lcov_despite_failing_tests(
+    mock_which: MagicMock, mock_run: MagicMock, mock_progress: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """Nonzero pytest rc still exports fresh coverage (failures come via XML)."""
+    import subprocess as _subprocess
+
+    from backend.workspace.scanner import _run_coverage_py
+
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("def test_a(): pass\n")
+
+    mock_progress.return_value = _subprocess.CompletedProcess(
+        args=[], returncode=1, stdout="1 failed", stderr="",
+    )
+
+    def fake_export(cmd: list[str], **kwargs: object) -> MagicMock:
+        Path(cmd[-1]).write_text(
+            "SF:src/foo.py\nDA:1,1\nDA:2,0\nLF:2\nLH:1\nend_of_record\n"
+        )
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    mock_run.side_effect = fake_export
+    result = _run_coverage_py(tmp_path)
+    assert result.line_pct == 50.0
+    assert result.uncovered_lines["src/foo.py"] == [2]
+
+
+@patch("backend.workspace.scanner._run_coverage_with_progress")
+@patch("backend.workspace.scanner.subprocess.run")
+@patch("shutil.which", return_value="/usr/bin/coverage")
+def test_coverage_py_export_failure_raises(
+    mock_which: MagicMock, mock_run: MagicMock, mock_progress: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """A failing LCOV export raises loudly instead of returning stale data."""
+    import subprocess as _subprocess
+
+    import pytest
+
+    from backend.workspace.scanner import _run_coverage_py
+
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("def test_a(): pass\n")
+
+    mock_progress.return_value = _subprocess.CompletedProcess(
+        args=[], returncode=0, stdout="", stderr="",
+    )
+    mock_run.return_value = MagicMock(returncode=2, stdout="", stderr="no data")
+
+    with pytest.raises(RuntimeError, match="coverage lcov export failed"):
+        _run_coverage_py(tmp_path)
+
+
+# ── _run_coverage_with_progress / _collect_coverage_output ──────────────────
+
+
+@patch("backend.workspace.scanner.subprocess.Popen")
+def test_run_coverage_with_progress_collects_output(
+    mock_popen: MagicMock, tmp_path: Path,
+) -> None:
+    """Progress lines are parsed into pass/fail counts and joined stdout."""
+    from backend.workspace.scanner import _run_coverage_with_progress
+
+    fake_proc = MagicMock()
+    fake_proc.stdout = iter([
+        "tests/test_a.py::test_one PASSED\n",
+        "collected PASSED banner without separator\n",
+        "tests/test_b.py::test_two FAILED\n",
+        "another FAILED line\n",
+        "tests/test_c.py ERROR at collection\n",
+        "plain output line\n",
+    ])
+    fake_proc.returncode = 1
+    fake_proc.wait.return_value = 1
+    mock_popen.return_value = fake_proc
+
+    result = _run_coverage_with_progress("/usr/bin/coverage", tmp_path, {})
+    assert result.returncode == 1
+    assert "plain output line" in result.stdout
+    assert "tests/test_a.py::test_one PASSED" in result.stdout
+    cmd = mock_popen.call_args[0][0]
+    assert cmd[0] == "/usr/bin/coverage"
+    assert "--branch" in cmd
+
+
+def test_collect_coverage_output_requires_stdout_pipe() -> None:
+    """A subprocess started without stdout=PIPE is a programming error."""
+    import pytest
+
+    from backend.workspace.scanner import _collect_coverage_output
+
+    fake_proc = MagicMock()
+    fake_proc.stdout = None
+    with pytest.raises(RuntimeError, match="stdout=PIPE"):
+        _collect_coverage_output(fake_proc)
+
+
+def test_collect_coverage_output_counts_passes_and_failures() -> None:
+    """PASSED/FAILED/ERROR lines increment the respective counters."""
+    from backend.workspace.scanner import _collect_coverage_output
+
+    fake_proc = MagicMock()
+    fake_proc.stdout = iter([
+        "tests/test_a.py::test_one PASSED\n",
+        "tests/test_a.py::test_two PASSED\n",
+        "tests/test_b.py::test_bad FAILED\n",
+        "tests/test_c.py ERROR at setup\n",
+    ])
+    lines, passed, failed = _collect_coverage_output(fake_proc)
+    assert passed == 2
+    assert failed == 2
+    assert len(lines) == 4
+
+
+# ── scan_workspace branch coverage reporting ────────────────────────────────
+
+
+@patch("backend.workspace.scanner._run_tests_and_coverage")
+async def test_scan_workspace_reports_branch_coverage(
+    mock_tests: MagicMock, tmp_path: Path,
+) -> None:
+    """Branch coverage from LCOV flows into WorkspaceState."""
+    mock_tests.return_value = ([], LcovResult(line_pct=80.0, branch_pct=70.0), "")
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+
+    state = await scan_workspace(tmp_path)
+    assert state.coverage_pct == 80.0
+    assert state.branch_coverage_pct == 70.0
