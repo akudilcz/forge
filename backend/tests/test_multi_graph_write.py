@@ -144,3 +144,30 @@ def test_mixed_operations_partial_success() -> None:
     result = tool._execute(operations=ops)
     assert "1/2 operations succeeded" in result
     assert "Errors" in result
+
+
+def test_error_results_collected_and_success_section_omitted() -> None:
+    graph = _make_graph()
+    graph.node_sync = MagicMock(return_value=None)
+    tool = MultiGraphWriteTool(graph=graph)
+    ops = json.dumps([
+        {"operation": "update_trace", "node_id": "ghost", "trace_to": '["A"]'},
+    ])
+    result = tool._execute(operations=ops)
+    assert "0/1 operations succeeded." in result
+    assert "Errors:" in result
+    assert "Results:" not in result
+    assert "ERROR: Node not found: ghost" in result
+
+
+def test_run_async_failure_wrapped(monkeypatch) -> None:
+    import backend.tools.multi_graph_write as mgw
+
+    def _boom(coro, **kwargs):
+        coro.close()
+        raise RuntimeError("loop broke")
+
+    monkeypatch.setattr(mgw, "run_async", _boom)
+    tool = MultiGraphWriteTool(graph=_make_graph())
+    result = tool._execute(operations='[{"operation": "delete_node", "node_id": "x"}]')
+    assert result == "ERROR: loop broke"

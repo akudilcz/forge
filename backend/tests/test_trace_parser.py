@@ -113,3 +113,114 @@ def test_total_functions_count() -> None:
     analysis = analyse_traces(code)
     assert analysis.total_functions == 2
     assert analysis.traced_functions == 1
+
+
+# ── Decorator-shape edge cases ───────────────────────────────────────────────
+
+
+def test_bare_traces_decorator_without_call_yields_no_traces() -> None:
+    """A bare ``@traces`` (no parentheses) is not a valid annotation."""
+    code = (
+        "@traces\n"
+        "def foo():\n"
+        "    return 1\n"
+    )
+    assert parse_llr_traces(code) == []
+
+
+def test_unrelated_call_decorator_is_ignored() -> None:
+    """Call decorators with other names (e.g. pytest marks) are not traces."""
+    code = (
+        '@pytest.mark.parametrize("x", [1])\n'
+        "def test_foo(x):\n"
+        "    assert x\n"
+    )
+    assert parse_llr_traces(code) == []
+
+
+def test_non_string_positional_args_are_skipped() -> None:
+    """Non-string positional args in @traces do not become LLR IDs."""
+    code = (
+        '@traces(123, "LLR-002")\n'
+        "def foo():\n"
+        "    return 1\n"
+    )
+    traces = parse_llr_traces(code)
+    assert traces[0].llr_ids == ["LLR-002"]
+
+
+def test_non_case_keyword_is_ignored() -> None:
+    """Keywords other than ``case=`` contribute no CASE IDs."""
+    code = (
+        '@traces("LLR-001", note="irrelevant")\n'
+        "def foo():\n"
+        "    return 1\n"
+    )
+    traces = parse_llr_traces(code)
+    assert traces[0].case_ids == []
+
+
+def test_non_string_case_value_is_ignored() -> None:
+    """A ``case=`` value that is neither a string nor a list yields nothing."""
+    code = (
+        '@traces("LLR-001", case=42)\n'
+        "def foo():\n"
+        "    return 1\n"
+    )
+    assert parse_llr_traces(code)[0].case_ids == []
+
+
+def test_case_list_with_non_string_elements_keeps_only_strings() -> None:
+    code = (
+        '@traces("LLR-001", case=["CASE-001", 7])\n'
+        "def foo():\n"
+        "    return 1\n"
+    )
+    assert parse_llr_traces(code)[0].case_ids == ["CASE-001"]
+
+
+def test_attribute_decorator_name_resolves_to_trailing_attr() -> None:
+    """``@tracing.traces(...)`` resolves via the trailing attribute name."""
+    code = (
+        '@tracing.traces("LLR-009")\n'
+        "def foo():\n"
+        "    return 1\n"
+    )
+    assert parse_llr_traces(code)[0].llr_ids == ["LLR-009"]
+
+
+def test_complex_decorator_expression_yields_no_name() -> None:
+    """A decorator whose func is itself a call has no resolvable name."""
+    code = (
+        '@make_decorator()("LLR-001")\n'
+        "def foo():\n"
+        "    return 1\n"
+    )
+    assert parse_llr_traces(code) == []
+
+
+def test_protocol_class_methods_are_exempt_from_tracing() -> None:
+    """Protocol classes declare interfaces — methods need no @traces."""
+    code = (
+        "from typing import Protocol\n"
+        "class Reader(Protocol):\n"
+        "    def read(self) -> str: ...\n"
+    )
+    analysis = analyse_traces(code)
+    assert analysis.total_functions == 0
+
+
+def test_walker_descends_nested_module_nodes() -> None:
+    """The AST walker recurses through Module children of synthetic wrappers."""
+    import ast
+
+    from backend.crew.trace_parser import _ScopedFunc, _walk_ast
+
+    class _Wrapper(ast.AST):
+        _fields = ("body",)
+
+    wrapper = _Wrapper()
+    wrapper.body = ast.parse("def foo():\n    pass\n")
+    out: list[_ScopedFunc] = []
+    _walk_ast(wrapper, out)
+    assert [s.node.name for s in out] == ["foo"]

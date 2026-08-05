@@ -10,6 +10,7 @@ from langgraph.prebuilt import create_react_agent
 
 from backend.agents.definitions import AGENT_REGISTRY, GAP_AGENT_MAPPING, AgentDefinition, AgentRole
 from backend.agents.gap_prompts import get_default_gap_prompt, has_default_gap_prompt
+from backend.agents.llm_cache import SQLiteLLMCache, resolve_cache_db_path
 from backend.agents.throttle import llm_throttle
 from backend.analysis.gaps import GapType
 from backend.config.models import ForgeConfig
@@ -301,6 +302,8 @@ def build_llm(
     config: ForgeConfig,
     model: str | None = None,
     temperature: float | None = None,
+    *,
+    cacheable: bool,
 ) -> ThrottledChatOpenAI:
     """Create a ThrottledChatOpenAI instance from forge config.
 
@@ -310,6 +313,14 @@ def build_llm(
         config: Forge configuration (single source of truth for LLM settings).
         model: Explicit model name; falls back to Quality Auditor's configured model.
         temperature: Explicit temperature; falls back to config default.
+        cacheable: Whether this model may serve responses from the local
+            SQLite response cache. Deliberately has no default — every
+            construction site states its cache participation explicitly.
+            Sites that rely on genuinely independent repeated sampling
+            (the semantic-dedup double confirmation) must pass False;
+            everything else passes True. Only non-streaming
+            ``.invoke``/``.ainvoke`` calls actually consult the cache.
+            See design/01_architecture.md §7.4.
 
     Raises:
         RuntimeError: when the endpoint is not explicitly keyless
@@ -321,6 +332,13 @@ def build_llm(
     api_key = _resolve_api_key(config)
     model_name = model or config.llm.agents[AgentRole.QUALITY_AUDITOR.value]
     temp = temperature if temperature is not None else config.llm.options.temperature
+
+    # cache=False also opts the model out of any global LangChain cache —
+    # a non-cacheable model can never be served a replayed response.
+    cache: SQLiteLLMCache | bool = False
+    if cacheable and config.llm.cache_enabled:
+        cache = SQLiteLLMCache(resolve_cache_db_path(config.llm.cache_dir))
+
     import httpx
 
     # Short connect timeout, long read timeout for streaming responses
@@ -340,6 +358,7 @@ def build_llm(
         # no retry loop of their own — one transient 429/5xx must not kill a
         # check, so the client retries transient transport failures itself.
         max_retries=2,
+        cache=cache,
     )
 
 
@@ -410,7 +429,7 @@ class AgentFactory:
             else self._registry.get_tools_for_role(definition.role)
         )
         model_name = self._config.llm.agents[definition.role.value]
-        llm = build_llm(self._config, model=model_name)
+        llm = build_llm(self._config, model=model_name, cacheable=True)
         prompt = prompt_override or get_prompt(definition.role.value)
         ctx_window = self._config.llm.context_window_for_model(model_name)
         return create_react_agent(

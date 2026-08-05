@@ -318,3 +318,34 @@ def test_all_operator_tools_are_console_only() -> None:
             assert op_names.issubset(allowed), f"Console missing: {op_names - allowed}"
         else:
             assert not (op_names & allowed), f"{role.value} should not have: {op_names & allowed}"
+
+
+# ── residual operator tool coverage ───────────────────────────────────
+
+
+def test_operator_tool_invoke_not_implemented() -> None:
+    tool = _make_tool(_OperatorTool, MagicMock())
+    with pytest.raises(NotImplementedError):
+        tool._execute()
+
+
+def test_scan_quality_tool_invokes_service() -> None:
+    from backend.tools.operator import ScanQualityTool
+
+    service = MagicMock()
+    service.run_on_main_loop = MagicMock(return_value={"quality_gaps": 3})
+    tool = _make_tool(ScanQualityTool, service)
+    result = json.loads(tool._invoke(phase=4))
+    assert result == {"quality_gaps": 3}
+    service.scan_quality.assert_called_once_with(4)
+
+
+def test_qual_check_tool_invokes_service() -> None:
+    from backend.tools.operator import QualCheckTool
+
+    service = MagicMock()
+    service.run_on_main_loop = MagicMock(return_value={"dispatched": True})
+    tool = _make_tool(QualCheckTool, service)
+    result = json.loads(tool._invoke(phase=2))
+    assert result == {"dispatched": True}
+    service.qual_check.assert_called_once_with(2)

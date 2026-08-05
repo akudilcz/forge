@@ -880,3 +880,121 @@ def test_build_error_summaries_no_message_or_detail() -> None:
     summaries = _build_error_summaries([r])
     assert len(summaries) == 1
     assert "(no error detail)" in summaries[0]
+
+
+# ── Build-env-aware dependency error classification ─────────────────────────
+
+
+def _failing_result(msg: str) -> SingleTestResult:
+    return SingleTestResult(
+        test_id="tests/test_a.py::test_x", file_path="tests/test_a.py",
+        function_name="test_x", status="error",
+        error_message=msg, error_detail="",
+    )
+
+
+def test_partition_dep_errors_uses_detected_build_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any,
+) -> None:
+    """With FORGE_WORKSPACE set, the detected build env classifies imports."""
+    from unittest.mock import MagicMock, patch
+
+    monkeypatch.setenv("FORGE_WORKSPACE", str(tmp_path))
+    build_env = MagicMock()
+    build_env.is_import_error.return_value = "numpy"
+    with patch(
+        "backend.crew.build_env.detect_build_environment", return_value=build_env,
+    ):
+        dep_errors, other = _partition_dep_errors([_failing_result("boom")])
+    assert other == []
+    assert dep_errors[0][1] == "numpy"
+
+
+def test_report_dep_error_clusters_uses_build_env_manifest_and_hint(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any,
+) -> None:
+    """Detected build env supplies the manifest name and the fix hint."""
+    from unittest.mock import MagicMock, patch
+
+    monkeypatch.setenv("FORGE_WORKSPACE", str(tmp_path))
+    build_env = MagicMock()
+    build_env.manifest_file.return_value = "pyproject.toml"
+    build_env.fix_hint_for_missing_dep.return_value = "Add numpy to pyproject.toml"
+    gaps: list[Gap] = []
+    with patch(
+        "backend.crew.build_env.detect_build_environment", return_value=build_env,
+    ):
+        _report_dep_error_clusters(gaps, [(_failing_result("x"), "numpy")])
+    assert gaps[0].kind == GapKind.TEST_ENV_BROKEN
+    assert gaps[0].file_path == "pyproject.toml"
+    assert "Add numpy to pyproject.toml" in gaps[0].details
+
+
+# ── Long requirement text truncation ─────────────────────────────────────────
+
+
+def test_unimplemented_requirement_truncates_long_content() -> None:
+    """LLR content over 240 chars is elided in the gap details."""
+    long_text = "The system shall " + "x" * 300
+    graph = _fake_graph([FakeNode("LLR-1", "LLR", content=long_text)])
+    gaps = find_gaps({}, {}, [], graph)
+    unimpl = [g for g in gaps if g.kind == GapKind.UNIMPLEMENTED_REQUIREMENT]
+    assert "…" in unimpl[0].details
+
+
+def test_uncovered_requirement_truncates_long_content() -> None:
+    long_text = "The system shall " + "y" * 300
+    graph = _fake_graph([FakeNode("LLR-1", "LLR", content=long_text)])
+    gaps: list[Gap] = []
+    _check_uncovered_requirement(gaps, {}, [], graph)
+    assert "…" in gaps[0].details
+
+
+# ── Uncovered-requirement evidence rules ─────────────────────────────────────
+
+
+def test_uncovered_requirement_ignores_results_without_function_name() -> None:
+    """File-level stub results are not evidence of coverage."""
+    graph = _fake_graph([FakeNode("LLR-1", "LLR", content="Shall do X.")])
+    stub = SingleTestResult(
+        test_id="tests/test_a.py", file_path="tests/test_a.py",
+        function_name="", status="passed",
+    )
+    test_files = {
+        "tests/test_a.py": FileState(
+            path="tests/test_a.py",
+            traces=[LineTrace(start=1, end=3, llr_ids=["LLR-1"], symbol="test_x")],
+        ),
+    }
+    gaps: list[Gap] = []
+    _check_uncovered_requirement(gaps, test_files, [stub], graph)
+    assert gaps[0].kind == GapKind.UNCOVERED_REQUIREMENT
+
+
+def test_uncovered_requirement_skipped_status_is_not_evidence() -> None:
+    """A skipped test neither passes nor fails — it provides no coverage."""
+    graph = _fake_graph([FakeNode("LLR-1", "LLR", content="Shall do X.")])
+    skipped = SingleTestResult(
+        test_id="tests/test_a.py::test_x", file_path="tests/test_a.py",
+        function_name="test_x", status="skipped",
+    )
+    test_files = {
+        "tests/test_a.py": FileState(
+            path="tests/test_a.py",
+            traces=[LineTrace(start=1, end=3, llr_ids=["LLR-1"], symbol="test_x")],
+        ),
+    }
+    gaps: list[Gap] = []
+    _check_uncovered_requirement(gaps, test_files, [skipped], graph)
+    assert len(gaps) == 1
+
+
+def test_uncovered_requirement_cites_linked_case_llr() -> None:
+    """The gap hint names the planned CASE_LLR tracing to the requirement."""
+    graph = _fake_graph([
+        FakeNode("LLR-1", "LLR", content="Shall do X."),
+        FakeNode("CASE_LLR-9", "CASE_LLR", content="Test X.", trace_to=["LLR-1"]),
+    ])
+    gaps: list[Gap] = []
+    _check_uncovered_requirement(gaps, {}, [], graph)
+    assert "CASE_LLR-9" in gaps[0].details

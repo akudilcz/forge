@@ -487,3 +487,139 @@ async def aiter_empty() -> AsyncIterator[Any]:
     """An empty async iterator for mocking iter_agent_turns."""
     return
     yield  # unreachable — makes this an async generator
+
+
+# ── Coverage: context sections, OSError handling, prompts, breakdown ────────
+
+
+class TestContextSections:
+    def test_module_contract_child_included(self, tmp_path: Path) -> None:
+        """A CONTRACT child of a MODULE is rendered under the module."""
+        mod = _node("MOD-1", "MODULE", "Core", "core logic")
+        contract = _node("CON-1", "CONTRACT", "API", "def run() -> bool")
+        graph = MagicMock()
+        graph.all_nodes.return_value = [mod, contract]
+        graph.children_sync.return_value = [contract]
+        result = build_mission_context(graph, tmp_path)
+        assert "CONTRACT: CON-1" in result
+        assert "def run() -> bool" in result
+
+    def test_suite_strategy_included(self, tmp_path: Path) -> None:
+        suite = _node("SUITE-1", "SUITE", "Strategy", "unit + integration")
+        graph = MagicMock()
+        graph.all_nodes.return_value = [suite]
+        graph.children_sync.return_value = []
+        result = build_mission_context(graph, tmp_path)
+        assert "TEST STRATEGY (SUITE SUITE-1)" in result
+
+
+class TestOsErrorHandling:
+    def test_rendered_doc_read_error_is_skipped(self, tmp_path: Path) -> None:
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "07-LLR.md").write_text("llr text", encoding="utf-8")
+        sections: list[str] = []
+        with patch.object(Path, "read_text", side_effect=OSError("io")):
+            _include_rendered_docs(tmp_path, sections)
+        assert sections == []
+
+    def test_tracing_source_read_error_is_skipped(self, tmp_path: Path) -> None:
+        tracing = tmp_path / "tracing"
+        tracing.mkdir()
+        (tracing / "decorator.py").write_text("def traces(): ...", encoding="utf-8")
+        sections: list[str] = []
+        with patch.object(Path, "read_text", side_effect=OSError("io")):
+            _include_tracing_source(tmp_path, sections)
+        assert sections == []
+
+    def test_existing_file_read_error_is_skipped(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.py").write_text("x = 1", encoding="utf-8")
+        sections: list[str] = []
+        with patch.object(Path, "read_text", side_effect=OSError("io")):
+            _include_existing_files(tmp_path, sections)
+        assert sections == []
+
+
+class TestFormatGapsDetails:
+    def test_gap_details_are_rendered(self) -> None:
+        gap = _gap(
+            kind_name="FAILING_TESTS", file_path="tests/test_a.py",
+            details="2 failing test(s)",
+        )
+        out = format_gaps([gap])
+        assert "2 failing test(s)" in out
+
+
+class TestExtraPrompt:
+    @pytest.mark.asyncio
+    async def test_extra_prompt_is_appended_to_mission_prompt(
+        self, tmp_path: Path,
+    ) -> None:
+        config = MagicMock()
+        config.llm.model_for_phase.return_value = "test"
+        ws = _ws_state()
+
+        with (
+            patch("backend.crew.mission_agent.build_mission_context", return_value="ctx"),
+            patch("backend.crew.mission_agent.create_mission_agent"),
+            patch(
+                "backend.crew.mission_agent.scan_workspace",
+                new_callable=AsyncMock, return_value=ws,
+            ),
+            patch("backend.crew.mission_agent.find_gaps", return_value=[]),
+            patch(
+                "backend.crew.mission_agent._run_agent_iteration",
+                new_callable=AsyncMock, return_value=0,
+            ) as run_iter,
+            patch("backend.crew.mission_agent.work_queue"),
+            patch("backend.crew.mission_agent.forge_logger"),
+        ):
+            await run_mission_agent(
+                tmp_path, MagicMock(), config, [], extra_prompt="FOCUS ON X",
+            )
+        prompt = run_iter.await_args_list[0].args[1]
+        assert "FOCUS ON X" in prompt
+
+
+class TestBuildFollowupPrompt:
+    def test_uncovered_requirements_highlighted(self) -> None:
+        """Uncovered-requirement gaps get their own priority section."""
+        from backend.crew.mission_agent import _build_followup_prompt
+
+        gaps = [
+            _gap(
+                kind_name="UNCOVERED_REQUIREMENT", node_id="LLR-7",
+                details="no passing traced test",
+            ),
+        ]
+        out = _build_followup_prompt("ctx", gaps, 2)
+        assert "UNCOVERED REQUIREMENTS (1)" in out
+        assert "LLR-7: no passing traced test" in out
+        assert "OTHER REMAINING GAPS" not in out
+
+    def test_other_gaps_rendered_without_uncovered_section(self) -> None:
+        from backend.crew.mission_agent import _build_followup_prompt
+
+        gaps = [_gap(kind_name="MISSING_TEST", file_path="tests/test_a.py")]
+        out = _build_followup_prompt("ctx", gaps, 3)
+        assert "OTHER REMAINING GAPS (1)" in out
+        assert "UNCOVERED REQUIREMENTS" not in out
+
+
+class TestScoreBreakdownDetails:
+    def test_failed_tests_and_uncovered_lines_reported(self) -> None:
+        result_pass = MagicMock(status="passed")
+        result_fail = MagicMock(status="failed")
+        ws = _ws_state(test_results=[result_pass, result_fail])
+        ws.coverage_pct = 50.0
+        ws.branch_coverage_pct = None
+        ws.uncovered_lines = {"src/a.py": [3, 4], "src/empty.py": []}
+        graph = MagicMock()
+        graph.all_nodes.return_value = []
+        out = _score_breakdown(ws, graph)
+        assert "(1 FAILING)" in out
+        assert "UNCOVERED in src/a.py: lines 3, 4" in out
+        assert "src/empty.py" not in out
+        assert "MC/DC" not in out

@@ -92,3 +92,27 @@ def test_graph_unavailable() -> None:
     tool = GraphBulkDeleteTool(None)
     result = tool._execute(node_type="HLR")
     assert "ERROR: Graph not available" in result
+
+
+def test_invalid_node_ids_json(mock_graph: MagicMock) -> None:
+    tool = GraphBulkDeleteTool(graph=mock_graph)
+    result = tool._execute(node_ids="[not json", dry_run="true")
+    assert result.startswith("ERROR: Invalid JSON in node_ids:")
+
+
+def test_graph_failure_wrapped_as_error(mock_graph: MagicMock) -> None:
+    mock_graph.all_nodes.side_effect = RuntimeError("graph offline")
+    tool = GraphBulkDeleteTool(graph=mock_graph)
+    result = tool._execute(node_type="PARA", dry_run="true")
+    assert result == "ERROR: graph offline"
+
+
+def test_delete_reports_per_node_errors(mock_graph: MagicMock) -> None:
+    mock_graph.delete_node = AsyncMock(
+        side_effect=[None, RuntimeError("locked")],
+    )
+    tool = GraphBulkDeleteTool(graph=mock_graph)
+    result = tool._execute(node_type="PARA", dry_run="false")
+    assert "OK: 1 node(s) deleted." in result
+    assert "Errors:" in result
+    assert "PARA-002: locked" in result

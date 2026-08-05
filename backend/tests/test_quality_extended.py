@@ -236,3 +236,125 @@ async def test_run_design_consolidation_no_modules() -> None:
     # Function scans for MODULEs; with none present, returns 0.
     result = await run_design_consolidation(flow)
     assert result == 0
+
+
+# ── Cache participation at construction sites (design §7.4) ──────────────────
+
+
+def test_semantic_checker_llm_is_not_cacheable() -> None:
+    """The dedup double-confirmation sends byte-identical prompts twice; a
+    response cache would replay the first verdict and make the second call
+    vacuous. This site must construct its LLM with cacheable=False."""
+    from backend.crew.quality import _build_semantic_checker
+
+    flow = MagicMock()
+    flow._semantic_verdict_cache = {}
+    with patch("backend.agents.factory.build_llm", return_value=MagicMock()) as build:
+        _build_semantic_checker(flow)
+    assert build.call_args.kwargs["cacheable"] is False
+
+
+def test_design_consolidator_llm_is_cacheable() -> None:
+    """Ordinary single-shot judgment sites opt into the response cache."""
+    from backend.crew.quality import _build_design_consolidator
+
+    flow = MagicMock()
+    with patch("backend.agents.factory.build_llm", return_value=MagicMock()) as build:
+        _build_design_consolidator(flow)
+    assert build.call_args.kwargs["cacheable"] is True
+
+
+# ── run_semantic_check: skip guards and deletion accounting ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_semantic_check_skips_candidate_with_no_peers() -> None:
+    """A candidate whose peers all lack content is skipped, not judged."""
+    nodes = [
+        _node("LLR-1", "LLR", content=""),  # canonical, but empty → no peer text
+        _node("LLR-2", "LLR", content="The system shall do X."),
+    ]
+    flow = _flow(nodes)
+    checker = AsyncMock()
+    flow._build_semantic_checker.return_value = checker
+    deleted = await run_semantic_check(flow, 7)
+    assert deleted == 0
+    checker.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_semantic_check_skips_candidate_with_children() -> None:
+    """Container nodes (with children) are never dedup candidates."""
+    nodes = [
+        _node("HLR-1", "HLR", content="Shall be fast."),
+        _node("HLR-2", "HLR", content="Shall be fast indeed."),
+        _node("LLR-1", "LLR", parent_id="HLR-2", content="child"),
+    ]
+    flow = _flow(nodes)
+    checker = AsyncMock()
+    flow._build_semantic_checker.return_value = checker
+    await run_semantic_check(flow, 3)
+    checker.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_semantic_check_evaluates_llr_with_same_type_siblings() -> None:
+    """An LLR with same-type siblings passes the sole-coverage guard."""
+    nodes = [
+        _node("HLR-1", "HLR", content="Parent HLR."),
+        _node("LLR-1", "LLR", parent_id="HLR-1", content="Shall do A."),
+        _node("LLR-2", "LLR", parent_id="HLR-1", content="Shall do A again."),
+    ]
+    flow = _flow(nodes)
+    checker = AsyncMock()
+    flow._build_semantic_checker.return_value = checker
+    await run_semantic_check(flow, 7)
+    checker.assert_awaited_once()
+    assert checker.await_args.args[0] == "LLR-2"
+
+
+@pytest.mark.asyncio
+async def test_semantic_check_evaluates_cases_with_overlapping_traces() -> None:
+    """CASE nodes sharing a trace_to target are compared for duplication."""
+    nodes = [
+        _node("CASE_LLR-1", "CASE_LLR", content="Verify X.", trace_to=["LLR-1"]),
+        _node("CASE_LLR-2", "CASE_LLR", content="Verify X too.", trace_to=["LLR-1"]),
+    ]
+    flow = _flow(nodes)
+    checker = AsyncMock()
+    flow._build_semantic_checker.return_value = checker
+    await run_semantic_check(flow, 10)
+    checker.assert_awaited_once()
+    # Content passed to the checker is prefixed with the trace_to list.
+    assert "trace_to=" in checker.await_args.args[1]
+
+
+@pytest.mark.asyncio
+async def test_semantic_check_resets_owner_phase_after_deletion() -> None:
+    """When the checker deletes a duplicate, its authoring phase resets."""
+    nodes = [
+        _node("HLR-1", "HLR", content="Parent HLR."),
+        _node("LLR-1", "LLR", parent_id="HLR-1", content="Shall do A."),
+        _node("LLR-2", "LLR", parent_id="HLR-1", content="Shall do A again."),
+    ]
+    flow = _flow(nodes)
+
+    async def _delete_duplicate(node_id: str, content: str, peers: str) -> None:
+        nodes[:] = [n for n in nodes if n.node_id != node_id]
+
+    flow._build_semantic_checker.return_value = AsyncMock(side_effect=_delete_duplicate)
+    deleted = await run_semantic_check(flow, 7)
+    assert deleted == 1
+    flow._set_phase_status.assert_called_once_with(7, "pending")
+
+
+# ── run_design_consolidation: no candidates ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_design_consolidation_no_candidates_returns_zero() -> None:
+    """Modules exist but none has DESIGN sprawl — nothing to consolidate."""
+    flow = _flow([_node("MODULE-1", "MODULE", content="Core.")])
+    flow._modules_needing_consolidation.return_value = []
+    assert await run_design_consolidation(flow) == 0
+    flow._build_design_consolidator.assert_not_called()

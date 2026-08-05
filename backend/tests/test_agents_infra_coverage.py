@@ -289,7 +289,9 @@ class TestGapPrompts:
             assert gap_inherits_from_role("UNCOVERED_PARA") is False
 
 
-def _llm_config(*, keyless: bool, api_key_env: str) -> MagicMock:
+def _llm_config(
+    *, keyless: bool, api_key_env: str, cache_enabled: bool, cache_dir: str
+) -> MagicMock:
     config = MagicMock()
     config.llm.keyless = keyless
     config.llm.api_key_env = api_key_env
@@ -297,16 +299,20 @@ def _llm_config(*, keyless: bool, api_key_env: str) -> MagicMock:
     config.llm.base_url = "http://localhost:11434/v1"
     config.llm.options.temperature = 0.7
     config.llm.request_timeout = 120
+    config.llm.cache_enabled = cache_enabled
+    config.llm.cache_dir = cache_dir
     return config
 
 
 class TestBuildLLM:
     def test_build_llm_defaults(self) -> None:
-        config = _llm_config(keyless=False, api_key_env="MY_KEY")
+        config = _llm_config(
+            keyless=False, api_key_env="MY_KEY", cache_enabled=False, cache_dir=".cache"
+        )
 
         with patch.dict("os.environ", {"MY_KEY": "test-key"}):
             with patch("backend.agents.factory.ThrottledChatOpenAI") as mock_llm:
-                build_llm(config)
+                build_llm(config, cacheable=True)
                 kw = mock_llm.call_args[1]
                 assert kw["model"] == "qwen-72b"
                 assert kw["api_key"] == "test-key"
@@ -314,19 +320,23 @@ class TestBuildLLM:
 
     def test_build_llm_retries_transient_failures(self) -> None:
         """One transient network error must not kill a check outright."""
-        config = _llm_config(keyless=False, api_key_env="MY_KEY")
+        config = _llm_config(
+            keyless=False, api_key_env="MY_KEY", cache_enabled=False, cache_dir=".cache"
+        )
 
         with patch.dict("os.environ", {"MY_KEY": "test-key"}):
             with patch("backend.agents.factory.ThrottledChatOpenAI") as mock_llm:
-                build_llm(config)
+                build_llm(config, cacheable=True)
                 assert mock_llm.call_args[1]["max_retries"] >= 2
 
     def test_build_llm_explicit_model_and_temp(self) -> None:
-        config = _llm_config(keyless=False, api_key_env="MY_KEY")
+        config = _llm_config(
+            keyless=False, api_key_env="MY_KEY", cache_enabled=False, cache_dir=".cache"
+        )
 
         with patch.dict("os.environ", {"MY_KEY": "test-key"}):
             with patch("backend.agents.factory.ThrottledChatOpenAI") as mock_llm:
-                build_llm(config, model="custom-model", temperature=0.2)
+                build_llm(config, model="custom-model", temperature=0.2, cacheable=True)
                 kw = mock_llm.call_args[1]
                 assert kw["model"] == "custom-model"
                 assert kw["temperature"] == 0.2
@@ -334,37 +344,119 @@ class TestBuildLLM:
     def test_build_llm_raises_when_api_key_env_unset(self) -> None:
         """A missing key is a configuration error at construction — never a
         silent 'ollama' fallback that surfaces as mid-run 401s."""
-        config = _llm_config(keyless=False, api_key_env="MISSING_KEY_XYZ")
+        config = _llm_config(
+            keyless=False, api_key_env="MISSING_KEY_XYZ", cache_enabled=False, cache_dir=".cache"
+        )
 
         with patch.dict("os.environ", {}, clear=True):
             with patch("backend.agents.factory.ThrottledChatOpenAI"):
                 with pytest.raises(RuntimeError, match="MISSING_KEY_XYZ"):
-                    build_llm(config)
+                    build_llm(config, cacheable=True)
 
     def test_build_llm_raises_when_api_key_env_empty_string(self) -> None:
-        config = _llm_config(keyless=False, api_key_env="EMPTY_KEY")
+        config = _llm_config(
+            keyless=False, api_key_env="EMPTY_KEY", cache_enabled=False, cache_dir=".cache"
+        )
 
         with patch.dict("os.environ", {"EMPTY_KEY": ""}):
             with patch("backend.agents.factory.ThrottledChatOpenAI"):
                 with pytest.raises(RuntimeError, match="EMPTY_KEY"):
-                    build_llm(config)
+                    build_llm(config, cacheable=True)
 
     def test_build_llm_raises_when_api_key_env_name_blank(self) -> None:
-        config = _llm_config(keyless=False, api_key_env="")
+        config = _llm_config(
+            keyless=False, api_key_env="", cache_enabled=False, cache_dir=".cache"
+        )
 
         with patch("backend.agents.factory.ThrottledChatOpenAI"):
             with pytest.raises(RuntimeError, match="api_key_env"):
-                build_llm(config)
+                build_llm(config, cacheable=True)
 
     def test_build_llm_keyless_endpoint_needs_no_key(self) -> None:
         """llm.keyless = true is the explicit opt-in for local keyless
         endpoints (e.g. Ollama) — a placeholder key is used."""
-        config = _llm_config(keyless=True, api_key_env="")
+        config = _llm_config(
+            keyless=True, api_key_env="", cache_enabled=False, cache_dir=".cache"
+        )
 
         with patch.dict("os.environ", {}, clear=True):
             with patch("backend.agents.factory.ThrottledChatOpenAI") as mock_llm:
-                build_llm(config)
+                build_llm(config, cacheable=True)
                 assert mock_llm.call_args[1]["api_key"] == "ollama"
+
+    def test_build_llm_cacheable_requires_explicit_argument(self) -> None:
+        """cacheable has no default — every construction site must state its
+        cache participation explicitly (independence exemption, §7.4)."""
+        config = _llm_config(
+            keyless=True, api_key_env="", cache_enabled=True, cache_dir=".cache"
+        )
+
+        with patch("backend.agents.factory.ThrottledChatOpenAI"):
+            with pytest.raises(TypeError, match="cacheable"):
+                build_llm(config)  # type: ignore[call-arg]
+
+    def test_build_llm_cacheable_true_gets_sqlite_cache(self, tmp_path) -> None:
+        from backend.agents.llm_cache import SQLiteLLMCache
+
+        config = _llm_config(
+            keyless=True, api_key_env="", cache_enabled=True, cache_dir=str(tmp_path)
+        )
+
+        with patch("backend.agents.factory.ThrottledChatOpenAI") as mock_llm:
+            build_llm(config, cacheable=True)
+            cache = mock_llm.call_args[1]["cache"]
+            assert isinstance(cache, SQLiteLLMCache)
+            assert cache.db_path == tmp_path / "llm_cache.db"
+
+    def test_build_llm_relative_cache_dir_resolves_to_repo_root(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """A relative cache_dir must not land in the per-test cwd — repeated
+        runs would each get a cold cache in a throwaway directory."""
+        from pathlib import Path
+
+        from backend.agents.llm_cache import SQLiteLLMCache
+
+        config = _llm_config(
+            keyless=True, api_key_env="", cache_enabled=True, cache_dir=".cache"
+        )
+        monkeypatch.chdir(tmp_path)
+
+        with patch("backend.agents.factory.ThrottledChatOpenAI") as mock_llm:
+            build_llm(config, cacheable=True)
+            cache = mock_llm.call_args[1]["cache"]
+            assert isinstance(cache, SQLiteLLMCache)
+            assert cache.db_path.is_absolute()
+            assert not cache.db_path.is_relative_to(tmp_path)
+            repo_root = Path(__file__).resolve().parents[2]
+            assert cache.db_path == repo_root / ".cache" / "llm_cache.db"
+
+    def test_build_llm_cacheable_false_constructs_uncached_model(self, tmp_path) -> None:
+        """cacheable=False must yield cache=False even with caching enabled —
+        the dedup double-confirmation depends on genuinely independent calls."""
+        config = _llm_config(
+            keyless=True, api_key_env="", cache_enabled=True, cache_dir=str(tmp_path)
+        )
+
+        with patch("backend.agents.factory.ThrottledChatOpenAI") as mock_llm:
+            build_llm(config, cacheable=False)
+            assert mock_llm.call_args[1]["cache"] is False
+
+    def test_build_llm_cache_enabled_false_disables_caching(self, tmp_path) -> None:
+        config = _llm_config(
+            keyless=True, api_key_env="", cache_enabled=False, cache_dir=str(tmp_path)
+        )
+
+        with patch("backend.agents.factory.ThrottledChatOpenAI") as mock_llm:
+            build_llm(config, cacheable=True)
+            assert mock_llm.call_args[1]["cache"] is False
+
+    def test_llm_config_cache_defaults(self) -> None:
+        from backend.config.models import LLMConfig
+
+        llm = LLMConfig()
+        assert llm.cache_enabled is True
+        assert llm.cache_dir == ".cache"
 
 
 # ---------------------------------------------------------------------------

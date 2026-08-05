@@ -1308,3 +1308,129 @@ async def test_fast_trace_ignores_non_undesigned_gaps(flow: ForgeFlow, mock_deps
     )
     result = await flow._try_fast_trace(gap)
     assert result is False
+
+
+# ── Quality-check wrappers broadcast running/idle ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_run_combined_quality_check_broadcasts_running_then_idle(
+    flow: ForgeFlow, mock_deps: MockDeps,
+) -> None:
+    broadcaster = mock_deps[3]
+    with patch(
+        "backend.crew.flow.run_combined_quality_check",
+        new_callable=AsyncMock, return_value=[],
+    ):
+        result = await flow.run_combined_quality_check(7)
+    assert result == []
+    statuses = [
+        c.args[1].get("loop_status")
+        for c in broadcaster.emit.call_args_list
+        if "loop_status" in c.args[1]
+    ]
+    assert statuses == ["running", "idle"]
+
+
+@pytest.mark.asyncio
+async def test_scan_qual_detect_delegates_to_quality_module(flow: ForgeFlow) -> None:
+    findings = [{"node_id": "LLR-1", "gap_type": "vague_title", "description": "d"}]
+    with patch(
+        "backend.crew.flow.scan_qual_detect",
+        new_callable=AsyncMock, return_value=findings,
+    ) as scan:
+        assert await flow.scan_qual_detect(7) == findings
+    scan.assert_awaited_once_with(flow, 7)
+
+
+# ── run_phase routes special phases to their handlers ────────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", [11, 12, 14])
+async def test_run_phase_routes_special_phases(flow: ForgeFlow, phase: int) -> None:
+    handler_name = {
+        11: "_run_dashboard_phase",
+        12: "_run_code_gen_phase",
+        14: "_run_deliverables_phase",
+    }[phase]
+    handler = AsyncMock()
+    setattr(flow, handler_name, handler)
+    result = await flow.run_phase(phase)
+    handler.assert_awaited_once()
+    assert result["phase"] == phase
+
+
+# ── Code-gen phase warns on unresolved gaps ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_code_gen_phase_warns_when_gaps_unresolved(flow: ForgeFlow) -> None:
+    result = SimpleNamespace(source_files=[], test_files=[], gaps_resolved=False)
+    flow._get_tool_instances = MagicMock(return_value=[])
+    with (
+        patch(
+            "backend.crew.code_gen.run_code_gen",
+            new_callable=AsyncMock, return_value=result,
+        ),
+        patch("backend.crew.flow.forge_logger") as logger_mock,
+    ):
+        await flow._run_code_gen_phase()
+    warnings = [
+        c for c in logger_mock.emit.call_args_list
+        if c.args[0] == "WARN" and "unresolved gaps" in c.args[2]
+    ]
+    assert warnings
+
+
+# ── Dispatch shims delegate to crew.dispatch ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_run_agent_task_shim_delegates(flow: ForgeFlow) -> None:
+    gap = Gap(
+        type=GapType.UNDESIGNED, priority=GapPriority.DESIGN,
+        node_id="LLR-1", description="d",
+    )
+    agent = MagicMock()
+    with patch(
+        "backend.crew.flow._run_agent_task_impl",
+        new_callable=AsyncMock, return_value="output",
+    ) as impl:
+        assert await flow._run_agent_task(agent, gap) == "output"
+    impl.assert_awaited_once_with(flow, agent, gap, 1)
+
+
+# ── Helpers tolerate absent phase_store / broadcaster ────────────────────────
+
+
+@pytest.fixture
+def bare_flow(mock_deps: MockDeps, tmp_path: Path) -> ForgeFlow:
+    """A flow with no phase_store and no broadcaster."""
+    pool, graph, config, _, _ = mock_deps
+    return ForgeFlow(pool, graph, config, None, None, tmp_path)
+
+
+def test_set_phase_status_without_store_or_broadcaster(bare_flow: ForgeFlow) -> None:
+    bare_flow._set_phase_status(3, "complete")  # must not raise
+
+
+def test_broadcast_gap_list_without_broadcaster(bare_flow: ForgeFlow) -> None:
+    bare_flow._broadcast_gap_list([])  # must not raise
+
+
+def test_broadcast_loop_status_without_broadcaster(bare_flow: ForgeFlow) -> None:
+    bare_flow._broadcast_loop_status("running")  # must not raise
+
+
+def test_reset_active_phase_without_store_is_noop(bare_flow: ForgeFlow) -> None:
+    bare_flow._reset_active_phase()  # must not raise
+
+
+def test_set_phase_status_with_broadcaster_only(mock_deps: MockDeps, tmp_path: Path) -> None:
+    """Status still broadcasts when only the broadcaster is wired."""
+    pool, graph, config, broadcaster, _ = mock_deps
+    flow = ForgeFlow(pool, graph, config, broadcaster, None, tmp_path)
+    flow._set_phase_status(3, "complete", audit={"is_complete": True})
+    payload = broadcaster.emit.call_args.args[1]
+    assert payload["audit"] == {"is_complete": True}

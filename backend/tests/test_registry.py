@@ -96,3 +96,29 @@ def test_update_llm_config_skips_tools_without_attribute() -> None:
 
     assert analysis._llm_config == {"model": "new"}
     assert not hasattr(plain, "_llm_config")
+
+
+def test_add_tools_registers_new_instances() -> None:
+    registry = ToolRegistry(tools=[_make_tool("graph_read")])
+    registry.add_tools([_make_tool("file_read")])
+    tools = registry.get_tools_for_role(AgentRole.QUALITY_AUDITOR)
+    assert {t.name for t in tools} == {"graph_read", "file_read"}
+
+
+def test_get_tools_for_gap_returns_whitelisted_instances() -> None:
+    from backend.analysis.gaps import GapType
+
+    registry = ToolRegistry(tools=[
+        _make_tool("graph_read"),
+        _make_tool("graph_update_node"),
+        _make_tool("file_write"),  # not whitelisted for EMPTY_CONTENT
+    ])
+    tools = registry.get_tools_for_gap(GapType.EMPTY_CONTENT)
+    assert {t.name for t in tools} == {"graph_read", "graph_update_node"}
+
+
+def test_get_tools_for_gap_unlisted_gap_returns_empty() -> None:
+    from backend.analysis.gaps import GapType
+
+    registry = ToolRegistry(tools=[_make_tool("graph_read")])
+    assert registry.get_tools_for_gap(GapType.UNSYNCED_DESIGN) == []

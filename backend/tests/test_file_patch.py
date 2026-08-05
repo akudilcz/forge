@@ -1331,3 +1331,56 @@ def test_duplicate_blocks_different_only_by_one_char(tmp_path: Path) -> None:
     content = (tmp_path / "a.py").read_text()
     assert "return 'A'" in content
     assert "return 'b'" in content  # b unchanged
+
+
+# ── I/O error paths ──────────────────────────────────────────────────────────
+
+
+def test_unreadable_target_reports_read_error(tmp_path: Path) -> None:
+    (tmp_path / "dir.py").mkdir()
+    result = _tool(tmp_path)._execute(path="dir.py", old_text="a", new_text="b")
+    assert result.startswith("ERROR reading dir.py:")
+
+
+def test_write_failure_reports_write_error(tmp_path: Path, monkeypatch) -> None:
+    _write(tmp_path, "f.txt", "hello world\n")
+    tool = _tool(tmp_path)
+
+    def _boom(self: Path, *args: object, **kwargs: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "write_text", _boom)
+    result = tool._execute(path="f.txt", old_text="hello", new_text="bye")
+    assert result.startswith("ERROR writing f.txt:")
+
+
+# ── _syntax_hint guidance ────────────────────────────────────────────────────
+
+
+def test_syntax_hint_generic_when_no_traces_involved() -> None:
+    from backend.tools.file_patch import _syntax_hint
+
+    assert _syntax_hint("x = (", "x = (", "invalid syntax") == "Fix the new_text and retry."
+
+
+def test_syntax_hint_traces_without_call_form_falls_through() -> None:
+    from backend.tools.file_patch import _syntax_hint
+
+    # "@traces" without parentheses never matches the decorator pattern.
+    hint = _syntax_hint("body", "@traces\ndef f(): pass", "error near @traces")
+    assert hint == "Fix the new_text and retry."
+
+
+def test_syntax_hint_decorator_absent_from_patched_text() -> None:
+    from backend.tools.file_patch import _syntax_hint
+
+    hint = _syntax_hint("unrelated content", '@traces("LLR-1")\n', "error near @traces")
+    assert hint == "Fix the new_text and retry."
+
+
+def test_syntax_hint_decorator_correctly_placed_no_hint() -> None:
+    from backend.tools.file_patch import _syntax_hint
+
+    patched = 'import x\n\n@traces("LLR-1")\ndef f():\n    pass\n'
+    hint = _syntax_hint(patched, '@traces("LLR-1")\ndef f():', "error near @traces")
+    assert hint == "Fix the new_text and retry."

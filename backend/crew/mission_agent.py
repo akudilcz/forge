@@ -319,7 +319,7 @@ def create_mission_agent(
             f"built (server: lifespan._init_tools; e2e: "
             f"ForgeBuilder._build_tools)."
         )
-    llm = build_llm(config, model=config.llm.model_for_phase(12))
+    llm = build_llm(config, model=config.llm.model_for_phase(12), cacheable=True)
 
     return create_react_agent(
         model=llm,

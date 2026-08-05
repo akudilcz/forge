@@ -63,3 +63,17 @@ def test_search_finds_in_subdirectory_and_shows_count(workspace: Path) -> None:
     result = CodeSearchTool(workspace=str(workspace))._execute(pattern="def")
     assert "Found" in result
     assert "match" in result
+
+
+def test_invalid_glob_pattern_returns_error(workspace: Path) -> None:
+    tool = CodeSearchTool(workspace=str(workspace))
+    result = tool._execute(pattern="def", glob="")
+    assert result.startswith("ERROR: Invalid glob pattern")
+
+
+def test_unreadable_entry_skipped(workspace: Path) -> None:
+    # A directory whose name matches the glob must be skipped, not crash.
+    (workspace / "trap.py").mkdir()
+    tool = CodeSearchTool(workspace=str(workspace))
+    result = tool._execute(pattern="def main")
+    assert "main.py:1" in result

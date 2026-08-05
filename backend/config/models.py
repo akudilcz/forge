@@ -93,6 +93,14 @@ class LLMConfig(BaseModel):
     keyless: bool = False
     request_timeout: int = 600
     call_delay_ms: int = 400
+    # Local SQLite response cache for non-streaming LLM calls. This flag is
+    # the global kill switch; per-construction-site participation is explicit
+    # via build_llm(cacheable=...) — see design/01_architecture.md §7.4.
+    cache_enabled: bool = True
+    # Directory holding llm_cache.db; created on first use. A relative path
+    # resolves against the repo root (never the process cwd), so integration
+    # tests running in throwaway workspaces share the warm repo-level cache.
+    cache_dir: str = ".cache"
     num_ctx: int = 128000
     context_window_default: int = 128000
     options: LLMOptionsConfig = Field(default_factory=LLMOptionsConfig)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -172,3 +172,149 @@ def test_log_dispatch_diagnostics_with_node_present() -> None:
     flow.graph.node_sync.return_value = node
     gap = _gap("N1")
     _log_dispatch_diagnostics(flow, gap, "context line 1\ncontext line 2")
+
+
+# ── openai-absent fallbacks ──────────────────────────────────────────────────
+
+
+def test_is_transient_error_without_openai_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When openai cannot be imported, classification falls back to builtins."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "openai", None)  # import openai → ImportError
+    from backend.crew.dispatch import _is_transient_error as transient
+
+    assert transient(ConnectionError("x")) is True
+    assert transient(ValueError("x")) is False
+
+
+def test_is_quota_error_without_openai_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+
+    monkeypatch.setitem(sys.modules, "openai", None)
+    from backend.crew.dispatch import _is_quota_error as quota
+
+    assert quota(RuntimeError("x")) is False
+
+
+# ── dispatch: transient retries exhausted ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_dispatch_exhausts_transient_retries_and_returns_empty() -> None:
+    """Persistent transient errors are retried then abandoned with a log."""
+    from backend.crew.dispatch import _MAX_API_RETRIES, dispatch
+
+    flow = MagicMock()
+    flow._graph_state_count.return_value = 0
+    flow.pool.get_agent_for_gap.return_value = MagicMock()
+    flow.config.llm.model_for_phase.return_value = "test-model"
+    flow._current_phase = 1
+    gap = _gap("HLR-1", GapType.UNCOVERED_PARA)
+
+    with (
+        patch(
+            "backend.crew.dispatch.run_agent_task",
+            new_callable=AsyncMock, side_effect=ConnectionError("flaky"),
+        ) as run_task,
+        patch("backend.crew.dispatch.asyncio.sleep", new_callable=AsyncMock),
+        patch("backend.crew.dispatch.forge_logger") as logger_mock,
+    ):
+        result = await dispatch(flow, gap)
+
+    assert result == ""
+    assert run_task.await_count == _MAX_API_RETRIES
+    exhausted = [
+        c for c in logger_mock.emit.call_args_list
+        if c.args[0] == "ERROR" and "retries exhausted" in c.args[2]
+    ]
+    assert exhausted
+
+
+# ── run_agent_task: event stream handling ────────────────────────────────────
+
+
+class _FakeAgent:
+    def __init__(self, events: list[dict]) -> None:
+        self._events = events
+        self.captured_config: dict | None = None
+
+    async def astream_events(self, _input: Any, version: str, config: dict) -> Any:
+        self.captured_config = config
+        for e in self._events:
+            yield e
+
+
+def _task_flow() -> MagicMock:
+    flow = MagicMock()
+    flow.graph = None  # skip graph diagnostics
+    flow.state.current_phase = 0
+    return flow
+
+
+def _run_task_patches() -> list[Any]:
+    return [
+        patch("backend.crew.dispatch.build_context_for_gap", return_value=""),
+        patch(
+            "backend.crew.dispatch.build_task_description",
+            return_value=("do it", "done"),
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_agent_task_collects_tool_calls_and_final_text() -> None:
+    """Tool calls are logged; the final text-only message becomes the output."""
+    from types import SimpleNamespace as NS
+
+    from backend.crew.dispatch import run_agent_task
+
+    tool_msg_dict = NS(tool_calls=[{"name": "file_write", "args": {"p": "x"}}], content="")
+    tool_msg_obj = NS(tool_calls=[NS(name="shell_exec", args={"cmd": "ls"})], content="")
+    wrapped = NS(message=NS(tool_calls=None, content="all done"))
+    events = [
+        {"event": "on_tool_start"},  # ignored
+        {"event": "on_chat_model_end", "data": {"output": None}},  # no message
+        {"event": "on_chat_model_end", "data": {"output": tool_msg_dict}},
+        {"event": "on_chat_model_end", "data": {"output": tool_msg_obj}},
+        {"event": "on_chat_model_end", "data": {"output": wrapped}},
+    ]
+    agent = _FakeAgent(events)
+    gap = _gap("LLR-1")
+    ctx_patch, desc_patch = _run_task_patches()
+    with ctx_patch, desc_patch, patch("backend.crew.dispatch.forge_logger") as logger_mock:
+        raw = await run_agent_task(_task_flow(), agent, gap, attempt=1, model="gpt-test")
+
+    assert raw == "all done"
+    tool_names = [c.args[0] for c in logger_mock.crew_tool_call.call_args_list]
+    assert tool_names == ["file_write", "shell_exec"]
+    logger_mock.crew_finish.assert_called_once_with("all done")
+
+
+@pytest.mark.asyncio
+async def test_run_agent_task_warns_on_text_only_response() -> None:
+    """A response with zero tool calls triggers a hallucination warning."""
+    from types import SimpleNamespace as NS
+
+    from backend.crew.dispatch import run_agent_task
+
+    events = [
+        {"event": "on_chat_model_end", "data": {"output": NS(tool_calls=None, content="just prose")}},
+    ]
+    gap = _gap("LLR-1")
+    ctx_patch, desc_patch = _run_task_patches()
+    with ctx_patch, desc_patch, patch("backend.crew.dispatch.forge_logger") as logger_mock:
+        raw = await run_agent_task(
+            _task_flow(), _FakeAgent(events), gap, attempt=1, model="",
+        )
+
+    assert raw == "just prose"
+    warns = [
+        c for c in logger_mock.emit.call_args_list
+        if c.args[0] == "WARN" and "No tool calls" in c.args[2]
+    ]
+    assert warns

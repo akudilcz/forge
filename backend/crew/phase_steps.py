@@ -151,7 +151,7 @@ async def case_trace_coverage(flow: Any, phase: int) -> StepResult:
     else:
         check_ids = None  # first run — check everything
 
-    checker = create_case_trace_checker(build_llm(flow.config), flow.graph)
+    checker = create_case_trace_checker(build_llm(flow.config, cacheable=True), flow.graph)
     removed = await checker(only_ids=check_ids)
 
     # Remember what we've checked for next cycle

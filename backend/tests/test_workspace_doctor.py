@@ -377,3 +377,47 @@ class TestStdlibModules:
     def test_not_empty(self) -> None:
         result = _stdlib_modules()
         assert len(result) > 20
+
+
+class TestCheckDepsEdgeCases:
+    def test_missing_dep_used_only_by_tests(self, tmp_path: Path) -> None:
+        (tmp_path / "requirements.txt").write_text("")
+        (tmp_path / "src").mkdir()
+        tests = tmp_path / "tests"
+        tests.mkdir()
+        (tests / "test_x.py").write_text("import somepkg_only_in_tests\n")
+
+        result = _check_deps(tmp_path)
+        assert result["missing_count"] == 1
+        assert result["missing"][0]["used_by"] == ["tests/"]
+
+
+class TestBuildFileErrors:
+    def test_unreadable_build_file_flagged(self, tmp_path: Path) -> None:
+        # A directory named BUILD.bazel matches rglob but cannot be read.
+        (tmp_path / "BUILD.bazel").mkdir()
+        result = _check_build_files(tmp_path)
+        assert result["files"]["BUILD.bazel"] == {"error": "unreadable"}
+
+
+class TestRequirementsParsingEdgeCases:
+    def test_line_without_package_name_skipped(self, tmp_path: Path) -> None:
+        (tmp_path / "requirements.txt").write_text(".\nnumpy==1.0\n")
+        mapping = _parse_requirements_simple(tmp_path)
+        assert mapping == {"numpy": "numpy==1.0"}
+
+
+class TestCollectImportsEdgeCases:
+    def test_relative_imports_ignored(self, tmp_path: Path) -> None:
+        (tmp_path / "mod.py").write_text(
+            "from . import sibling\nfrom .helpers import util\nimport os\n"
+        )
+        assert _collect_imports(tmp_path) == {"os"}
+
+
+class TestInternalModulesEdgeCases:
+    def test_init_inside_pycache_ignored(self, tmp_path: Path) -> None:
+        cache = tmp_path / "__pycache__"
+        cache.mkdir()
+        (cache / "__init__.py").write_text("")
+        assert "__pycache__" not in _internal_modules(tmp_path)

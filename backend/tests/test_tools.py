@@ -428,3 +428,26 @@ def test_graph_write_remove_traces() -> None:
     )
     remaining = mock_graph.update_node.call_args[1]["trace_to"]
     assert remaining == ["HLR-0001", "HLR-0003"]
+
+
+# ── ForgeTool base behaviour ─────────────────────────────────────────────────
+
+
+def test_forge_tool_execute_not_implemented() -> None:
+    from backend.tools.base import ForgeTool
+
+    class _Bare(ForgeTool):
+        name: str = "bare"
+        description: str = "bare tool"
+
+    result = _Bare()._run()
+    assert result.startswith("TOOL_ERROR: NotImplementedError")
+
+
+def test_summarise_args_truncates_long_values() -> None:
+    from backend.tools.base import _summarise_args
+
+    summary = _summarise_args({"content": "x" * 500, "path": "a.py"})
+    assert summary.endswith("path=a.py")
+    assert "..." in summary
+    assert len(summary) < 500

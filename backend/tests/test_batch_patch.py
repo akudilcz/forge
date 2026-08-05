@@ -113,3 +113,26 @@ def test_non_python_file(tmp_path: Path) -> None:
     )
     assert "OK" in result
     assert (tmp_path / "g.txt").read_text() == "new line\n"
+
+
+def test_unreadable_target_reports_read_error(tmp_path: Path) -> None:
+    (tmp_path / "dir.py").mkdir()
+    tool = BatchPatchTool(workspace=str(tmp_path))
+    result = tool._execute(
+        path="dir.py", patches=[_PatchEntry(old_text="a", new_text="b")],
+    )
+    assert result.startswith("ERROR reading dir.py:")
+
+
+def test_write_failure_reports_write_error(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "f.txt").write_text("hello world")
+    tool = BatchPatchTool(workspace=str(tmp_path))
+
+    def _boom(self: Path, *args: object, **kwargs: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "write_text", _boom)
+    result = tool._execute(
+        path="f.txt", patches=[_PatchEntry(old_text="hello", new_text="bye")],
+    )
+    assert result.startswith("ERROR writing f.txt:")

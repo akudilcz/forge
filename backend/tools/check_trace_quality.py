@@ -84,7 +84,9 @@ class CheckTraceQualityTool(ForgeTool):
             f"{len(llr_texts)} LLRs)",
         )
 
-        llm = build_llm(self._config, model=self._config.llm.model_for_phase(12))
+        llm = build_llm(
+            self._config, model=self._config.llm.model_for_phase(12), cacheable=True
+        )
         from langchain_core.messages import HumanMessage, SystemMessage
         response = await llm.ainvoke([
             SystemMessage(content=_SYSTEM_PROMPT),

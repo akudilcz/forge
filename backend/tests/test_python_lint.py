@@ -87,3 +87,138 @@ def test_not_python_file(tmp_path: Path) -> None:
     tool = PythonLintTool(str(tmp_path))
     result = tool._execute("readme.md")
     assert "ERROR" in result
+
+
+# ── check-all mode ────────────────────────────────────────────────────────────
+
+
+def test_check_all_no_python_files(tmp_path: Path) -> None:
+    tool = PythonLintTool(workspace=str(tmp_path))
+    assert tool._execute(path="*") == "No Python files found in src/ or tests/."
+
+
+def test_check_all_reports_clean_and_issue_counts(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "clean.py").write_text('"""Doc."""\n')
+    (src / "bad.py").write_text("def broken(\n")
+    tool = PythonLintTool(workspace=str(tmp_path))
+    result = tool._execute(path="*")
+    assert "Checked 2 file(s): 1 clean, 1 with issues" in result
+    assert "SYNTAX" in result
+
+
+def test_check_all_only_tests_dir(tmp_path: Path) -> None:
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_ok.py").write_text('"""Doc."""\n')
+    tool = PythonLintTool(workspace=str(tmp_path))
+    assert tool._execute(path="*").startswith("Checked 1 file(s): 1 clean")
+
+
+def test_not_a_python_file(tmp_path: Path) -> None:
+    (tmp_path / "notes.txt").write_text("hello")
+    tool = PythonLintTool(workspace=str(tmp_path))
+    assert tool._execute(path="notes.txt") == "ERROR: not a Python file: notes.txt"
+
+
+# ── AST helpers ───────────────────────────────────────────────────────────────
+
+
+def test_check_ast_unreadable_file_returns_empty(tmp_path: Path) -> None:
+    from backend.tools.python_lint import _check_ast
+
+    assert _check_ast(tmp_path / "missing.py") == []
+
+
+def test_explicit_from_import_not_flagged(tmp_path: Path) -> None:
+    (tmp_path / "imports.py").write_text(
+        '"""Doc."""\nfrom os import path\nprint(path)\n'
+    )
+    tool = PythonLintTool(workspace=str(tmp_path))
+    result = tool._execute(path="imports.py")
+    assert "import *" not in result
+
+
+def test_has_docstring_node_without_body() -> None:
+    import ast
+
+    from backend.tools.python_lint import _has_docstring
+
+    assert _has_docstring(ast.Pass()) is False
+
+
+# ── ruff integration (mocked) ─────────────────────────────────────────────────
+
+
+def test_find_ruff_falls_back_to_path(tmp_path: Path, monkeypatch) -> None:
+    import shutil
+    import sys
+
+    from backend.tools.python_lint import _find_ruff
+
+    fake_bin = tmp_path / "venv" / "bin"
+    fake_bin.mkdir(parents=True)
+    monkeypatch.setattr(sys, "executable", str(fake_bin / "python"))
+    assert _find_ruff() == shutil.which("ruff")
+
+
+def test_check_ruff_skipped_when_unavailable(tmp_path: Path, monkeypatch) -> None:
+    import backend.tools.python_lint as pl
+
+    monkeypatch.setattr(pl, "_find_ruff", lambda: None)
+    assert pl._check_ruff(tmp_path / "any.py") == []
+
+
+def test_check_ruff_parses_issue_lines(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+    from types import SimpleNamespace
+
+    import backend.tools.python_lint as pl
+
+    monkeypatch.setattr(pl, "_find_ruff", lambda: "/fake/ruff")
+    fake = SimpleNamespace(
+        returncode=1,
+        stdout=(
+            "file.py:3:1: F401 'os' imported but unused\n"
+            "orphan-line-without-colons\n"
+            "short:bit\n"
+            "Found 1 error.\n"
+        ),
+    )
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: fake)
+    issues = pl._check_ruff(tmp_path / "file.py")
+    assert issues == ["line 3:1: F401 'os' imported but unused"]
+
+
+def test_check_ruff_clean_exit_returns_empty(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+    from types import SimpleNamespace
+
+    import backend.tools.python_lint as pl
+
+    monkeypatch.setattr(pl, "_find_ruff", lambda: "/fake/ruff")
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0, stdout=""),
+    )
+    assert pl._check_ruff(tmp_path / "file.py") == []
+
+
+def test_check_ruff_binary_vanished(tmp_path: Path, monkeypatch) -> None:
+    import backend.tools.python_lint as pl
+
+    monkeypatch.setattr(pl, "_find_ruff", lambda: "/nonexistent/ruff-xyz")
+    assert pl._check_ruff(tmp_path / "file.py") == []
+
+
+def test_check_ruff_unexpected_failure_swallowed(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+
+    import backend.tools.python_lint as pl
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("ruff crashed")
+
+    monkeypatch.setattr(pl, "_find_ruff", lambda: "/fake/ruff")
+    monkeypatch.setattr(subprocess, "run", _boom)
+    assert pl._check_ruff(tmp_path / "file.py") == []

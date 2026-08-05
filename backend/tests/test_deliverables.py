@@ -365,3 +365,88 @@ class TestPct:
 
     def test_partial(self) -> None:
         assert _pct(1, 2) == "50%"
+
+
+# ── Sparse-graph rendering: optional fields are skipped gracefully ───────────
+
+
+@pytest.fixture
+def sparse_graph() -> MagicMock:
+    """Nodes missing content, parents, traces, and file paths."""
+    nodes = [
+        _node("HLR-EMPTY", "HLR", "Bare HLR"),
+        _node("LLR-ORPHAN", "LLR", "Orphan LLR", "Shall exist."),
+        _node("LLR-GHOSTPARENT", "LLR", "Ghost parent", "Shall too.",
+              parent_id="GHOST-MOD"),
+        _node("LLR-NOCONTENT", "LLR", "No content"),
+        _node("ARCH-EMPTY", "ARCHITECTURE", "Bare decision"),
+        _node("MODULE-EMPTY", "MODULE", "Bare module"),
+        _node("CONTRACT-ORPHAN", "CONTRACT", "Orphan contract"),
+        _node("CONTRACT-GHOST", "CONTRACT", "Ghost module contract",
+              "def x() -> None", parent_id="GHOST-MOD"),
+        _node("DESIGN-ORPHAN", "DESIGN", "Orphan design",
+              trace_to=["LLR-NOCONTENT", "GHOST-REF"]),
+        _node("DESIGN-GHOST", "DESIGN", "Ghost parent design",
+              parent_id="GHOST-MOD-2"),
+        _node("SUITE-EMPTY", "SUITE", "Bare suite"),
+        _node("CASE_HLR-EMPTY", "CASE_HLR", "Bare case"),
+    ]
+    return _make_graph(nodes)
+
+
+class TestSparseGraphRendering:
+    def test_requirements_skip_missing_traces_and_parents(
+        self, sparse_graph: MagicMock,
+    ) -> None:
+        result = _render_requirements(sparse_graph)
+        assert "LLR-ORPHAN" in result
+        assert "LLR-GHOSTPARENT" in result
+        # Orphan LLR has no trace_to and no parent → no Module line for it
+        assert "**Module:** GHOST-MOD" not in result
+
+    def test_architecture_renders_contentless_nodes(
+        self, sparse_graph: MagicMock,
+    ) -> None:
+        result = _render_architecture(sparse_graph)
+        assert "ARCH-EMPTY: Bare decision" in result
+        assert "MODULE-EMPTY: Bare module" in result
+        # A module without children renders no Children line
+        assert "**Children:**" not in result
+
+    def test_interfaces_render_contracts_without_parent_or_designs(
+        self, sparse_graph: MagicMock,
+    ) -> None:
+        result = _render_interfaces(sparse_graph)
+        assert "CONTRACT-ORPHAN" in result
+        assert "CONTRACT-GHOST" in result
+        assert "**Implemented by:**" not in result
+
+    def test_design_marks_unresolvable_trace_refs(
+        self, sparse_graph: MagicMock,
+    ) -> None:
+        result = _render_design(sparse_graph)
+        assert "GHOST-REF *(not found)*" in result
+        # Contentless traced LLR renders its title line without a body
+        assert "**LLR-NOCONTENT: No content**" in result
+        assert "**Source:**" not in result
+
+    def test_test_plan_renders_bare_suite_and_case(
+        self, sparse_graph: MagicMock,
+    ) -> None:
+        result = _render_test_plan(sparse_graph)
+        assert "SUITE-EMPTY: Bare suite" in result
+        assert "CASE_HLR-EMPTY: Bare case (HLR)" in result
+        assert "**Verifies:**" not in result
+        assert "**Test file:**" not in result
+
+    def test_traceability_matrix_handles_missing_lookups(
+        self, sparse_graph: MagicMock,
+    ) -> None:
+        result = _render_traceability_matrix(sparse_graph)
+        # HLR with no child LLRs renders an empty row
+        assert "| HLR-EMPTY | — | — | — | — | — |" in result
+        # Reverse trace tolerates trace_to referencing a missing node
+        assert "| — | DESIGN-ORPHAN |" in result
+        # Ungenerated designs and untested cases appear in the gap lists
+        assert "DESIGNs without source file" in result
+        assert "CASEs without test file" in result

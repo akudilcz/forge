@@ -97,3 +97,48 @@ def test_record_trims_over_limit() -> None:
         mgr._record(e)
     assert len(mgr._event_history) == 3
     assert [e.sequence for e in mgr._event_history] == [2, 3, 4]
+
+
+@pytest.mark.asyncio
+async def test_connect_tolerates_logger_failure() -> None:
+    from unittest.mock import patch
+
+    from backend.server.forge_logger import forge_logger
+
+    mgr = WebSocketManager()
+    ws = MagicMock()
+    ws.accept = AsyncMock()
+    with patch.object(forge_logger, "emit", side_effect=RuntimeError("sink down")):
+        await mgr.connect(ws, "conn-1")
+    assert ws in mgr._connections
+
+
+@pytest.mark.asyncio
+async def test_disconnect_tolerates_logger_failure() -> None:
+    from unittest.mock import patch
+
+    from backend.server.forge_logger import forge_logger
+
+    mgr = WebSocketManager()
+    ws = MagicMock()
+    mgr._connections[ws] = "conn-1"
+    with patch.object(forge_logger, "emit", side_effect=RuntimeError("sink down")):
+        await mgr.disconnect(ws)
+    assert ws not in mgr._connections
+
+
+@pytest.mark.asyncio
+async def test_broadcast_threadsafe_with_loop_schedules_send() -> None:
+    mgr = WebSocketManager()
+    mgr.set_loop(asyncio.get_running_loop())
+    ws = MagicMock()
+    ws.send_text = AsyncMock()
+    mgr._connections[ws] = "conn-1"
+
+    mgr.broadcast_threadsafe(_event())
+    # Let the scheduled coroutine run on this loop.
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+    ws.send_text.assert_awaited_once()
+    assert len(mgr._event_history) == 1

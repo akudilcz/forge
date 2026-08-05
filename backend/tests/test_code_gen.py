@@ -1166,3 +1166,278 @@ def test_coverage_gate_skips_when_graph_empty() -> None:
     # of run_code_gen that mock out the pipeline).
     state = _state(tests=[], coverage_pct=None, branch_pct=None)
     _enforce_coverage_gate(state, _graph_with_llrs([]), CodeGenResult())
+
+
+# ── Coverage: gate details, summary, workspace init, result building ─────────
+
+
+def _req_detail(
+    covered: list[str],
+    uncovered: list[str],
+    unimplemented: list[str],
+    total: int,
+) -> dict[str, Any]:
+    return {
+        "covered": set(covered), "uncovered": uncovered,
+        "unimplemented": unimplemented, "total": total,
+    }
+
+
+def _cov_state(
+    test_results: list[Any],
+    coverage_pct: float | None = None,
+    branch_pct: float | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        test_results=test_results,
+        coverage_pct=coverage_pct,
+        branch_coverage_pct=branch_pct,
+    )
+
+
+def test_gate_raises_when_llrs_present_but_no_tests_ran() -> None:
+    """LLRs without any executed test are a gate failure on their own."""
+    graph = MagicMock()
+    with patch(
+        "backend.crew.code_gen._compute_requirement_coverage_detail",
+        return_value=_req_detail(["LLR-1"], [], [], 1),
+    ):
+        with pytest.raises(CodeGenIncompleteError, match="no tests executed"):
+            _enforce_coverage_gate(_cov_state([]), graph, CodeGenResult())
+
+
+def test_log_summary_warns_on_uncovered_llrs_without_stats() -> None:
+    """Uncovered LLRs get a dedicated WARN record; no stats section logged."""
+    from backend.crew.code_gen import _log_summary
+
+    graph = MagicMock()
+    with (
+        patch(
+            "backend.crew.code_gen._compute_requirement_coverage_detail",
+            return_value=_req_detail([], ["LLR-9"], [], 1),
+        ),
+        patch("backend.crew.code_gen.forge_logger") as logger_mock,
+    ):
+        _log_summary(CodeGenResult(), _cov_state([]), graph, False, 1.0, None)
+    warns = [
+        c for c in logger_mock.emit.call_args_list
+        if c.args[0] == "WARN" and "Uncovered LLRs" in c.args[2]
+    ]
+    assert warns
+    stats = [
+        c for c in logger_mock.emit.call_args_list
+        if "Detailed Statistics" in c.args[2]
+    ]
+    assert not stats
+
+
+def test_init_workspace_removes_broken_bazel_symlinks(tmp_path: Path) -> None:
+    from backend.crew.code_gen import _init_workspace
+
+    broken = tmp_path / "bazel-bin"
+    broken.symlink_to(tmp_path / "does-not-exist")
+    _init_workspace(tmp_path)
+    assert not broken.is_symlink()
+    assert (tmp_path / "src").is_dir()
+
+
+def test_remove_broken_files_no_tests_dir_is_noop(tmp_path: Path) -> None:
+    from backend.crew.code_gen import _remove_broken_files
+
+    _remove_broken_files(tmp_path)  # must not raise
+
+
+def test_remove_broken_files_unreadable_file_is_removed(tmp_path: Path) -> None:
+    """A test file that cannot be read is treated as broken and deleted."""
+    from backend.crew.code_gen import _remove_broken_files
+
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    target = tests / "test_x.py"
+    target.write_text("assert True", encoding="utf-8")
+    with (
+        patch("backend.crew.code_gen.find_available_modules", return_value=set()),
+        patch.object(Path, "read_text", side_effect=OSError("io")),
+    ):
+        _remove_broken_files(tmp_path)
+    assert not target.exists()
+
+
+def test_gap_counts_tallies_by_kind() -> None:
+    from backend.crew.code_gen import _gap_counts
+    from backend.crew.gap_finder import Gap as FGap
+    from backend.crew.gap_finder import GapKind
+
+    gaps = [
+        FGap(kind=GapKind.MISSING_SOURCE, node_id="a", file_path="", details=""),
+        FGap(kind=GapKind.MISSING_SOURCE, node_id="b", file_path="", details=""),
+        FGap(kind=GapKind.MISSING_TEST, node_id="c", file_path="", details=""),
+    ]
+    counts = _gap_counts(gaps)
+    assert counts[GapKind.MISSING_SOURCE] == 2
+    assert counts[GapKind.MISSING_TEST] == 1
+
+
+def test_build_result_skips_dunder_and_conftest_files(tmp_path: Path) -> None:
+    from backend.crew.code_gen import _build_result
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "src" / "core.py").write_text("def f():\n    pass\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "conftest.py").write_text("", encoding="utf-8")
+    (tmp_path / "tests" / "test_core.py").write_text("def test_f():\n    pass\n", encoding="utf-8")
+
+    graph = MagicMock()
+    graph.all_nodes.return_value = [
+        _make_node("PROJ-1", "PROJECT"),
+        _make_node("DESIGN-1", "DESIGN", title="core"),
+        _make_node("CASE_LLR-1", "CASE_LLR", title="core"),
+    ]
+    result = _build_result(tmp_path, graph)
+    assert [g.file_path for g in result.source_files] == ["src/core.py"]
+    assert [g.file_path for g in result.test_files] == ["tests/test_core.py"]
+    assert result.source_files[0].node_id == "DESIGN-1"
+
+
+def test_build_result_skips_files_that_vanish(tmp_path: Path) -> None:
+    """Files that cannot be re-read (race) are omitted from the result."""
+    from backend.crew.code_gen import _build_result
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "core.py").write_text("x = 1", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_core.py").write_text("x = 1", encoding="utf-8")
+    graph = MagicMock()
+    graph.all_nodes.return_value = []
+    with patch("backend.crew.code_gen._read_generated_file", return_value=None):
+        result = _build_result(tmp_path, graph)
+    assert result.source_files == []
+    assert result.test_files == []
+
+
+def test_read_generated_file_missing_returns_none(tmp_path: Path) -> None:
+    from backend.crew.code_gen import _read_generated_file
+
+    assert _read_generated_file("DESIGN-1", "src/ghost.py", tmp_path) is None
+
+
+# ── _persist_single_file / _stamp_codegen_error error paths ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_persist_single_file_failure_stamps_codegen_error() -> None:
+    """A persistence failure records codegen_error instead of raising."""
+    from backend.crew.code_gen import _persist_single_file
+
+    node = _make_node("DESIGN-1", "DESIGN", properties={})
+    graph = MagicMock()
+    graph.node_sync.return_value = node
+    graph.children_sync.return_value = []
+    graph.update_node = AsyncMock(side_effect=[RuntimeError("db down"), None])
+
+    gf = GeneratedFile(node_id="DESIGN-1", file_path="src/core.py")
+    await _persist_single_file(gf, graph)  # must not raise
+
+    stamp_call = graph.update_node.await_args_list[1]
+    assert stamp_call.kwargs["properties"]["codegen_error"] == "db down"
+
+
+@pytest.mark.asyncio
+async def test_stamp_codegen_error_missing_node_is_noop() -> None:
+    from backend.crew.code_gen import _stamp_codegen_error
+
+    graph = MagicMock()
+    graph.node_sync.return_value = None
+    graph.update_node = AsyncMock()
+    await _stamp_codegen_error(graph, "GHOST-1", "boom")
+    graph.update_node.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stamp_codegen_error_swallows_secondary_failure() -> None:
+    """Failure-path code must never escalate, even if stamping fails too."""
+    from backend.crew.code_gen import _stamp_codegen_error
+
+    graph = MagicMock()
+    graph.node_sync.side_effect = RuntimeError("also down")
+    await _stamp_codegen_error(graph, "DESIGN-1", "boom")  # must not raise
+
+
+# ── _owning_contract_content ─────────────────────────────────────────────────
+
+
+def test_owning_contract_content_returns_contract_sibling() -> None:
+    from backend.crew.code_gen import _owning_contract_content
+
+    design = _make_node("DESIGN-1", "DESIGN", parent_id="MOD-1")
+    contract = _make_node("CON-1", "CONTRACT", parent_id="MOD-1", content="def api()")
+    graph = MagicMock()
+    graph.children_sync.return_value = [contract]
+    assert _owning_contract_content(graph, design) == "def api()"
+
+
+def test_owning_contract_content_no_contract_sibling_is_empty() -> None:
+    from backend.crew.code_gen import _owning_contract_content
+
+    design = _make_node("DESIGN-1", "DESIGN", parent_id="MOD-1")
+    graph = MagicMock()
+    graph.children_sync.return_value = []
+    assert _owning_contract_content(graph, design) == ""
+
+
+# ── _persist_traces stale-prop handling ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_persist_traces_skips_nodes_without_file_path_prop() -> None:
+    from backend.crew.code_gen import _persist_traces
+
+    node = _make_node("DESIGN-1", "DESIGN", properties={})
+    graph = MagicMock()
+    graph.all_nodes.return_value = [node]
+    graph.update_node = AsyncMock()
+    await _persist_traces(CodeGenResult(), graph)
+    graph.update_node.assert_not_awaited()
+
+
+# ── _tidy_up / _run_trace_audit ──────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_tidy_up_removes_pyc_files_and_seeds_init(tmp_path: Path) -> None:
+    from backend.crew.code_gen import _tidy_up
+
+    (tmp_path / "src").mkdir()
+    pyc = tmp_path / "src" / "core.pyc"
+    pyc.write_bytes(b"\x00")
+    cache = tmp_path / "src" / "__pycache__"
+    cache.mkdir()
+    await _tidy_up(tmp_path)
+    assert not pyc.exists()
+    assert not cache.exists()
+    assert (tmp_path / "src" / "__init__.py").exists()
+
+
+@pytest.mark.asyncio
+async def test_run_trace_audit_audits_and_persists(tmp_path: Path) -> None:
+    from backend.crew.code_gen import _run_trace_audit
+
+    result = CodeGenResult(
+        source_files=[GeneratedFile(node_id="DESIGN-1", file_path="src/core.py")],
+    )
+    audit = SimpleNamespace(fully_traced=True, suggested_traces=[])
+    graph = MagicMock()
+    with (
+        patch(
+            "backend.crew.trace_auditor.audit_traces",
+            new_callable=AsyncMock, return_value=[audit],
+        ) as audit_mock,
+        patch(
+            "backend.crew.trace_auditor.persist_audit_results",
+            new_callable=AsyncMock,
+        ) as persist_mock,
+    ):
+        await _run_trace_audit(result, tmp_path, graph)
+    audit_mock.assert_awaited_once_with(tmp_path, ["src/core.py"], graph)
+    persist_mock.assert_awaited_once()

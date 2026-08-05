@@ -217,7 +217,7 @@ async def _llm_suggest_traces(
         from backend.agents.factory import build_llm
         from backend.config.loader import load_config
         config = load_config()
-        llm = build_llm(config)
+        llm = build_llm(config, cacheable=True)
         response = await llm.ainvoke([{"role": "user", "content": instruction}])
         raw = response.content or ""
         if not isinstance(raw, str):

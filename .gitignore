@@ -115,6 +115,9 @@ desktop.ini
 # Forge runtime state — generated at startup, not source-controlled
 .forge/
 
+# Local LLM response cache (see design/01_architecture.md §7.4)
+.cache/
+
 # Claude AI session data
 .claude/
 

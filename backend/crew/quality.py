@@ -294,7 +294,7 @@ async def run_combined_quality_check(flow: Any, phase: int) -> list[Gap]:
         create_combined_quality_checker,
     )
 
-    checker = create_combined_quality_checker(build_llm(flow.config))
+    checker = create_combined_quality_checker(build_llm(flow.config, cacheable=True))
     forge_logger.emit(
         "INFO",
         "XQUAL",
@@ -500,8 +500,11 @@ def _build_semantic_checker(flow: Any) -> Any:
     # so sticky UNIQUE verdicts survive across pipeline cycles even though
     # each cycle builds a fresh checker. AttributeError here is deliberate:
     # a flow without the cache is a missing precondition, not a fallback case.
+    # cacheable=False — deletion requires the same DUPLICATE verdict from two
+    # *independent* LLM calls with byte-identical prompts. A response cache
+    # would replay the first verdict and make the confirmation vacuous.
     return create_semantic_checker(
-        build_llm(flow.config), flow.graph, flow._semantic_verdict_cache
+        build_llm(flow.config, cacheable=False), flow.graph, flow._semantic_verdict_cache
     )
 
 
@@ -509,4 +512,4 @@ def _build_design_consolidator(flow: Any) -> Any:
     from backend.agents.factory import build_llm
     from backend.crew.design_consolidation import create_design_consolidator
 
-    return create_design_consolidator(build_llm(flow.config), flow.graph)
+    return create_design_consolidator(build_llm(flow.config, cacheable=True), flow.graph)
