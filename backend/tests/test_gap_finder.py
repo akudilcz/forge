@@ -117,7 +117,8 @@ def test_gap_kind_ordering() -> None:
     assert GapKind.FAILING_TESTS < GapKind.INVALID_TRACES
     assert GapKind.INVALID_TRACES < GapKind.UNTRACED_FUNCTIONS
     assert GapKind.UNTRACED_FUNCTIONS < GapKind.LOW_STRUCTURAL_COVERAGE
-    assert GapKind.LOW_STRUCTURAL_COVERAGE < GapKind.UNCOVERED_REQUIREMENT
+    assert GapKind.LOW_STRUCTURAL_COVERAGE < GapKind.UNIMPLEMENTED_REQUIREMENT
+    assert GapKind.UNIMPLEMENTED_REQUIREMENT < GapKind.UNCOVERED_REQUIREMENT
 
 
 # ── find_gaps tests ─────────────────────────────────────────────────────────
@@ -460,6 +461,51 @@ def test_uncovered_requirement_failing_test_not_counted() -> None:
     _check_uncovered_requirement(gaps, test_files, results, graph)
     uncov = [g for g in gaps if g.kind == GapKind.UNCOVERED_REQUIREMENT]
     assert len(uncov) == 1
+
+
+# ── UNIMPLEMENTED_REQUIREMENT ───────────────────────────────────────────────
+
+
+def test_unimplemented_requirement_despite_passing_test() -> None:
+    """Rank-1 live-run repro: a passing traced test alone is NOT coverage.
+
+    The LLR has passing test evidence but no source function carries a
+    ``@traces`` annotation citing it — the requirement was never
+    implemented. find_gaps must flag it as UNIMPLEMENTED_REQUIREMENT.
+    """
+    graph = _fake_graph([FakeNode("LLR-001", "LLR", title="Must auth")])
+    test_trace = LineTrace(start=1, end=5, llr_ids=["LLR-001"], symbol="test_auth")
+    test_files = {
+        "tests/test_auth.py": FileState(
+            path="tests/test_auth.py", traces=[test_trace],
+            total_functions=1, traced_functions=1,
+        ),
+    }
+    results = [SingleTestResult(
+        test_id="tests/test_auth.py::test_auth",
+        file_path="tests/test_auth.py",
+        function_name="test_auth",
+        status="passed",
+    )]
+    source_files = {"src/auth.py": _traced_file("src/auth.py")}  # no LLR-001 trace
+    gaps = find_gaps(source_files, test_files, results, graph)
+    unimpl = [g for g in gaps if g.kind == GapKind.UNIMPLEMENTED_REQUIREMENT]
+    assert len(unimpl) == 1
+    assert unimpl[0].node_id == "LLR-001"
+
+
+def test_no_unimplemented_requirement_when_source_traced() -> None:
+    """An LLR cited by a source-file @traces is implemented — no gap."""
+    graph = _fake_graph([FakeNode("LLR-001", "LLR", title="Must auth")])
+    src_trace = LineTrace(start=1, end=5, llr_ids=["LLR-001"], symbol="auth")
+    source_files = {
+        "src/auth.py": FileState(
+            path="src/auth.py", traces=[src_trace],
+            total_functions=1, traced_functions=1,
+        ),
+    }
+    gaps = find_gaps(source_files, {}, [], graph)
+    assert not any(g.kind == GapKind.UNIMPLEMENTED_REQUIREMENT for g in gaps)
 
 
 # ── No suppression — agent sees everything ──────────────────────────────────

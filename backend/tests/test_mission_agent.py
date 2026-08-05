@@ -252,39 +252,75 @@ class TestScoreBreakdown:
 # ── create_mission_agent ────────────────────────────────────────────────────
 
 
+def _named_tool(name: str) -> MagicMock:
+    tool = MagicMock()
+    tool.name = name
+    return tool
+
+
+def _required_tools() -> list[MagicMock]:
+    return [_named_tool(n) for n in ("file_write", "shell_exec", "evaluate_progress")]
+
+
 class TestCreateMissionAgent:
     def test_filters_to_mission_tools(self) -> None:
         config = MagicMock()
         config.llm.model_for_phase.return_value = "gpt-4"
 
-        tool_a = MagicMock()
-        tool_a.name = "file_write"
-        tool_b = MagicMock()
-        tool_b.name = "graph_read"
+        required = _required_tools()
+        graph_tool = _named_tool("graph_read")
 
         with (
             patch("backend.crew.mission_agent.build_llm"),
             patch("backend.crew.mission_agent.create_react_agent") as mock_create,
         ):
-            create_mission_agent(config, [tool_a, tool_b])
+            create_mission_agent(config, [*required, graph_tool])
             _, kwargs = mock_create.call_args
-            assert tool_a in kwargs["tools"]
-            assert tool_b not in kwargs["tools"]
+            for tool in required:
+                assert tool in kwargs["tools"]
+            assert graph_tool not in kwargs["tools"]
 
     def test_evaluate_progress_included(self) -> None:
         config = MagicMock()
         config.llm.model_for_phase.return_value = "gpt-4"
 
-        eval_tool = MagicMock()
-        eval_tool.name = "evaluate_progress"
+        tools = _required_tools()
+        eval_tool = next(t for t in tools if t.name == "evaluate_progress")
 
         with (
             patch("backend.crew.mission_agent.build_llm"),
             patch("backend.crew.mission_agent.create_react_agent") as mock_create,
         ):
-            create_mission_agent(config, [eval_tool])
+            create_mission_agent(config, tools)
             _, kwargs = mock_create.call_args
             assert eval_tool in kwargs["tools"]
+
+    def test_missing_evaluate_progress_raises(self) -> None:
+        """Rank-3 live-run repro: the e2e path registered no
+        evaluate_progress at all and the agent ran blind. Tooling must
+        never be silently optional."""
+        config = MagicMock()
+        config.llm.model_for_phase.return_value = "gpt-4"
+
+        tools = [_named_tool("file_write"), _named_tool("shell_exec")]
+
+        with (
+            patch("backend.crew.mission_agent.build_llm"),
+            patch("backend.crew.mission_agent.create_react_agent"),
+            pytest.raises(RuntimeError, match="evaluate_progress"),
+        ):
+            create_mission_agent(config, tools)
+
+    def test_empty_tool_instances_raises(self) -> None:
+        config = MagicMock()
+        config.llm.model_for_phase.return_value = "gpt-4"
+
+        with (
+            patch("backend.crew.mission_agent.build_llm"),
+            patch("backend.crew.mission_agent.create_react_agent"),
+            pytest.raises(RuntimeError, match="file_write"),
+        ):
+            create_mission_agent(config, [])
 
 
 # ── run_mission_agent ───────────────────────────────────────────────────────

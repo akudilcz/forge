@@ -384,3 +384,54 @@ def test_report_unresolved_deps_no_source_files(tmp_path: Path, monkeypatch: pyt
 
     warn_msgs = [m for lv, _, m in logged if lv == "WARN"]
     assert not any("Unresolved" in m for m in warn_msgs)
+
+
+# ── Shared stdlib constant (ranks 7/18 regression) ───────────────────────────
+
+
+def test_stdlib_modules_include_future_and_common_stdlib() -> None:
+    """Rank-18 regression: __future__ (and other stdlib omitted by the old
+    hand-list) must be recognised as stdlib."""
+    from backend.crew.bazel_gen import _STDLIB_MODULES
+
+    for mod in (
+        "__future__", "datetime", "random", "unittest", "string",
+        "statistics", "copy", "contextlib",
+    ):
+        assert mod in _STDLIB_MODULES, mod
+
+
+def test_future_import_never_unresolved(tmp_path: Path) -> None:
+    """Rank-18 live-run repro: 'from __future__ import annotations' fired a
+    false 'add __future__ to requirements.txt' diagnostic every iteration."""
+    f = tmp_path / "code.py"
+    f.write_text(
+        "from __future__ import annotations\n"
+        "import datetime\n"
+        "import random\n"
+        "from unittest import mock\n"
+    )
+    labels, unresolved = _pip_deps_for_files([f], {})
+    assert labels == []
+    assert unresolved == set()
+
+
+def test_report_unresolved_deps_silent_for_future(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No 'Unresolved imports' warning for stdlib-only imports."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "app.py").write_text("from __future__ import annotations\nimport datetime\n")
+
+    logged: list[tuple[str, str, str]] = []
+    from backend.server import forge_logger as _fl_mod
+    monkeypatch.setattr(
+        _fl_mod.forge_logger, "emit",
+        lambda level, cat, msg, **kw: logged.append((level, cat, msg)),
+    )
+
+    _report_unresolved_deps(tmp_path)
+
+    warn_msgs = [m for lv, _, m in logged if lv == "WARN"]
+    assert not any("Unresolved" in m for m in warn_msgs)

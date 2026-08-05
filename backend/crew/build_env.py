@@ -112,15 +112,15 @@ class PythonBazelEnvironment(BuildEnvironment):
 
     def check_health(self, workspace: Path) -> BuildHealth:
         """Check Python/Bazel build health."""
-        from backend.crew.bazel_gen import _STDLIB_MODULES, _parse_requirements
+        from backend.crew.bazel_gen import _parse_requirements
+        from backend.crew.known_modules import STDLIB_MODULES, WORKSPACE_MODULES
 
         health = BuildHealth(language="python", build_system="bazel")
         reqs = _parse_requirements(workspace)
         all_imports = _collect_py_imports(workspace)
-        internal = {"src", "tests", "tracing", "conftest"}
 
         for imp in sorted(all_imports):
-            if imp in _STDLIB_MODULES or imp in internal:
+            if imp in STDLIB_MODULES or imp in WORKSPACE_MODULES:
                 continue
             if imp.lower().replace("-", "_") in reqs:
                 health.deps.append(DepStatus(

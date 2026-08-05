@@ -94,10 +94,11 @@ class ForgeBuilder:
         return graph
 
     def _build_tools(self, graph: ProjectGraph) -> list[Any]:
-        """Build all tool instances (graph + file tools)."""
+        """Build all tool instances (graph + file + mission feedback tools)."""
         graph_tools = self._build_graph_tools(graph)
         file_tools = self._build_file_tools()
-        return graph_tools + file_tools
+        mission_tools = self._build_mission_tools(graph)
+        return graph_tools + file_tools + mission_tools
 
     def _build_graph_tools(self, graph: ProjectGraph) -> list[Any]:
         """Instantiate graph and analysis tools."""
@@ -187,6 +188,24 @@ class ForgeBuilder:
             ReadDocsTool(ws),
             InsertLinesTool(ws),
             MultiFileWriteTool(ws),
+        ]
+
+    def _build_mission_tools(self, graph: ProjectGraph) -> list[Any]:
+        """Instantiate the phase-12 mission feedback tools.
+
+        Must mirror the server path (lifespan._init_tools /
+        _build_file_tools) — the mission agent refuses to start without
+        evaluate_progress (design/22, Required tools).
+        """
+        from backend.tools.check_trace_quality import CheckTraceQualityTool
+        from backend.tools.evaluate_progress import EvaluateProgressTool
+        from backend.tools.workspace_doctor import WorkspaceDoctorTool
+
+        ws = str(self._workspace)
+        return [
+            WorkspaceDoctorTool(ws),
+            EvaluateProgressTool(ws, graph),
+            CheckTraceQualityTool(ws, graph, self._config.llm),
         ]
 
     async def _init_agents(self, tools: list[Any]) -> AgentPool:

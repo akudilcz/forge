@@ -74,14 +74,16 @@ async def run_code_gen(
     graph: ProjectGraph,
     workspace: Path,
     *,
-    model: str = "",
-    config: ForgeConfig | None = None,
-    tool_instances: list[Any] | None = None,
+    config: ForgeConfig,
+    tool_instances: list[Any],
 ) -> CodeGenResult:
-    """Run work-queue-driven code generation for Phase 12."""
+    """Run work-queue-driven code generation for Phase 12.
+
+    ``config`` and ``tool_instances`` are required — a missing tool set
+    previously degraded silently into a mission agent with zero tools
+    (design/22, Required tools).
+    """
     t0 = time.monotonic()
-    cfg = config or ForgeConfig()
-    tools = tool_instances or []
     forge_logger.emit("INFO", "CGEN ", f"Phase 12 Code Gen started — workspace={workspace}")
 
     _init_workspace(workspace)
@@ -89,7 +91,9 @@ async def run_code_gen(
     init_bazel_workspace(workspace)
 
     forge_logger.emit("INFO", "CGEN ", "Starting work-queue-driven gap closer")
-    last_state, mission_stats = await _close_remaining_gaps(workspace, graph, cfg, tools)
+    last_state, mission_stats = await _close_remaining_gaps(
+        workspace, graph, config, tool_instances,
+    )
     gaps_resolved = not find_gaps(
         last_state.source_files,
         last_state.test_files,
@@ -138,7 +142,9 @@ def _enforce_coverage_gate(
         * Every test passed (``failed == 0``).
         * Statement coverage == 100%.
         * Branch / MC/DC coverage == 100%.
-        * Requirement coverage == 100% (every LLR has a passing test trace).
+        * Requirement coverage == 100% — every LLR is cited by a source
+          ``@traces`` AND has a passing traced test (single coverage
+          definition, design/22).
     """
     # Each gate only fires when the thing it covers is actually present:
     # - A graph with no LLRs → no requirement-coverage check (trivially OK).
@@ -169,6 +175,11 @@ def _enforce_coverage_gate(
                 f"branch/MC-DC coverage {branch_pct} (need 100%)"
             )
     if req_detail["total"] > 0:
+        if req_detail["unimplemented"]:
+            problems.append(
+                f"{len(req_detail['unimplemented'])} LLR(s) have no implementing source "
+                f"@traces: {req_detail['unimplemented']}"
+            )
         if req_detail["uncovered"]:
             problems.append(
                 f"requirement coverage {len(req_detail['covered'])}/{req_detail['total']} — "
@@ -186,6 +197,7 @@ def _enforce_coverage_gate(
             req_covered=len(req_detail["covered"]),
             req_total=req_detail["total"],
             uncovered_llrs=req_detail["uncovered"] or None,
+            unimplemented_llrs=req_detail["unimplemented"] or None,
             tests_passed=passed,
             tests_failed=failed,
         )

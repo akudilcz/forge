@@ -460,3 +460,35 @@ class TestBuildHealth:
             ],
         )
         assert health.has_errors is True
+
+
+# ── Shared stdlib constant (rank 7 regression) ───────────────────────────────
+
+
+class TestSharedStdlibConstant:
+    """build_env must use the shared sys.stdlib_module_names-based list."""
+
+    def test_check_health_resolves_all_stdlib(self, tmp_path: Path) -> None:
+        """datetime/random/unittest/__future__ are never missing deps."""
+        (tmp_path / "requirements.txt").write_text("pytest==9.0.2\n")
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "app.py").write_text(
+            "from __future__ import annotations\n"
+            "import datetime\n"
+            "import random\n"
+            "from unittest import mock\n"
+        )
+        env = PythonBazelEnvironment()
+        health = env.check_health(tmp_path)
+        assert health.missing_deps == []
+
+    def test_check_health_flags_real_third_party(self, tmp_path: Path) -> None:
+        """A genuinely unresolved third-party import is still an error."""
+        (tmp_path / "requirements.txt").write_text("pytest==9.0.2\n")
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "app.py").write_text("import requests\n")
+        env = PythonBazelEnvironment()
+        health = env.check_health(tmp_path)
+        assert [d.name for d in health.missing_deps] == ["requests"]

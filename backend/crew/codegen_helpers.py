@@ -7,7 +7,6 @@ under 500 lines per project conventions.
 from __future__ import annotations
 
 import ast as _ast
-import re as _re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -16,13 +15,6 @@ if TYPE_CHECKING:
     from backend.graph.engine import ProjectGraph
 
 from backend.crew.naming import slugify as _slugify
-
-_STDLIB_AND_KNOWN = frozenset({
-    "os", "sys", "math", "time", "collections", "heapq",
-    "dataclasses", "typing", "pathlib", "enum", "functools",
-    "itertools", "numbers", "abc", "io", "json", "re",
-    "numpy", "scipy", "pytest", "tracing", "src", "__future__",
-})
 
 
 def find_available_modules(workspace: Path) -> set[str]:
@@ -38,17 +30,46 @@ def find_available_modules(workspace: Path) -> set[str]:
 
 
 def has_broken_imports(code: str, available_modules: set[str]) -> bool:
-    """Return True if *code* imports a module not in *available_modules*."""
-    imports = _re.findall(
-        r"^(?:import|from)\s+(\S+)", code, _re.MULTILINE,
+    """Return True iff *code* imports a ``src.*`` module absent from the workspace.
+
+    Imports are enumerated with ``ast.parse`` — a regex scan previously
+    matched import-shaped lines inside docstrings. Only dangling
+    workspace imports (``src.<name>`` with no matching file in src/) mark
+    a file as broken; unknown third-party roots surface later as
+    TEST_ENV_BROKEN gaps and stdlib recognition is irrelevant here, so
+    neither is ever grounds for deletion. Design: design/22 (Step 2).
+    """
+    try:
+        tree = _ast.parse(code)
+    except SyntaxError:
+        # Unparseable files are the SYNTAX_ERROR path (has_syntax_error),
+        # not an import problem.
+        return False
+    return any(
+        name not in available_modules
+        for name in _iter_src_import_names(tree)
     )
-    for imp in imports:
-        root = imp.split(".")[0]
-        if root in _STDLIB_AND_KNOWN:
-            continue
-        if root not in available_modules:
-            return True
-    return False
+
+
+def _iter_src_import_names(tree: _ast.AST) -> list[str]:
+    """Collect ``src.<module>`` names imported anywhere in *tree*."""
+    names: list[str] = []
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.Import):
+            for alias in node.names:
+                parts = alias.name.split(".")
+                if parts[0] == "src" and len(parts) >= 2:
+                    names.append(f"src.{parts[1]}")
+        elif isinstance(node, _ast.ImportFrom) and node.module and node.level == 0:
+            parts = node.module.split(".")
+            if parts[0] != "src":
+                continue
+            if len(parts) >= 2:
+                names.append(f"src.{parts[1]}")
+            else:
+                # ``from src import foo`` — each alias is a src module.
+                names.extend(f"src.{alias.name}" for alias in node.names)
+    return names
 
 
 def has_syntax_error(code: str) -> bool:
@@ -120,6 +141,13 @@ def compute_requirement_coverage_detail(
 ) -> dict[str, Any]:
     """Detailed requirement coverage: covered/uncovered LLR IDs + totals.
 
+    An LLR is *covered* iff BOTH legs hold (design/22, coverage model):
+
+    * at least one **source** function carries ``@traces`` citing it
+      (the requirement is implemented), AND
+    * at least one **passing test** function carries ``@traces`` citing
+      it (the behaviour is verified).
+
     A test function is considered evidence for its traced LLRs only if that
     specific function passed — not if the whole file passed. Matches each
     passing ``SingleTestResult`` to the ``LineTrace`` entries in the same
@@ -128,7 +156,12 @@ def compute_requirement_coverage_detail(
     Returns::
 
         {"covered": {"LLR-0001", ...}, "uncovered": ["LLR-0003", ...],
-         "total": 15}
+         "unimplemented": ["LLR-0003", ...], "total": 15}
+
+    where ``unimplemented`` lists LLRs absent from all source-file
+    ``@traces`` (a passing test alone is NOT coverage — the live-run
+    failure this guards against logged "Req 53/53" while 15 LLRs never
+    reached src/).
     """
     # Pytest parametrised tests are emitted as ``test_foo[param0]`` while the
     # ``@traces`` decorator is on the bare function ``test_foo``. Strip the
@@ -150,15 +183,27 @@ def compute_requirement_coverage_detail(
             failed_bases.add(key)
     passing_fns = passed_bases - failed_bases
 
-    covered: set[str] = set()
+    tested: set[str] = set()
     for path, fs in state.test_files.items():
         for trace in fs.traces:
             if (path, trace.symbol) in passing_fns:
-                covered.update(trace.llr_ids)
+                tested.update(trace.llr_ids)
 
-    all_llr_ids = [n.node_id for n in graph.all_nodes() if n.node_type == "LLR"]
-    uncovered = sorted(set(all_llr_ids) - covered)
-    return {"covered": covered, "uncovered": uncovered, "total": len(all_llr_ids)}
+    implemented: set[str] = {
+        llr_id
+        for fs in state.source_files.values()
+        for trace in fs.traces
+        for llr_id in trace.llr_ids
+    }
+
+    all_llr_ids = {n.node_id for n in graph.all_nodes() if n.node_type == "LLR"}
+    covered = tested & implemented & all_llr_ids
+    return {
+        "covered": covered,
+        "uncovered": sorted(all_llr_ids - covered),
+        "unimplemented": sorted(all_llr_ids - implemented),
+        "total": len(all_llr_ids),
+    }
 
 
 def strip_markdown_fences(code: str) -> str:

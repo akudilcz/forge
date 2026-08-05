@@ -6,6 +6,7 @@ import asyncio
 import itertools
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -502,6 +503,21 @@ async def test_run_phase_exception_resets_active_phase(
 
 
 # ── Approve phase ─────────────────────────────────────────────────────────────
+
+
+def test_get_tool_instances_returns_registry_tools(flow: ForgeFlow) -> None:
+    """Happy path: tool instances come from the pool's factory registry."""
+    tools = [MagicMock(), MagicMock()]
+    flow.pool._factory._registry._tools_instances = tools
+    assert flow._get_tool_instances() == tools
+
+
+def test_get_tool_instances_raises_without_registry(flow: ForgeFlow) -> None:
+    """Rank-3: a broken registry chain must raise, not return [] silently
+    (phase 12 would otherwise run with zero tools)."""
+    flow.pool = SimpleNamespace()  # no _factory attribute
+    with pytest.raises(RuntimeError, match="tool registry"):
+        flow._get_tool_instances()
 
 
 def test_approve_phase(flow: ForgeFlow) -> None:

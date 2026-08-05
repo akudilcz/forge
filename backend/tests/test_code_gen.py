@@ -255,10 +255,19 @@ async def test_run_code_gen_empty_graph(mock_close_gaps: MagicMock, tmp_path: Pa
     graph: Any = MagicMock()
     graph.all_nodes.return_value = []
     graph.update_node = AsyncMock()
-    result = await run_code_gen(graph, tmp_path)
+    result = await run_code_gen(graph, tmp_path, config=MagicMock(), tool_instances=[])
     assert result.source_files == []
     assert result.test_files == []
     assert result.gaps_resolved is True
+
+
+@pytest.mark.asyncio
+async def test_run_code_gen_requires_config_and_tools(tmp_path: Path) -> None:
+    """config and tool_instances are required — no silent defaults."""
+    graph: Any = MagicMock()
+    graph.all_nodes.return_value = []
+    with pytest.raises(TypeError):
+        await run_code_gen(graph, tmp_path)  # type: ignore[call-arg]
 
 
 @pytest.mark.asyncio
@@ -275,7 +284,7 @@ async def test_run_code_gen_gaps_resolved_true(
     graph.all_nodes.return_value = []
     graph.update_node = AsyncMock()
 
-    result = await run_code_gen(graph, tmp_path)
+    result = await run_code_gen(graph, tmp_path, config=MagicMock(), tool_instances=[])
     assert result.gaps_resolved is True
 
 
@@ -411,6 +420,11 @@ def test_compute_requirement_coverage_passing_tests() -> None:
             traces=[LineTrace(start=1, end=5, llr_ids=["LLR-001", "LLR-002"], symbol="test_a")],
         ),
     }
+    state.source_files = {
+        "src/foo.py": MagicMock(
+            traces=[LineTrace(start=1, end=5, llr_ids=["LLR-001", "LLR-002"], symbol="foo")],
+        ),
+    }
 
     graph: Any = MagicMock()
     graph.all_nodes.return_value = [
@@ -419,6 +433,34 @@ def test_compute_requirement_coverage_passing_tests() -> None:
     ]
 
     assert _compute_requirement_coverage(state, graph) == "2/2"
+
+
+def test_compute_requirement_coverage_needs_source_traces() -> None:
+    """A passing traced test alone is NOT coverage — the LLR must also be
+    cited by a source-file @traces (rank-1 live-run repro: 'Req 53/53'
+    while 15 LLRs never reached src/)."""
+    from backend.crew.codegen_helpers import (
+        compute_requirement_coverage_detail as _detail,
+    )
+
+    state: Any = MagicMock()
+    state.test_results = [
+        MagicMock(status="passed", file_path="tests/test_foo.py", function_name="test_a"),
+    ]
+    state.test_files = {
+        "tests/test_foo.py": MagicMock(
+            traces=[LineTrace(start=1, end=5, llr_ids=["LLR-001"], symbol="test_a")],
+        ),
+    }
+    state.source_files = {"src/foo.py": MagicMock(traces=[])}
+
+    graph: Any = MagicMock()
+    graph.all_nodes.return_value = [_make_node("LLR-001", "LLR", "Req 1")]
+
+    detail = _detail(state, graph)
+    assert detail["covered"] == set()
+    assert detail["uncovered"] == ["LLR-001"]
+    assert detail["unimplemented"] == ["LLR-001"]
 
 
 def test_compute_requirement_coverage_failed_tests_not_counted() -> None:
@@ -434,6 +476,11 @@ def test_compute_requirement_coverage_failed_tests_not_counted() -> None:
     state.test_files = {
         "tests/test_foo.py": MagicMock(
             traces=[LineTrace(start=1, end=5, llr_ids=["LLR-001"], symbol="test_a")],
+        ),
+    }
+    state.source_files = {
+        "src/foo.py": MagicMock(
+            traces=[LineTrace(start=1, end=5, llr_ids=["LLR-001"], symbol="foo")],
         ),
     }
 
@@ -454,6 +501,7 @@ def test_compute_requirement_coverage_no_llr_nodes() -> None:
     state: Any = MagicMock()
     state.test_results = []
     state.test_files = {}
+    state.source_files = {}
 
     graph: Any = MagicMock()
     graph.all_nodes.return_value = [
@@ -531,8 +579,8 @@ def test_remove_broken_files_removes_syntax_error(tmp_path: Path) -> None:
     assert not bad_file.exists(), "Syntax-error file should be removed"
 
 
-def test_remove_broken_files_removes_nonexistent_import(tmp_path: Path) -> None:
-    """A test file importing a module not in src/ is removed."""
+def test_remove_broken_files_removes_absent_src_import(tmp_path: Path) -> None:
+    """A test file importing a src.* module absent from src/ is removed."""
     from backend.crew.code_gen import _remove_broken_files
 
     src = tmp_path / "src"
@@ -543,11 +591,72 @@ def test_remove_broken_files_removes_nonexistent_import(tmp_path: Path) -> None:
     tests.mkdir()
     stale_file = tests / "test_stale.py"
     stale_file.write_text(
-        "import nonexistent_module\n\ndef test_it():\n    pass\n"
+        "from src.nonexistent_module import thing\n\ndef test_it():\n    pass\n"
     )
 
     _remove_broken_files(tmp_path)
-    assert not stale_file.exists(), "File importing non-existent module should be removed"
+    assert not stale_file.exists(), "File importing absent src.* module should be removed"
+
+
+def test_remove_broken_files_keeps_stdlib_imports(tmp_path: Path) -> None:
+    """Rank-7 live-run repro: datetime/random/unittest imports are valid.
+
+    The old 23-entry hand-list omitted these stdlib modules, so valid
+    passing test files were deleted on every phase-12 (re-)entry.
+    """
+    from backend.crew.code_gen import _remove_broken_files
+
+    (tmp_path / "src").mkdir()
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    good = tests / "test_times.py"
+    good.write_text(
+        "import datetime\n"
+        "import random\n"
+        "import string\n"
+        "import statistics\n"
+        "from unittest import mock\n"
+        "from contextlib import suppress\n"
+        "\n"
+        "def test_it():\n    assert datetime.MINYEAR == 1\n"
+    )
+
+    _remove_broken_files(tmp_path)
+    assert good.exists(), "Test importing stdlib modules must NOT be deleted"
+
+
+def test_remove_broken_files_keeps_unknown_third_party(tmp_path: Path) -> None:
+    """Unknown third-party roots surface as gaps, never as deletions."""
+    from backend.crew.code_gen import _remove_broken_files
+
+    (tmp_path / "src").mkdir()
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    third_party = tests / "test_hyp.py"
+    third_party.write_text("import hypothesis\n\ndef test_it():\n    pass\n")
+
+    _remove_broken_files(tmp_path)
+    assert third_party.exists(), "Third-party import must not trigger deletion"
+
+
+def test_remove_broken_files_ignores_docstring_import_lines(tmp_path: Path) -> None:
+    """Import-shaped lines inside docstrings are not real imports.
+
+    The old regex scan matched them and deleted the file.
+    """
+    from backend.crew.code_gen import _remove_broken_files
+
+    (tmp_path / "src").mkdir()
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    doc_file = tests / "test_doc.py"
+    doc_file.write_text(
+        '"""Example usage:\n\nimport src.gone_module\nfrom src.also_gone import x\n"""\n'
+        "\ndef test_it():\n    pass\n"
+    )
+
+    _remove_broken_files(tmp_path)
+    assert doc_file.exists(), "Docstring import lines must not trigger deletion"
 
 
 # ── Trace validation ────────────────────────────────────────────────────────
@@ -930,6 +1039,7 @@ def _state(
     coverage_pct: float | None = None,
     branch_pct: float | None = None,
     test_files: dict[str, Any] | None = None,
+    source_files: dict[str, Any] | None = None,
 ) -> SimpleNamespace:
     """Build a minimal WorkspaceState-like object for gate testing."""
     results = []
@@ -938,6 +1048,7 @@ def _state(
     return SimpleNamespace(
         test_results=results,
         test_files=test_files or {},
+        source_files=source_files or {},
         coverage_pct=coverage_pct,
         branch_coverage_pct=branch_pct,
     )
@@ -964,6 +1075,12 @@ def _result_with_source() -> CodeGenResult:
     return CodeGenResult(source_files=[gf], test_files=[])
 
 
+def _src_files_tracing(llr_ids: list[str]) -> dict[str, Any]:
+    """A source-file map whose single file carries @traces for *llr_ids*."""
+    trace = LineTrace(start=1, end=1, symbol="mod_fn", llr_ids=llr_ids)
+    return {"src/mod.py": SimpleNamespace(traces=[trace])}
+
+
 def test_coverage_gate_raises_when_llrs_uncovered() -> None:
     # 2 LLRs in graph, tests only trace one of them.
     trace = LineTrace(start=1, end=1, symbol="test_one", llr_ids=["LLR-0001"])
@@ -972,9 +1089,30 @@ def test_coverage_gate_raises_when_llrs_uncovered() -> None:
         tests=[("passed", "tests/test_one.py", "test_one")],
         coverage_pct=100.0, branch_pct=100.0,
         test_files={"tests/test_one.py": tf},
+        source_files=_src_files_tracing(["LLR-0001", "LLR-0002"]),
     )
     graph = _graph_with_llrs(["LLR-0001", "LLR-0002"])
     with pytest.raises(CodeGenIncompleteError, match="uncovered:"):
+        _enforce_coverage_gate(state, graph, _result_with_source())
+
+
+def test_coverage_gate_raises_when_llr_has_no_source_traces() -> None:
+    """Rank-1 live-run repro: passing traced test but no implementing code.
+
+    Every LLR has a passing test citing it, yet no source function
+    carries @traces for it — the gate must fail loudly instead of
+    reporting 'Req N/N'.
+    """
+    trace = LineTrace(start=1, end=1, symbol="test_one", llr_ids=["LLR-0001"])
+    tf = SimpleNamespace(traces=[trace])
+    state = _state(
+        tests=[("passed", "tests/test_one.py", "test_one")],
+        coverage_pct=100.0, branch_pct=100.0,
+        test_files={"tests/test_one.py": tf},
+        source_files={"src/mod.py": SimpleNamespace(traces=[])},
+    )
+    graph = _graph_with_llrs(["LLR-0001"])
+    with pytest.raises(CodeGenIncompleteError, match="no implementing source"):
         _enforce_coverage_gate(state, graph, _result_with_source())
 
 
@@ -1016,6 +1154,7 @@ def test_coverage_gate_passes_when_everything_100() -> None:
         ],
         coverage_pct=100.0, branch_pct=100.0,
         test_files={"tests/t.py": tf},
+        source_files=_src_files_tracing(["LLR-0001", "LLR-0002"]),
     )
     graph = _graph_with_llrs(["LLR-0001", "LLR-0002"])
     # No exception.

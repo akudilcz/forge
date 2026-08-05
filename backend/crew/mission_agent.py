@@ -290,14 +290,35 @@ def format_gaps(gaps: list[Gap]) -> str:
     return "\n\n".join(sections)
 
 
+# Tools without which the mission cannot function: writing files,
+# running tests, and the primary feedback mechanism. A missing tool is a
+# wiring bug at the entry point (lifespan.py / ForgeBuilder), never
+# something to degrade around — the live run's agent had no
+# evaluate_progress at all and worked blind for the whole session.
+_REQUIRED_MISSION_TOOLS = frozenset({"file_write", "shell_exec", "evaluate_progress"})
+
+
 def create_mission_agent(
     config: ForgeConfig,
     tool_instances: list[Any],
 ) -> Any:
-    """Create the mission ReAct agent with a lean tool set."""
+    """Create the mission ReAct agent with a lean tool set.
+
+    Raises:
+        RuntimeError: if the filtered tool set lacks any required mission
+            tool (see ``_REQUIRED_MISSION_TOOLS`` and design/22).
+    """
     from langgraph.checkpoint.memory import MemorySaver
 
     tools = [t for t in tool_instances if t.name in _MISSION_TOOLS]
+    missing = sorted(_REQUIRED_MISSION_TOOLS - {t.name for t in tools})
+    if missing:
+        raise RuntimeError(
+            f"Mission agent tool set is missing required tool(s): "
+            f"{', '.join(missing)}. Register them where the tool list is "
+            f"built (server: lifespan._init_tools; e2e: "
+            f"ForgeBuilder._build_tools)."
+        )
     llm = build_llm(config, model=config.llm.model_for_phase(12))
 
     return create_react_agent(

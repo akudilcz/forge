@@ -478,12 +478,10 @@ class ForgeFlow:
         forge_logger.phase_start(12)
         from backend.crew.code_gen import run_code_gen
 
-        phase12_model = self.config.llm.model_for_phase(12)
         tool_instances = self._get_tool_instances()
         result = await run_code_gen(
             self.graph,
             self._workspace,
-            model=phase12_model,
             config=self.config,
             tool_instances=tool_instances,
         )
@@ -518,12 +516,21 @@ class ForgeFlow:
         forge_logger.phase_complete(14)
 
     def _get_tool_instances(self) -> list[Any]:
-        """Retrieve live tool instances from the agent pool's factory registry."""
+        """Retrieve live tool instances from the agent pool's factory registry.
+
+        Raises:
+            RuntimeError: if the registry chain is unavailable — phase 12
+                must never run with zero tools (design/22, Required tools).
+        """
         try:
             registry = self.pool._factory._registry
             return registry._tools_instances
-        except AttributeError:
-            return []
+        except AttributeError as exc:
+            raise RuntimeError(
+                "Agent pool exposes no tool registry "
+                "(pool._factory._registry._tools_instances) — cannot run "
+                "phase 12 without tools"
+            ) from exc
 
     # ── Agent dispatch (delegates to crew/dispatch.py) ─────────────────────
 

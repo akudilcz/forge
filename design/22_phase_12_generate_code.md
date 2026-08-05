@@ -73,10 +73,17 @@ Creates the workspace directory structure if it does not exist:
 
 ### Step 2 — Remove Broken Files
 
-Scans existing files for syntax errors (`ast.parse()`) and dangling
-imports. Removes files that cannot be parsed or that import modules no
-longer present in the workspace. This prevents the agent from inheriting
-broken state from a prior run.
+Scans existing test files for syntax errors (`ast.parse()`) and dangling
+workspace imports. A file is removed only when it fails to parse or when
+it imports a `src.*` module that no longer exists in the workspace.
+Imports are enumerated with `ast.parse` (never regex), so import-shaped
+lines inside docstrings are ignored. Unknown third-party roots are
+**never** grounds for deletion — they surface later as `TEST_ENV_BROKEN`
+gaps instead. Stdlib recognition uses the single shared constant in
+`backend/crew/known_modules.py` (`sys.stdlib_module_names` plus the
+workspace-internal modules `src`/`tests`/`tracing`/`conftest`), which is
+also the allowlist used by `bazel_gen` and `build_env` — one list, no
+drift.
 
 ### Step 3 — Assemble Context
 
@@ -232,6 +239,17 @@ The agent calls tools freely. `evaluate_progress` is the primary
 feedback mechanism — it runs pytest, computes all coverage dimensions,
 identifies gaps, and returns a structured report with a numeric score.
 
+**Required tools.** `file_write`, `shell_exec`, and `evaluate_progress`
+are mandatory: `create_mission_agent` raises `RuntimeError` if the
+filtered tool set lacks any of them. Tool registration is never
+silently optional — both entry points (the server's `lifespan.py` and
+`ForgeBuilder`, used by e2e/integration runs) must register
+`evaluate_progress`, `check_trace_quality`, and `workspace_doctor` in
+addition to the file/shell tools. `run_code_gen` takes `config` and
+`tool_instances` as required arguments (no defaults), and
+`ForgeFlow._get_tool_instances` raises rather than returning an empty
+list when the registry is unavailable.
+
 ---
 
 ## Value Function
@@ -283,17 +301,18 @@ reports) and fed back to the mission agent.
 | 6 | `UNTRACED_FUNCTIONS` | Public function without `@traces` | Function coverage gap |
 | 7 | `LOW_STRUCTURAL_COVERAGE` | `bazel coverage` < 100% for a file | Statement coverage gap |
 | 8 | `LOW_BRANCH_COVERAGE` | MC/DC branch coverage < 100% | DO-178C certification blocker |
-| 9 | `UNCOVERED_REQUIREMENT` | LLR has no passing test evidence | Requirement coverage gap |
-| 10 | `WEAK_TRACE` | Function traces to LLR but does not implement it | Misleading trace attribution |
-| 11 | `SCOPE_CREEP` | Function not backed by any requirement | Unrequired code |
+| 9 | `UNIMPLEMENTED_REQUIREMENT` | LLR absent from all source-file `@traces` | No implementing code exists |
+| 10 | `UNCOVERED_REQUIREMENT` | LLR has no passing test evidence | Requirement coverage gap |
+| 11 | `WEAK_TRACE` | Function traces to LLR but does not implement it | Misleading trace attribution |
+| 12 | `SCOPE_CREEP` | Function not backed by any requirement | Unrequired code |
 
 The ordering reflects dependency: higher-priority gaps block meaningful
 verification of lower-priority ones. Environment and syntax issues (0-1)
 must be fixed before tests can run. Files must exist (2-3) before they
 can be tested. Tests must pass (4) before coverage is meaningful. Trace
 validity (5-6) must be correct before coverage metrics are trustworthy.
-Coverage dimensions (7-9) are measured per file and per requirement.
-Semantic quality checks (10-11) only run once all structural gaps close.
+Coverage dimensions (7-10) are measured per file and per requirement.
+Semantic quality checks (11-12) only run once all structural gaps close.
 
 ### Quality Gate Sequencing
 
@@ -322,11 +341,20 @@ Phase 12 measures four distinct coverage types, all gated at 100%:
 |------|----------|----------|-------------|
 | **Function** | Does every function declare its requirement? | `UNTRACED_FUNCTIONS` | traced_functions / total_functions per file |
 | **Structural** | Is every source line exercised? | `LOW_STRUCTURAL_COVERAGE` | `bazel coverage` LCOV per file |
-| **Requirement** | Does every LLR have a passing test? | `UNCOVERED_REQUIREMENT` | `@traces` in passing tests vs all LLR nodes |
+| **Requirement** | Does every LLR have implementing code AND a passing test? | `UNIMPLEMENTED_REQUIREMENT` / `UNCOVERED_REQUIREMENT` | `@traces` in source functions AND `@traces` in passing tests vs all LLR nodes |
 | **MC/DC** | Has every boolean sub-condition independently affected the outcome? | `LOW_BRANCH_COVERAGE` | `bazel coverage` branch instrumentation |
 
 Function coverage exempts Protocol stubs and abstract methods, but not
 private functions — every function in `src/` must have `@traces`.
+
+**Single coverage definition.** An LLR is *covered* iff both legs hold:
+at least one source function carries `@traces` citing it, AND at least
+one passing test function carries `@traces` citing it. `find_gaps`
+(`UNIMPLEMENTED_REQUIREMENT` + `UNCOVERED_REQUIREMENT`), the value
+function's `trace_coverage`, and the phase-12 coverage gate
+(`compute_requirement_coverage_detail` / `_enforce_coverage_gate`) all
+use this same definition — an LLR with passing test evidence but no
+implementing source `@traces` fails the gate loudly.
 
 ---
 
@@ -340,6 +368,7 @@ private functions — every function in `src/` must have `@traces`.
 | Test environment | Tests can run | Gap: `TEST_ENV_BROKEN` |
 | Statement coverage | 100% per file | Gap: `LOW_STRUCTURAL_COVERAGE` |
 | MC/DC coverage | 100% branch coverage | Gap: `LOW_BRANCH_COVERAGE` |
+| Requirement implementation | Every LLR cited by a source `@traces` | Gap: `UNIMPLEMENTED_REQUIREMENT` |
 | Requirement coverage | Every LLR has passing test | Gap: `UNCOVERED_REQUIREMENT` |
 | Trace quality | Every function implements its traced LLR | Gap: `WEAK_TRACE` |
 | Scope integrity | No functions beyond specification | Gap: `SCOPE_CREEP` |

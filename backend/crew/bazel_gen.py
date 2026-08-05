@@ -11,26 +11,13 @@ import ast
 import re
 from pathlib import Path
 
+from backend.crew.known_modules import (
+    STDLIB_MODULES as _STDLIB_MODULES,
+)
+from backend.crew.known_modules import (
+    WORKSPACE_MODULES as _INTERNAL_MODULES,
+)
 from backend.server.forge_logger import forge_logger
-
-# Packages that are part of the Python 3.12 stdlib and should never
-# appear as pip deps.  Only the top-level names that agents commonly
-# import are listed — extend as needed.
-_STDLIB_MODULES: frozenset[str] = frozenset({
-    "abc", "argparse", "ast", "asyncio", "base64", "bisect",
-    "builtins", "collections", "contextlib", "copy", "csv",
-    "dataclasses", "datetime", "decimal", "difflib", "enum",
-    "errno", "fnmatch", "fractions", "functools", "gc", "glob",
-    "gzip", "hashlib", "heapq", "hmac", "html", "http",
-    "importlib", "inspect", "io", "itertools", "json", "logging",
-    "math", "multiprocessing", "operator", "os", "pathlib",
-    "pickle", "platform", "pprint", "queue", "random", "re",
-    "secrets", "shutil", "signal", "socket", "sqlite3",
-    "statistics", "string", "struct", "subprocess", "sys",
-    "tempfile", "textwrap", "threading", "time", "timeit",
-    "traceback", "types", "typing", "unittest", "urllib", "uuid",
-    "warnings", "weakref", "xml", "zipfile",
-})
 
 
 def _parse_requirements(workspace: Path) -> dict[str, str]:
@@ -110,12 +97,6 @@ def _pip_deps_for_files(
         elif normalised not in _STDLIB_MODULES and normalised not in _INTERNAL_MODULES:
             unresolved.add(normalised)
     return sorted(labels), unresolved
-
-
-# Modules that are internal to the generated workspace
-_INTERNAL_MODULES: frozenset[str] = frozenset({
-    "src", "tests", "tracing", "conftest",
-})
 
 
 def init_bazel_workspace(workspace: Path) -> None:

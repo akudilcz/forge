@@ -98,7 +98,9 @@ class TestGapKindOrdering:
         assert GapKind.SCOPE_CREEP > GapKind.WEAK_TRACE
 
     def test_weak_trace_value(self) -> None:
-        assert GapKind.WEAK_TRACE.value == 10
+        # Shifted from 10 when UNIMPLEMENTED_REQUIREMENT (9) was inserted
+        # before UNCOVERED_REQUIREMENT.
+        assert GapKind.WEAK_TRACE.value == 11
 
     def test_scope_creep_value(self) -> None:
-        assert GapKind.SCOPE_CREEP.value == 11
+        assert GapKind.SCOPE_CREEP.value == 12

@@ -41,9 +41,10 @@ class GapKind(IntEnum):
     UNTRACED_FUNCTIONS = 6
     LOW_STRUCTURAL_COVERAGE = 7   # statement coverage < 100% for a file
     LOW_BRANCH_COVERAGE = 8      # MC/DC branch coverage < 100%
-    UNCOVERED_REQUIREMENT = 9     # LLR with no passing test evidence
-    WEAK_TRACE = 10              # function traces to LLR but doesn't implement it
-    SCOPE_CREEP = 11             # function not backed by any requirement
+    UNIMPLEMENTED_REQUIREMENT = 9  # LLR absent from all source-file @traces
+    UNCOVERED_REQUIREMENT = 10    # LLR with no passing test evidence
+    WEAK_TRACE = 11              # function traces to LLR but doesn't implement it
+    SCOPE_CREEP = 12             # function not backed by any requirement
 
 
 @dataclass
@@ -99,6 +100,7 @@ def find_gaps(
         gaps, source_files, coverage_by_file, uncovered_lines,
     )
     _check_low_branch_coverage(gaps, branch_coverage_pct)
+    _check_unimplemented_requirement(gaps, source_files, graph)
     _check_uncovered_requirement(gaps, test_files, test_results, graph)
 
     # Quality checks (scope creep, suspicious names) only run once the
@@ -423,6 +425,48 @@ def _check_low_branch_coverage(
         ),
         context={"branch_coverage_pct": branch_coverage_pct},
     ))
+
+
+def _check_unimplemented_requirement(
+    gaps: list[Gap],
+    source_files: dict[str, FileState],
+    graph: ProjectGraph,
+) -> None:
+    """Add UNIMPLEMENTED_REQUIREMENT gaps for LLRs with no source ``@traces``.
+
+    An LLR is *implemented* iff at least one source-file function carries
+    a ``@traces`` annotation citing it. This is the source-side leg of the
+    single coverage definition (design/22): a passing traced test alone is
+    NOT coverage. Without this check, an LLR with no implementing code
+    passed every completion gate — the live run reported "Req 53/53"
+    while 15 LLRs never reached src/.
+    """
+    implemented: set[str] = {
+        llr_id
+        for file_state in source_files.values()
+        for trace in file_state.traces
+        for llr_id in trace.llr_ids
+    }
+
+    for node in graph.all_nodes():
+        if node.node_type != "LLR":
+            continue
+        if node.node_id in implemented:
+            continue
+        shall = (node.content or "").strip().replace("\n", " ")
+        if len(shall) > 240:
+            shall = shall[:240] + "…"
+        gaps.append(Gap(
+            kind=GapKind.UNIMPLEMENTED_REQUIREMENT,
+            node_id=node.node_id,
+            file_path="",
+            details=(
+                f'{node.node_id} content: "{shall}" '
+                f'No source function carries @traces("{node.node_id}"). '
+                f'Fix: implement this requirement in src/ and annotate the '
+                f'implementing function(s) with @traces("{node.node_id}").'
+            ),
+        ))
 
 
 def _check_uncovered_requirement(

@@ -322,13 +322,26 @@ async def test_scenario(
     if seed_mod is not None:
         seed_mod.seed_workspace(scenario_workspace)
 
-    # 5. Phase 12: code gen with real LLM
+    # 5. Phase 12: code gen with real LLM. The graph-bound mission
+    # feedback tools are added here (the scenario_tools fixture has no
+    # graph) — create_mission_agent refuses to run without them.
+    from backend.tools.check_trace_quality import CheckTraceQualityTool
+    from backend.tools.evaluate_progress import EvaluateProgressTool
+    from backend.tools.workspace_doctor import WorkspaceDoctorTool
+
+    ws = str(scenario_workspace)
+    tools = [
+        *scenario_tools,
+        WorkspaceDoctorTool(ws),
+        EvaluateProgressTool(ws, graph),
+        CheckTraceQualityTool(ws, graph, integration_config.llm),
+    ]
     init_bazel_workspace(scenario_workspace)
     result = await run_code_gen(
         graph,
         scenario_workspace,
         config=integration_config,
-        tool_instances=scenario_tools,
+        tool_instances=tools,
     )
 
     # 6. Post-generation workspace scan (coverage + test results)

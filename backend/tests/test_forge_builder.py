@@ -51,6 +51,19 @@ def test_ensure_dirs_creates_workspace_layout(workspace: Path, config: ForgeConf
     assert Path(b._db_path).parent.is_dir()
 
 
+def test_build_tools_includes_mission_feedback_tools(
+    workspace: Path, config: ForgeConfig
+) -> None:
+    """Rank-3: the builder path must register the same mission feedback
+    tools as the server path (lifespan.py) — evaluate_progress,
+    check_trace_quality, workspace_doctor."""
+    b = ForgeBuilder(config=config, workspace=workspace)
+    b._ensure_dirs()
+    tools = b._build_tools(MagicMock())
+    names = {t.name for t in tools}
+    assert {"evaluate_progress", "check_trace_quality", "workspace_doctor"} <= names
+
+
 @pytest.mark.asyncio
 async def test_build_wires_graph_pool_and_flow(
     workspace: Path, config: ForgeConfig
