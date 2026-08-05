@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from backend.crew.dispatch import DispatchQuotaError
 from backend.crew.phase_pipeline import (
     _DEFAULT_STEPS,
     get_steps,
@@ -154,3 +155,50 @@ async def test_pipeline_stable_on_first_cycle(mock_flow: MagicMock) -> None:
 
     assert result["cycles"] == 1
     assert result["total_deletions"] == 0
+
+
+@pytest.mark.asyncio
+async def test_pipeline_forces_exit_at_max_cycles(mock_flow: MagicMock) -> None:
+    """A step that always reports deletions stops after _max_cycles (12), not forever."""
+    call_count = [0]
+
+    async def always_deleting(flow: Any, phase: int) -> StepResult:
+        call_count[0] += 1
+        return StepResult(step_name="deleter", deletions=1)
+
+    with patch(
+        "backend.crew.phase_pipeline.get_steps",
+        return_value=[always_deleting],
+    ):
+        result = await run_phase_pipeline(mock_flow, 5)
+
+    assert result["cycles"] == 12
+    assert call_count[0] == 12
+    assert result["total_deletions"] == 12
+    # Even a forced exit still finalizes via the approval audit.
+    mock_flow._request_approval.assert_awaited_once_with(5)
+
+
+@pytest.mark.asyncio
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "BUG: the per-step `except Exception` in run_phase_pipeline swallows "
+        "DispatchQuotaError along with every other step failure, substituting an "
+        "empty StepResult and continuing. Quota exhaustion should abort the "
+        "pipeline (CLAUDE.md: no silent fallbacks). Remove this marker once the "
+        "pipeline re-raises DispatchQuotaError."
+    ),
+)
+async def test_pipeline_propagates_dispatch_quota_error(mock_flow: MagicMock) -> None:
+    """DispatchQuotaError raised by a step must propagate out of run_phase_pipeline."""
+
+    async def quota_step(flow: Any, phase: int) -> StepResult:
+        raise DispatchQuotaError("API quota exhausted")
+
+    with patch(
+        "backend.crew.phase_pipeline.get_steps",
+        return_value=[quota_step],
+    ):
+        with pytest.raises(DispatchQuotaError):
+            await run_phase_pipeline(mock_flow, 5)

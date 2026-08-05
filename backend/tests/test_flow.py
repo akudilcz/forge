@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.analysis.gaps import Gap, GapPriority, GapType
+from backend.analysis.phase_auditor import PhaseAuditResult
 from backend.crew.flow import (
     GAP_TYPE_TO_PHASE,
     ForgeFlow,
@@ -352,6 +353,99 @@ async def test_single_step_mode(flow: ForgeFlow, mock_deps: MockDeps) -> None:
             await flow.kickoff_async()
 
     assert flow.state.loop_status == "idle"
+    calls = [str(c) for c in mock_deps[3].emit.call_args_list]
+    assert any("idle" in c for c in calls)
+
+
+# ── Phase audit → approval status ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_request_approval_pass_marks_complete(
+    flow: ForgeFlow, mock_deps: MockDeps
+) -> None:
+    """_request_approval marks the phase 'complete' when the audit passes."""
+    audit = PhaseAuditResult(phase=5, is_complete=True)
+    with patch.object(flow._auditor, "audit", return_value=audit) as mock_audit:
+        await flow._request_approval(5)
+
+    mock_audit.assert_called_once_with(5, flow.graph)
+    mock_deps[4].set_status.assert_called_once_with(5, "complete")
+    payload = mock_deps[3].emit.call_args[0][1]
+    assert payload["status"] == "complete"
+    assert payload["audit"]["is_complete"] is True
+
+
+@pytest.mark.asyncio
+async def test_request_approval_fail_sets_awaiting_approval(
+    flow: ForgeFlow, mock_deps: MockDeps
+) -> None:
+    """A failed audit must set 'awaiting_approval' — never report completion."""
+    gap = Gap(
+        type=GapType.UNCOVERED_PARA,
+        priority=GapPriority.REQUIREMENTS_HLR,
+        node_id="doc.spec.p1",
+        description="Paragraph has no HLR",
+    )
+    audit = PhaseAuditResult(
+        phase=3,
+        is_complete=False,
+        unresolved_gaps=[gap],
+        blocking_gap_types=frozenset({GapType.UNCOVERED_PARA}),
+    )
+    with patch.object(flow._auditor, "audit", return_value=audit):
+        await flow._request_approval(3)
+
+    mock_deps[4].set_status.assert_called_once_with(3, "awaiting_approval")
+    statuses = {c.args for c in mock_deps[4].set_status.call_args_list}
+    assert (3, "complete") not in statuses
+    payload = mock_deps[3].emit.call_args[0][1]
+    assert payload["status"] == "awaiting_approval"
+    assert payload["audit"]["is_complete"] is False
+    assert payload["audit"]["gap_count"] == 1
+
+
+# ── run_phase (pipeline path) ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_run_phase_pipeline_success_returns_summary(
+    flow: ForgeFlow, mock_deps: MockDeps
+) -> None:
+    """run_phase returns the pipeline summary and does not reset phases on success."""
+    summary = {"phase": 5, "cycles": 2, "total_deletions": 3}
+    with patch(
+        "backend.crew.phase_pipeline.run_phase_pipeline",
+        new=AsyncMock(return_value=summary),
+    ):
+        result = await flow.run_phase(5)
+
+    assert result["phase"] == 5
+    assert result["total_deletions"] == 3
+    reset_calls = {c.args for c in mock_deps[4].set_status.call_args_list}
+    assert all(status != "pending" for _, status in reset_calls)
+
+
+@pytest.mark.asyncio
+async def test_run_phase_exception_resets_active_phase(
+    flow: ForgeFlow, mock_deps: MockDeps
+) -> None:
+    """When the pipeline raises, run_phase demotes 'active' phases and re-raises."""
+    mock_deps[4].get_all.return_value = [
+        {"phase_number": 5, "status": "active"},
+        {"phase_number": 4, "status": "complete"},
+    ]
+    with patch(
+        "backend.crew.phase_pipeline.run_phase_pipeline",
+        new=AsyncMock(side_effect=RuntimeError("pipeline exploded")),
+    ):
+        with pytest.raises(RuntimeError, match="pipeline exploded"):
+            await flow.run_phase(5)
+
+    reset_calls = {c.args for c in mock_deps[4].set_status.call_args_list}
+    assert (5, "pending") in reset_calls, "active phase must not stay stuck 'active'"
+    assert (4, "pending") not in reset_calls, "non-active phases must be untouched"
+    # finally-block still returns the loop status to idle
     calls = [str(c) for c in mock_deps[3].emit.call_args_list]
     assert any("idle" in c for c in calls)
 
