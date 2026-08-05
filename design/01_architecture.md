@@ -635,6 +635,18 @@ Step functions:
 
 After all steps complete, if any step reported deletions, the pipeline cycles -- re-runs all steps -- because deletions can uncover new gaps. When no deletions occur the phase is stable. A cycle cap (12) bounds runaway delete/recreate loops.
 
+Within the structural loop, every dispatch of a still-open gap counts against
+a per-gap cap (`_MAX_GAP_ATTEMPTS = 3`); at the cap the gap is abandoned for
+the pass and stays open, so the cumulative audit fails the phase loudly.
+The cap counts **all** dispatches, not just no-progress ones: a graph-state
+delta is not proof the gap advanced — an agent that creates wrong-typed or
+unrelated nodes on every call "makes progress" forever without ever closing
+its gap, which would otherwise spin the loop until quota exhaustion. A gap
+that genuinely closes never reappears in the next collect, so the counter is
+only ever consulted for gaps that failed to close. Counters are per
+structural pass; legitimate rework in a later pipeline cycle starts fresh and
+is bounded by the cycle cap.
+
 ### 8.4 Failure Semantics
 
 Quality verification must never fail open: a failed check is not a passed

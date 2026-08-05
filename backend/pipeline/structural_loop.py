@@ -249,18 +249,25 @@ def create_structural_loop_graph(flow: ForgeFlow) -> Any:
 
         _record_action(state, gap, wq_item, pre_count, post_count, attempt)
 
+        # Every dispatch counts against _MAX_GAP_ATTEMPTS, progress or not.
+        # A graph-state delta used to reset the counter, so an agent that
+        # created wrong-typed or unrelated nodes on every call was
+        # re-dispatched without bound — fake progress spun the loop until
+        # quota exhaustion (proven by test_hostile_agent_convergence.py; the
+        # LangGraph default recursion limit does not bound this graph). A gap
+        # that actually closes never reappears in collect_gaps, so the stale
+        # counter is never consulted for it.
+        fail_counts[gap_key] = attempt
+
         if post_count > pre_count:
-            fail_counts.pop(gap_key, None)
             forge_logger.gap_resolved(gap.type.value, gap.node_id)
             flow.state.iteration += 1
             single_step_done = flow.state.single_step
             if wq_item:
                 work_queue.update_status(wq_item.id, "done")
         else:
-            fail_count = fail_counts.get(gap_key, 0) + 1
-            fail_counts[gap_key] = fail_count
-            logger.warning("forge.flow.no_progress gap=%s consecutive=%d", gap.type, fail_count)
-            forge_logger.gap_no_progress(gap.type.value, gap.node_id, fail_count)
+            logger.warning("forge.flow.no_progress gap=%s consecutive=%d", gap.type, attempt)
+            forge_logger.gap_no_progress(gap.type.value, gap.node_id, attempt)
             if "OK:" in (crew_out or ""):
                 forge_logger.emit(
                     "WARN",
