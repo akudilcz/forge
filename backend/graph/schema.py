@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS pg_nodes (
     created_by      TEXT    NOT NULL DEFAULT 'system',
     created_at      TEXT    NOT NULL,
     updated_at      TEXT    NOT NULL,
+    content_updated_at TEXT NOT NULL DEFAULT '',
     properties      TEXT    NOT NULL DEFAULT '{}',
     trace_to        TEXT    NOT NULL DEFAULT '[]'
 );
@@ -105,6 +106,7 @@ async def apply_schema(db: aiosqlite.Connection) -> None:
     Migrations (applied in order):
       1. Rename display_label → title if needed.
       2. Add trace_to column and promote from properties JSON.
+      3. Add content_updated_at column, backfilled from updated_at.
 
     Args:
         db: An open aiosqlite.Connection instance.
@@ -113,6 +115,7 @@ async def apply_schema(db: aiosqlite.Connection) -> None:
     await db.commit()
     await _migrate_display_label(db)
     await _migrate_trace_to_column(db)
+    await _migrate_content_updated_at(db)
 
 
 async def _migrate_display_label(db: aiosqlite.Connection) -> None:
@@ -153,5 +156,27 @@ async def _migrate_trace_to_column(db: aiosqlite.Connection) -> None:
         """UPDATE pg_nodes
            SET properties = json_remove(properties, '$.trace_to')
            WHERE json_extract(properties, '$.trace_to') IS NOT NULL"""
+    )
+    await db.commit()
+
+
+async def _migrate_content_updated_at(db: aiosqlite.Connection) -> None:
+    """Add content_updated_at column, backfilled from updated_at.
+
+    ``content_updated_at`` records the last content/title change and is the
+    reference point for STALE_NODE detection. For existing rows the exact
+    value is unknowable, so it is backfilled from ``updated_at`` — the
+    conservative upper bound that never misses a genuine content change.
+    Rows created by a fresh schema before this migration ran carry the DDL
+    default '' and are backfilled the same way.
+    """
+    async with db.execute("PRAGMA table_info(pg_nodes)") as cur:
+        cols = {row[1] async for row in cur}
+    if "content_updated_at" not in cols:
+        await db.execute(
+            "ALTER TABLE pg_nodes ADD COLUMN content_updated_at TEXT NOT NULL DEFAULT ''"
+        )
+    await db.execute(
+        "UPDATE pg_nodes SET content_updated_at = updated_at WHERE content_updated_at = ''"
     )
     await db.commit()

@@ -154,7 +154,10 @@ class GraphNode(BaseModel):
         lifecycle: Current lifecycle state.
         created_by: Agent ID or "engineer".
         created_at: Timestamp of creation.
-        updated_at: Timestamp of most recent mutation.
+        updated_at: Timestamp of most recent mutation (any field).
+        content_updated_at: Timestamp of most recent content or title change.
+            Metadata-only mutations (properties, trace_to, reparenting) do not
+            bump it. Defaults to ``updated_at`` when not supplied.
         properties: JSON bag of type-specific properties.
     """
 
@@ -172,10 +175,15 @@ class GraphNode(BaseModel):
     created_by: str = "system"
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    content_updated_at: datetime | None = None
     properties: dict[str, Any] = Field(default_factory=dict)
 
     def model_post_init(self, __context: Any) -> None:
         """Compute content_hash and layer on construction if not supplied."""
+        # content_updated_at defaults to updated_at so timestamp semantics
+        # stay consistent for nodes built without an explicit value.
+        if self.content_updated_at is None:
+            self.content_updated_at = self.updated_at
         if not self.content_hash and self.content:
             self.content_hash = hashlib.sha256(self.content.encode()).hexdigest()
         # Derive layer from node_type if not explicitly set

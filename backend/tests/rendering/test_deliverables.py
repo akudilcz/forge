@@ -46,6 +46,7 @@ def _node(
     n.trace_to = trace_to or []
     n.properties = properties or {}
     n.updated_at = datetime.now(UTC)
+    n.content_updated_at = n.updated_at
     n.content_hash = "fakehash"
     n.version = 1
     n.lifecycle = "active"

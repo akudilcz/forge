@@ -132,6 +132,8 @@ All node IDs use a simple sequential format: `{NODE_TYPE}-{seq:04d}`. Examples: 
 
 When a node's content changes its `content_hash` is recomputed. Impact propagates **downward** through structural children, marking each descendant stale. CONTRACT changes additionally stale all sibling DESIGNs in the same MODULE. Propagation stops at RESULT nodes.
 
+Staleness is **content-aware**: every node carries a `content_updated_at` timestamp that the engine bumps only when its `content` or `title` actually changes (`update_node` compares old vs new). Metadata-only mutations — properties, `trace_to`, reparenting — bump `updated_at` but not `content_updated_at`. `STALE_NODE` fires only when a child's `updated_at` is older than its parent's `content_updated_at`, so a metadata touch of a parent (e.g. DOCUMENT chunk bookkeeping in phase 2) never cascades a stale storm across its children. Node creation initialises `content_updated_at = updated_at`; legacy databases are migrated by backfilling `content_updated_at` from `updated_at` (the conservative upper bound — never misses a genuine content change).
+
 Workspace-sync node types (CODE, TEST, RESULT) are exempt from staleness detection. Their parents are routinely updated with metadata that does not invalidate child content. Validity of CODE and TEST is governed by `UNSYNCED_DESIGN` and `UNSYNCED_TEST` gap checks.
 
 ### 2.7 Implementation
@@ -184,7 +186,7 @@ Quality gaps represent integrity violations and content problems. They surface *
 
 | Gap Type | Meaning | Detection |
 |----------|---------|-----------|
-| `STALE_NODE` | Child older than parent | Deterministic |
+| `STALE_NODE` | Child older than parent's last content/title change (`content_updated_at`) | Deterministic |
 | `ORPHAN_NODE` | Parent missing or wrong type | Deterministic |
 | `EMPTY_CONTENT` | Non-container node with no content | Deterministic |
 | `STALE_TRACE_TO` | Trace references non-existent node | Deterministic |

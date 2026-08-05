@@ -98,6 +98,7 @@ class ProjectGraph(QueryMixin, AlgorithmMixin):
             created_by=row.get("created_by", "system"),
             created_at=row.get("created_at", ""),
             updated_at=row.get("updated_at", ""),
+            content_updated_at=row.get("content_updated_at", ""),
             properties=json.loads(row.get("properties") or "{}") if isinstance(row.get("properties"), str) else (row.get("properties") or {}),
         )
 
@@ -136,12 +137,13 @@ class ProjectGraph(QueryMixin, AlgorithmMixin):
                 """INSERT OR REPLACE INTO pg_nodes
                    (node_id, node_type, layer, title, content, content_hash,
                     version, parent_id, lifecycle, created_by,
-                    created_at, updated_at, properties, trace_to)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    created_at, updated_at, content_updated_at,
+                    properties, trace_to)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     node.node_id, node.node_type, node.layer, node.title,
                     node.content, node.content_hash, node.version, node.parent_id,
-                    node.lifecycle.value, node.created_by, now, now,
+                    node.lifecycle.value, node.created_by, now, now, now,
                     json.dumps(persist_props), json.dumps(node.trace_to),
                 ),
             )
@@ -153,7 +155,8 @@ class ProjectGraph(QueryMixin, AlgorithmMixin):
             "content_hash": node.content_hash, "version": node.version,
             "parent_id": node.parent_id, "trace_to": node.trace_to,
             "created_by": node.created_by, "created_at": now,
-            "updated_at": now, "properties": persist_props,
+            "updated_at": now, "content_updated_at": now,
+            "properties": persist_props,
         }
         self._nx_add_node(node_dict)
         if self._on_change:
@@ -192,14 +195,22 @@ class ProjectGraph(QueryMixin, AlgorithmMixin):
         new_hash = hashlib.sha256(new_content.encode()).hexdigest()
         now = datetime.now(UTC).isoformat()
 
+        # Staleness is content-aware: content_updated_at moves only when the
+        # content or title actually changed. Metadata-only updates (properties,
+        # trace_to) must not cascade STALE_NODE gaps onto children.
+        content_changed = new_content != node.content or new_label != node.title
+        assert node.content_updated_at is not None  # guaranteed by model_post_init
+        new_content_ts = now if content_changed else node.content_updated_at.isoformat()
+
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
                 """UPDATE pg_nodes
                    SET title=?, content=?, content_hash=?, properties=?,
-                       trace_to=?, version=version+1, updated_at=?
+                       trace_to=?, version=version+1, updated_at=?,
+                       content_updated_at=?
                    WHERE node_id=?""",
                 (new_label, new_content, new_hash, json.dumps(merged_props or {}),
-                 json.dumps(new_trace), now, node_id),
+                 json.dumps(new_trace), now, new_content_ts, node_id),
             )
             await db.commit()
 
@@ -210,6 +221,7 @@ class ProjectGraph(QueryMixin, AlgorithmMixin):
             d["content_hash"] = new_hash
             d["trace_to"] = new_trace
             d["updated_at"] = now
+            d["content_updated_at"] = new_content_ts
             d["properties"] = merged_props or {}
             d["version"] = d.get("version", 1) + 1
 

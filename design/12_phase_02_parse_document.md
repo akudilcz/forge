@@ -107,7 +107,7 @@ Quality gaps that surface on PARA nodes during this phase:
 
 | Gap Type | Detection | Meaning |
 |----------|-----------|---------|
-| `STALE_NODE` | Deterministic | PARA older than its parent DOCUMENT |
+| `STALE_NODE` | Deterministic | PARA older than its parent DOCUMENT's last content/title change (metadata-only DOCUMENT touches during chunking do not count) |
 | `ORPHAN_NODE` | Deterministic | PARA parent missing or wrong type |
 | `EMPTY_CONTENT` | Deterministic | PARA with no content (non-heading) |
 | `UNTITLED_NODE` | Deterministic | Missing or too-long title |

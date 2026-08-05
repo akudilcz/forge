@@ -7,7 +7,11 @@ from pathlib import Path
 import aiosqlite
 import pytest
 
-from backend.graph.schema import _migrate_display_label, _migrate_trace_to_column
+from backend.graph.schema import (
+    _migrate_content_updated_at,
+    _migrate_display_label,
+    _migrate_trace_to_column,
+)
 
 
 @pytest.mark.asyncio
@@ -92,3 +96,49 @@ async def test_migrate_trace_to_column_noop_when_already_migrated(tmp_path: Path
         await db.commit()
         # Idempotent — no error, no change
         await _migrate_trace_to_column(db)
+
+
+@pytest.mark.asyncio
+async def test_migrate_content_updated_at_backfills_from_updated_at(tmp_path: Path) -> None:
+    async with aiosqlite.connect(tmp_path / "db.sqlite") as db:
+        await db.execute(
+            "CREATE TABLE pg_nodes "
+            "(node_id TEXT PRIMARY KEY, updated_at TEXT NOT NULL)"
+        )
+        await db.execute(
+            "INSERT INTO pg_nodes (node_id, updated_at) VALUES (?, ?)",
+            ("n1", "2026-01-02T03:04:05+00:00"),
+        )
+        await db.commit()
+        await _migrate_content_updated_at(db)
+
+        async with db.execute(
+            "SELECT content_updated_at FROM pg_nodes WHERE node_id='n1'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert row[0] == "2026-01-02T03:04:05+00:00"
+
+
+@pytest.mark.asyncio
+async def test_migrate_content_updated_at_noop_when_already_migrated(tmp_path: Path) -> None:
+    async with aiosqlite.connect(tmp_path / "db.sqlite") as db:
+        await db.execute(
+            "CREATE TABLE pg_nodes "
+            "(node_id TEXT PRIMARY KEY, updated_at TEXT, content_updated_at TEXT)"
+        )
+        await db.execute(
+            "INSERT INTO pg_nodes (node_id, updated_at, content_updated_at) "
+            "VALUES (?, ?, ?)",
+            ("n1", "2026-02-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
+        )
+        await db.commit()
+        # Idempotent — existing values are preserved.
+        await _migrate_content_updated_at(db)
+
+        async with db.execute(
+            "SELECT content_updated_at FROM pg_nodes WHERE node_id='n1'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert row[0] == "2026-01-01T00:00:00+00:00"

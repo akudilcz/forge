@@ -150,3 +150,103 @@ async def test_reparent_node_to_none_detaches(graph: ProjectGraph) -> None:
 
     updated = await graph.reparent_node("doc.parent.child", None, "tester", "detach")
     assert updated.parent_id is None
+
+
+# ── content_updated_at semantics ──────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_add_node_initialises_content_updated_at(graph: ProjectGraph) -> None:
+    await _add_node(graph, "doc.cts")
+    node = await graph.node("doc.cts")
+    assert node is not None
+    assert node.content_updated_at == node.updated_at
+    # In-memory view agrees with the DB view.
+    mem = graph.node_sync("doc.cts")
+    assert mem is not None
+    assert mem.content_updated_at == node.content_updated_at
+
+
+@pytest.mark.asyncio
+async def test_update_node_content_change_bumps_content_updated_at(graph: ProjectGraph) -> None:
+    await _add_node(graph, "doc.cts")
+    before = await graph.node("doc.cts")
+    assert before is not None
+    updated, _ = await graph.update_node(
+        node_id="doc.cts", content="brand new body", properties=None,
+        changed_by="tester", change_reason="content edit",
+    )
+    assert before.content_updated_at is not None
+    assert updated.content_updated_at is not None
+    assert updated.content_updated_at > before.content_updated_at
+    assert updated.content_updated_at == updated.updated_at
+
+
+@pytest.mark.asyncio
+async def test_update_node_title_change_bumps_content_updated_at(graph: ProjectGraph) -> None:
+    await _add_node(graph, "doc.cts")
+    before = await graph.node("doc.cts")
+    assert before is not None
+    updated, _ = await graph.update_node(
+        node_id="doc.cts", content=None, properties=None,
+        changed_by="tester", change_reason="retitle", title="New Title",
+    )
+    assert before.content_updated_at is not None
+    assert updated.content_updated_at is not None
+    assert updated.content_updated_at > before.content_updated_at
+
+
+@pytest.mark.asyncio
+async def test_update_node_properties_only_keeps_content_updated_at(graph: ProjectGraph) -> None:
+    await _add_node(graph, "doc.cts")
+    before = await graph.node("doc.cts")
+    assert before is not None
+    updated, _ = await graph.update_node(
+        node_id="doc.cts", content=None, properties={"chunked": True},
+        changed_by="tester", change_reason="metadata touch",
+    )
+    assert updated.content_updated_at == before.content_updated_at
+    assert updated.updated_at > before.updated_at
+    # In-memory view agrees.
+    mem = graph.node_sync("doc.cts")
+    assert mem is not None
+    assert mem.content_updated_at == before.content_updated_at
+
+
+@pytest.mark.asyncio
+async def test_update_node_trace_to_only_keeps_content_updated_at(graph: ProjectGraph) -> None:
+    await _add_node(graph, "doc.cts")
+    before = await graph.node("doc.cts")
+    assert before is not None
+    updated, _ = await graph.update_node(
+        node_id="doc.cts", content=None, properties=None,
+        changed_by="tester", change_reason="retrace", trace_to=["doc.other"],
+    )
+    assert updated.content_updated_at == before.content_updated_at
+    assert updated.updated_at > before.updated_at
+
+
+@pytest.mark.asyncio
+async def test_update_node_same_content_keeps_content_updated_at(graph: ProjectGraph) -> None:
+    await _add_node(graph, "doc.cts")
+    before = await graph.node("doc.cts")
+    assert before is not None
+    updated, _ = await graph.update_node(
+        node_id="doc.cts", content=before.content, properties=None,
+        changed_by="tester", change_reason="no-op rewrite",
+    )
+    assert updated.content_updated_at == before.content_updated_at
+
+
+@pytest.mark.asyncio
+async def test_reparent_node_keeps_content_updated_at(graph: ProjectGraph) -> None:
+    await _add_node(graph, "doc.parent.a")
+    await _add_node(graph, "doc.parent.b")
+    await _add_node(graph, "doc.child")
+    before = await graph.node("doc.child")
+    assert before is not None
+    await graph.reparent_node(
+        "doc.child", "doc.parent.b", changed_by="tester", reason="move",
+    )
+    after = await graph.node("doc.child")
+    assert after is not None
+    assert after.content_updated_at == before.content_updated_at

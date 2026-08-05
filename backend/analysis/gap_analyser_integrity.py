@@ -58,7 +58,14 @@ class NodeIntegrityChecks:
     )
 
     def _check_staleness(self, graph: Any, node: GraphNode) -> list[Gap]:
-        """Check if a node is stale relative to its parent.
+        """Check if a node is stale relative to its parent's CONTENT.
+
+        Content-aware: the comparison point is the parent's
+        ``content_updated_at`` (last content/title change), not
+        ``updated_at``. Metadata-only parent touches (properties,
+        trace_to, reparenting) must not cascade STALE_NODE gaps onto
+        every child — that pattern once cost a build 320 LLM repair
+        dispatches after DOCUMENT bookkeeping during phase-2 chunking.
 
         Workspace-sync nodes (CODE, TEST, RESULT) are skipped — their
         parents are routinely updated with metadata (line_traces, trace
@@ -71,13 +78,22 @@ class NodeIntegrityChecks:
         parent = graph.node_sync(node.parent_id)
         if not parent:
             return []
-        if node.updated_at < parent.updated_at:
+        parent_content_ts = parent.content_updated_at
+        if parent_content_ts is None:
+            raise ValueError(
+                f"Node {parent.node_id} has no content_updated_at — "
+                f"model_post_init should have defaulted it from updated_at."
+            )
+        if node.updated_at < parent_content_ts:
             return [
                 Gap(
                     type=GapType.STALE_NODE,
                     priority=GapPriority.MAINTENANCE,
                     node_id=node.node_id,
-                    description=f"Node {node.node_id} is stale (parent updated more recently).",
+                    description=(
+                        f"Node {node.node_id} is stale "
+                        f"(parent content updated more recently)."
+                    ),
                     context={"parent_id": parent.node_id},
                 )
             ]

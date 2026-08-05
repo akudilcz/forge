@@ -35,6 +35,9 @@ def row_to_node(row: dict[str, Any]) -> GraphNode:
         updated_at=datetime.fromisoformat(row["updated_at"])
         if row.get("updated_at")
         else datetime.now(UTC),
+        content_updated_at=datetime.fromisoformat(row["content_updated_at"])
+        if row.get("content_updated_at")
+        else None,
         properties=json.loads(row.get("properties") or "{}") or {},
     )
 
@@ -62,6 +65,7 @@ def nx_data_to_node(node_id: str, data: dict[str, Any]) -> GraphNode:
     """
     updated_at_raw = data.get("updated_at", "")
     created_at_raw = data.get("created_at", "")
+    content_updated_at_raw = data.get("content_updated_at", "")
     return GraphNode(
         node_id=node_id,
         node_type=data["node_type"],
@@ -76,5 +80,8 @@ def nx_data_to_node(node_id: str, data: dict[str, Any]) -> GraphNode:
         created_by=data.get("created_by", "system"),
         created_at=datetime.fromisoformat(created_at_raw) if created_at_raw else datetime.now(UTC),
         updated_at=datetime.fromisoformat(updated_at_raw) if updated_at_raw else datetime.now(UTC),
+        content_updated_at=datetime.fromisoformat(content_updated_at_raw)
+        if content_updated_at_raw
+        else None,
         properties=data.get("properties", {}),
     )
