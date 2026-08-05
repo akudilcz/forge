@@ -51,6 +51,37 @@ def test_file_write_creates_subdirs(tmp_path: Path) -> None:
     assert (tmp_path / "sub" / "dir" / "file.txt").exists()
 
 
+def test_file_write_rejects_invalid_python(tmp_path: Path) -> None:
+    tool = FileWriteTool(workspace=str(tmp_path))
+    result = tool._execute(path="bad.py", content="def broken(\n")
+    assert "REJECTED" in result
+    assert "line" in result.lower()
+    assert not (tmp_path / "bad.py").exists()
+
+
+def test_file_write_path_escape_raises(tmp_path: Path) -> None:
+    import pytest
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    tool = FileWriteTool(workspace=str(workspace))
+    with pytest.raises(ValueError, match="outside the workspace"):
+        tool._execute(path="../evil.txt", content="data")
+    assert not (tmp_path / "evil.txt").exists()
+
+
+def test_file_write_absolute_path_escape_raises(tmp_path: Path) -> None:
+    import pytest
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    tool = FileWriteTool(workspace=str(workspace))
+    outside = tmp_path / "evil.txt"
+    with pytest.raises(ValueError, match="outside the workspace"):
+        tool._execute(path=str(outside), content="data")
+    assert not outside.exists()
+
+
 # ── GraphReadTool ─────────────────────────────────────────────────────────────
 
 def test_graph_read_no_graph() -> None:

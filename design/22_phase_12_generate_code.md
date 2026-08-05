@@ -202,6 +202,7 @@ Context assembly is in `build_mission_context()`.
 | Tool | Purpose |
 |------|---------|
 | `file_write` | Create or overwrite files in the workspace |
+| `multi_file_write` | Write several files in one call (validated as a batch) |
 | `file_read` | Read files with line numbers |
 | `file_patch` | Targeted edits to existing files |
 | `shell_exec` | Run `bazel test`, `bazel coverage`, shell commands |
@@ -211,6 +212,21 @@ Context assembly is in `build_mission_context()`.
 | `workspace_doctor` | Diagnose persistent build issues |
 | `evaluate_progress` | Run all tests + full coverage analysis, return gaps |
 | `check_trace_quality` | Per-function trace quality verdicts on a source file |
+
+All write tools (`file_write`, `multi_file_write`, `file_patch`) enforce
+the same guarantees, implemented in `backend/tools/write_validation.py`:
+
+- **Workspace containment** — the resolved target path must lie inside
+  the workspace; a path that escapes (via `..` or an absolute path)
+  raises a loud error and nothing is written.
+- **Python syntax gate** — `.py` content must pass `ast.parse` before it
+  is persisted. `file_write` rejects the write; `file_patch` never
+  persists a post-patch `.py` that fails to parse (the parse error, with
+  line number, is returned instead); `multi_file_write` validates every
+  entry first — required keys present, path contained, syntax valid —
+  and rejects the whole batch atomically on any violation, so a bad
+  entry can never truncate or partially write files.
+- Non-Python files skip the syntax gate.
 
 The agent calls tools freely. `evaluate_progress` is the primary
 feedback mechanism — it runs pytest, computes all coverage dimensions,

@@ -196,27 +196,33 @@ def test_syntax_validation_accepts_valid_edit(tmp_path: Path) -> None:
     assert "OK" in result
 
 
-def test_convergent_patch_allows_partial_fix(tmp_path: Path) -> None:
-    """Fixing one syntax error in a file with two should be allowed."""
-    # File has TWO syntax errors: space in name + stray decorator
-    _write(tmp_path, "a.py", (
+def test_partial_fix_still_rejected_when_syntax_errors_remain(tmp_path: Path) -> None:
+    """A patch that leaves the .py still unparseable must NOT be persisted.
+
+    Live failure mode: a partially-fixed patch used to be written with only
+    a WARNING, landing invalid Python that surfaced later as the phase-13
+    'generated file is not valid Python' oracle failure.
+    """
+    original = (
         "def good_func():\n"
         "    pass\n\n"
         "def bad_ name():\n"
         "    pass\n\n"
         "@stray_decorator\n"
         "x = 1 +\n"  # second syntax error
-    ))
-    # Fix just the space-in-name error
+    )
+    _write(tmp_path, "a.py", original)
+    # Fix just the space-in-name error — file would still not parse
     result = _tool(tmp_path)._execute(
         path="a.py",
         old_text="def bad_ name():",
         new_text="def bad_name():",
     )
-    assert "OK" in result
-    assert "WARNING" in result
-    assert "remaining" in result
-    assert "bad_name" in (tmp_path / "a.py").read_text()
+    assert "ERROR" in result
+    assert "invalid Python" in result
+    assert "line" in result.lower()
+    # File untouched — invalid content is never persisted
+    assert (tmp_path / "a.py").read_text() == original
 
 
 def test_convergent_patch_rejects_if_no_improvement(tmp_path: Path) -> None:
@@ -271,6 +277,38 @@ def test_syntax_error_message_includes_details(tmp_path: Path) -> None:
     )
     assert "ERROR" in result
     assert "line" in result.lower()
+
+
+# ── Workspace containment ────────────────────────────────────────────────────
+
+
+def test_path_escape_raises(tmp_path: Path) -> None:
+    """A path that resolves outside the workspace raises before any I/O."""
+    import pytest
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_text("x = 1\n")
+    with pytest.raises(ValueError, match="outside the workspace"):
+        _tool(workspace)._execute(
+            path="../outside.py", old_text="x = 1", new_text="x = 2",
+        )
+    assert outside.read_text() == "x = 1\n"
+
+
+def test_absolute_path_escape_raises(tmp_path: Path) -> None:
+    import pytest
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_text("x = 1\n")
+    with pytest.raises(ValueError, match="outside the workspace"):
+        _tool(workspace)._execute(
+            path=str(outside), old_text="x = 1", new_text="x = 2",
+        )
+    assert outside.read_text() == "x = 1\n"
 
 
 # ── Post-edit feedback (SWE-agent context response) ─────────────────────────

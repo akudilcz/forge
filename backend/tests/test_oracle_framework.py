@@ -430,3 +430,125 @@ def test_prohibition_ignores_mentions_in_docstrings(tmp_path: Path) -> None:
         ],
     )
     assert run_oracle(oracle, ws).ok
+
+
+# ── Prohibition matching must judge behaviour, not style (audit rank 14) ─────
+
+_OWN_SORT_API = '''
+"""A module whose own public class exposes .sort() — this is not list.sort.
+
+The live failure this pins down: a genuine merge-sort build was rejected with
+"calls .sort()" because its public API happened to be `engine.sort(a)` on a
+local instance of its own class. The prohibition must judge what the code
+*does*, not what its methods are named.
+'''.rstrip() + '"""\n' + '''
+
+class InsertionSorter:
+    def sort(self, data):
+        for i in range(1, len(data)):
+            value = data[i]
+            j = i - 1
+            while j >= 0 and data[j] > value:
+                data[j + 1] = data[j]
+                j -= 1
+            data[j + 1] = value
+        return None
+
+
+def sort(data):
+    sorter = InsertionSorter()
+    sorter.sort(data)
+    return None
+'''
+
+_HIDDEN_LIST_SORT = '''
+"""Delegates to list.sort in a way no style-based AST check can see."""
+
+
+def sort(data):
+    method = getattr(data, "so" + "rt")
+    method()
+    return None
+'''
+
+_ALIASED_SORTED = '''
+"""Delegates to the sorted builtin through a module-level alias."""
+
+_s = sorted
+
+
+def sorted_copy(data):
+    return _s(list(data))
+'''
+
+_NO_DELEGATION = Prohibition(
+    reason="§11 forbids delegating to the built-in sort",
+    name_calls=("sorted",),
+    attr_calls=("sort",),
+)
+
+
+def test_own_sort_api_on_a_local_instance_is_not_flagged(tmp_path: Path) -> None:
+    """`sorter = InsertionSorter(); sorter.sort(a)` is the module's own API."""
+    ws = _write_workspace(tmp_path, _OWN_SORT_API, filename="m.py")
+    oracle = Oracle(
+        whitepaper="t",
+        package_hint="m",
+        cases=[Case(target="sort", args=([3, 1, 2],), expected=[1, 2, 3], mutates_arg=0)],
+        prohibitions=[_NO_DELEGATION],
+    )
+    result = run_oracle(oracle, ws)
+    assert result.ok, result.summary()
+
+
+def test_hidden_list_sort_delegation_is_flagged_at_runtime(tmp_path: Path) -> None:
+    """`getattr(data, "so" + "rt")()` defeats any static matcher; the dynamic
+    monitor catches the actual list.sort invocation from the generated frame."""
+    ws = _write_workspace(tmp_path, _HIDDEN_LIST_SORT, filename="m.py")
+    oracle = Oracle(
+        whitepaper="t",
+        package_hint="m",
+        cases=[Case(target="sort", args=([3, 1, 2],), expected=[1, 2, 3], mutates_arg=0)],
+        prohibitions=[_NO_DELEGATION],
+    )
+    result = run_oracle(oracle, ws)
+    assert not result.ok, "oracle accepted a hidden list.sort delegation"
+    assert any("sort()" in f for f in result.failures), result.summary()
+
+
+def test_aliased_builtin_sorted_is_flagged_at_runtime(tmp_path: Path) -> None:
+    """`_s = sorted; _s(x)` never names `sorted` at a call site — only the
+    dynamic monitor can attribute the call to the builtin."""
+    ws = _write_workspace(tmp_path, _ALIASED_SORTED, filename="m.py")
+    oracle = Oracle(
+        whitepaper="t",
+        package_hint="m",
+        cases=[Case(target="sorted_copy", args=((3, 1, 2),), expected=[1, 2, 3])],
+        prohibitions=[_NO_DELEGATION],
+    )
+    result = run_oracle(oracle, ws)
+    assert not result.ok, "oracle accepted an aliased sorted() delegation"
+    assert any("sorted()" in f for f in result.failures), result.summary()
+
+
+def test_importing_a_prohibited_name_from_the_stdlib_is_flagged_statically(
+    tmp_path: Path,
+) -> None:
+    """`from collections import OrderedDict` is provably the stdlib callable.
+
+    Instantiating a C type emits no profiling event, so this delegation is
+    invisible to the dynamic monitor — but the absolute import names its origin,
+    which makes the static verdict sound.
+    """
+    source = "from collections import OrderedDict\n\n\ndef make():\n    return OrderedDict()\n"
+    ws = _write_workspace(tmp_path, source, filename="m.py")
+    oracle = Oracle(
+        whitepaper="t",
+        package_hint="m",
+        prohibitions=[Prohibition(reason="no OrderedDict", name_calls=("OrderedDict",))],
+    )
+    result = run_oracle(oracle, ws)
+    assert not result.ok
+    assert any("OrderedDict" in f for f in result.failures), result.summary()
+
+

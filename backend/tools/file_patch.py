@@ -20,7 +20,6 @@ Combines the best approaches from SWE-agent, Aider, and RooCode:
 
 from __future__ import annotations
 
-import ast
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -28,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from backend.tools.base import ForgeTool
 from backend.tools.text_matching import perfect_or_whitespace, resolve_range
+from backend.tools.write_validation import check_syntax, resolve_in_workspace
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -101,7 +101,7 @@ class FilePatchTool(ForgeTool):
         start_line: int = 0,
         end_line: int = 0,
     ) -> str:
-        target = Path(self._workspace) / path
+        target = resolve_in_workspace(self._workspace, path)
         if not target.exists():
             return f"ERROR: File not found: {path}"
         try:
@@ -117,9 +117,7 @@ class FilePatchTool(ForgeTool):
             return _not_found_error(path, whole_lines, s, e, old_text)
 
         patched, match_line = result
-        return _validate_and_write(
-            target, path, original, patched, new_text, match_line,
-        )
+        return _validate_and_write(target, path, patched, new_text, match_line)
 
 
 # ── Matching cascade ─────────────────────────────────────────────────────────
@@ -164,27 +162,25 @@ def _try_matching_cascade(
 def _validate_and_write(
     target: Path,
     path: str,
-    original: str,
     patched: str,
     new_text: str,
     match_line: int,
 ) -> str:
-    """Validate Python syntax (if applicable), write file, return response."""
-    lint_warning = ""
+    """Validate Python syntax (if applicable), write file, return response.
+
+    A ``.py`` file whose post-patch content fails ``ast.parse`` is never
+    persisted — even when the patch reduces the number of syntax errors.
+    The parse error (with line number) is returned so the agent can send
+    a corrected patch instead of landing invalid Python that would only
+    surface at the next full scan.
+    """
     if path.endswith(".py"):
-        lint_err = _check_syntax(patched, path)
+        lint_err = check_syntax(patched, path)
         if lint_err:
-            orig_errors = _count_syntax_errors(original)
-            new_errors = _count_syntax_errors(patched)
-            if new_errors >= orig_errors:
-                hint = _syntax_hint(patched, new_text, lint_err)
-                return (
-                    f"ERROR: Edit would produce invalid Python in {path}:\n"
-                    f"{lint_err}\n{hint}"
-                )
-            lint_warning = (
-                f"WARNING: File still has syntax errors ({new_errors} remaining, "
-                f"was {orig_errors}): {lint_err}"
+            hint = _syntax_hint(patched, new_text, lint_err)
+            return (
+                f"ERROR: Edit would produce invalid Python in {path}:\n"
+                f"{lint_err}\n{hint}"
             )
 
     try:
@@ -192,10 +188,7 @@ def _validate_and_write(
     except Exception as exc:  # noqa: BLE001
         return f"ERROR writing {path}: {exc}"
 
-    response = _success_response(path, patched, match_line)
-    if lint_warning:
-        response = f"{response}\n{lint_warning}"
-    return response
+    return _success_response(path, patched, match_line)
 
 
 # ── String-level matching (sub-line edits) ───────────────────────────────────
@@ -236,45 +229,7 @@ def _try_string_match(
     return patched, match_line
 
 
-# ── Syntax validation ────────────────────────────────────────────────────────
-
-
-def _check_syntax(code: str, filename: str) -> str:
-    """Return syntax error message, or empty string if valid."""
-    try:
-        ast.parse(code, filename=filename)
-    except SyntaxError as exc:
-        line_info = f" (line {exc.lineno})" if exc.lineno else ""
-        if exc.text:
-            return f"{exc.msg}{line_info}: {exc.text.strip()}"
-        return f"{exc.msg}{line_info}"
-    return ""
-
-
-def _count_syntax_errors(code: str) -> int:
-    """Count distinct syntax errors by iteratively fixing and re-parsing.
-
-    Parses the code, records the error location, blanks that line,
-    and repeats until parsing succeeds or no progress is made.
-    """
-    lines = code.splitlines(keepends=True)
-    count = 0
-    seen: set[int] = set()
-    while True:
-        try:
-            ast.parse("".join(lines))
-            return count
-        except SyntaxError as exc:
-            if exc.lineno is None or exc.lineno in seen:
-                return count + 1
-            seen.add(exc.lineno)
-            count += 1
-            # Blank the offending line to find the next error
-            idx = exc.lineno - 1
-            if 0 <= idx < len(lines):
-                lines[idx] = "\n"
-            else:
-                return count
+# ── Syntax-error hints ───────────────────────────────────────────────────────
 
 
 def _syntax_hint(patched: str, new_text: str, error: str) -> str:

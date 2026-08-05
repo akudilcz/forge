@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
 from backend.tools.base import ForgeTool
+from backend.tools.write_validation import check_syntax as _check_syntax
+from backend.tools.write_validation import resolve_in_workspace
 
 
 class _Args(BaseModel):
@@ -26,7 +27,7 @@ class FileWriteTool(ForgeTool):
     )
     args_schema: type[BaseModel] = _Args
 
-    def __init__(self, workspace: str = ".") -> None:
+    def __init__(self, workspace: str) -> None:
         """Args:
             workspace: Absolute path to the project workspace root.
         """
@@ -34,8 +35,12 @@ class FileWriteTool(ForgeTool):
         self._workspace = workspace
 
     def _execute(self, path: str, content: str) -> str:
-        """Write content to path (relative to workspace) and return a status string."""
-        target = Path(self._workspace) / path
+        """Write content to path (relative to workspace) and return a status string.
+
+        Raises:
+            ValueError: If the resolved path escapes the workspace.
+        """
+        target: Path = resolve_in_workspace(self._workspace, path)
 
         # Validate syntax before writing Python files
         if path.endswith(".py"):
@@ -50,13 +55,3 @@ class FileWriteTool(ForgeTool):
             return f"OK: wrote {lines} lines to {path}"
         except Exception as exc:  # noqa: BLE001
             return f"ERROR writing {path}: {exc}"
-
-
-def _check_syntax(code: str, filename: str) -> str:
-    """Return an error string if *code* has a syntax error, else empty string."""
-    try:
-        ast.parse(code, filename=filename)
-        return ""
-    except SyntaxError as exc:
-        line_info = f"line {exc.lineno}" if exc.lineno else "unknown line"
-        return f"{exc.msg} at {line_info}: {exc.text.strip()}" if exc.text else f"{exc.msg} at {line_info}"

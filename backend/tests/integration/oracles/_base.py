@@ -19,8 +19,10 @@ Oracles check three things:
   These catch the very common failure of implementing only the happy path.
 * **Prohibitions** — the "Implementation Notes" clause of each whitepaper names a
   stdlib shortcut that would trivially satisfy every functional test while
-  implementing nothing (``list.sort``, ``bisect``, ``eval``, ``graphlib``). The
-  oracle greps the generated source to confirm the shortcut was not taken.
+  implementing nothing (``list.sort``, ``bisect``, ``eval``, ``graphlib``).
+  Enforced by a hybrid of a static AST scan (kept only where it is provably
+  sound) and a dynamic delegation monitor that watches the generated code
+  actually execute — see ``Prohibition`` and ``_DelegationMonitor``.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from __future__ import annotations
 import ast
 import importlib
 import importlib.util
+import os
 import sys
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -87,15 +90,38 @@ class ErrorCase:
 class Prohibition:
     """A stdlib shortcut the whitepaper forbids.
 
-    Checked by parsing the AST rather than by substring search, so a mention in a
-    docstring or comment does not trip the check.
+    Delegation is judged by what the code *does*, not what its names look like.
+    An earlier, purely static matcher flagged any ``x.sort()`` on a bare-name
+    receiver, which failed a genuine merge-sort build whose own public API was
+    ``engine.sort(a)`` on a local instance of its own class — and which an
+    alias (``s = sorted; s(x)``) evaded entirely. Enforcement is therefore
+    split into two mechanisms:
 
-    Bare-name calls and method calls are kept separate because conflating them
-    produces false positives. A merge-sort module legitimately defines and calls
-    its own ``sort(...)``; what is forbidden is the *builtin* ``list.sort``,
-    which only ever appears as the method call ``x.sort()``. So ``sort`` belongs
-    in ``attr_calls`` and ``sorted`` — which the module never defines — belongs
-    in ``name_calls``.
+    **Static AST scan** (``_check_prohibitions``) — kept only where the verdict
+    is provably sound, so a mention in a docstring or the module's own API
+    never trips it:
+
+    * a direct ``import heapq`` (or ``from heapq import ...``) of a module in
+      ``imports``;
+    * ``from collections import OrderedDict`` — an absolute import, from a
+      module the generated package does not own, of a callable named in
+      ``name_calls``/``attr_calls``. Needed because instantiating a C type
+      emits no profiling event, so the dynamic monitor cannot see it;
+    * a bare call ``sorted(x)`` to a ``name_calls`` name the module binds
+      nowhere (no def, class, assignment, parameter, or import alias) — such a
+      name can only resolve to the builtin;
+    * ``[..].sort()`` / ``list(x).sort()`` — an ``attr_calls`` method on a
+      receiver that is literally a list expression.
+
+    **Dynamic delegation monitor** (``_DelegationMonitor``) — while the
+    oracle's behavioural cases execute the generated module, a
+    ``sys.setprofile`` hook watches every call. A C-level call (``c_call``
+    event: ``list.sort``, ``sorted``, ``heapq.heappush`` — including through
+    any alias or ``getattr`` trick) or a call into a non-generated pure-Python
+    function (``ast.literal_eval``) whose name is prohibited is a violation
+    *iff the calling frame's file lives inside the generated source tree*.
+    The module's own ``def sort``/``class Sorter`` live inside that tree, so
+    its own API can never be flagged, whatever it is named.
     """
 
     reason: str
@@ -103,15 +129,7 @@ class Prohibition:
     name_calls: tuple[str, ...] = ()
     """Bare function calls, e.g. ``sorted(x)`` or ``eval(s)``."""
     attr_calls: tuple[str, ...] = ()
-    """Builtin method calls on a plain local, e.g. ``data.sort()``.
-
-    Matched only when the receiver is a bare Name. Real FORGE output is often
-    object-oriented, so ``self._engine.sort(a, lo, hi)`` and ``API().sort(...)``
-    are calls into the module's *own* classes, not ``list.sort`` — flagging
-    those was a false positive that failed a build for using a perfectly good
-    design. A receiver that is an attribute chain or a call result is therefore
-    never matched; the cheat this catches is ``data.sort()`` on a local list.
-    """
+    """Builtin method calls, e.g. ``data.sort()`` — enforced dynamically."""
 
 
 @dataclass
@@ -227,51 +245,169 @@ def _exc_matches(exc: BaseException, exc_name: str) -> bool:
     return any(klass.__name__ == exc_name for klass in type(exc).__mro__)
 
 
-def _check_prohibitions(src_dir: Path, prohibitions: Sequence[Prohibition]) -> list[str]:
-    """Parse each generated file and report forbidden imports or calls."""
+@dataclass(frozen=True)
+class _ModuleScan:
+    """The provably-sound facts about one generated file — see ``Prohibition``."""
+
+    imported_roots: frozenset[str]
+    stdlib_from_imports: frozenset[str]
+    """Names imported absolutely from modules the generated package does not own."""
+    bound_names: frozenset[str]
+    name_called: frozenset[str]
+    list_attr_called: frozenset[str]
+    """Methods called on a receiver that is literally ``[...]`` or ``list(...)``."""
+
+
+def _is_list_expression(node: ast.expr) -> bool:
+    return isinstance(node, ast.List) or (
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "list"
+    )
+
+
+def _scan_module(tree: ast.AST, own_roots: frozenset[str]) -> _ModuleScan:
+    imported: set[str] = set()
+    from_names: set[str] = set()
+    bound: set[str] = set()
+    name_called: set[str] = set()
+    list_attr_called: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name.split(".")[0] for alias in node.names)
+            bound.update((alias.asname or alias.name).split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            bound.update(alias.asname or alias.name for alias in node.names)
+            if node.level == 0 and node.module:
+                root = node.module.split(".")[0]
+                imported.add(root)
+                if root not in own_roots:
+                    from_names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            bound.add(node.name)
+        elif isinstance(node, ast.arg):
+            bound.add(node.arg)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            bound.add(node.id)
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                name_called.add(node.func.id)
+            elif isinstance(node.func, ast.Attribute) and _is_list_expression(node.func.value):
+                list_attr_called.add(node.func.attr)
+    return _ModuleScan(
+        imported_roots=frozenset(imported),
+        stdlib_from_imports=frozenset(from_names),
+        bound_names=frozenset(bound),
+        name_called=frozenset(name_called),
+        list_attr_called=frozenset(list_attr_called),
+    )
+
+
+def _rule_failures(file_name: str, rule: Prohibition, scan: _ModuleScan) -> list[str]:
+    """Apply one prohibition's provably-sound static checks to one file's scan."""
     failures: list[str] = []
-    for path in _iter_source_files(src_dir):
+    for bad in rule.imports:
+        if bad in scan.imported_roots:
+            failures.append(f"{file_name}: imports forbidden module {bad!r} — {rule.reason}")
+    for bad in dict.fromkeys(rule.name_calls + rule.attr_calls):
+        if bad in scan.stdlib_from_imports:
+            failures.append(f"{file_name}: imports forbidden name {bad!r} — {rule.reason}")
+    for bad in rule.name_calls:
+        # A name the module binds nowhere can only resolve to the builtin. Any
+        # locally bound use (own def/class/assignment/import alias) is left to
+        # the dynamic monitor, which judges the actual callable.
+        if bad in scan.name_called and bad not in scan.bound_names:
+            failures.append(f"{file_name}: calls builtin {bad}() — {rule.reason}")
+    for bad in rule.attr_calls:
+        if bad in scan.list_attr_called:
+            failures.append(f"{file_name}: calls list.{bad}() — {rule.reason}")
+    return failures
+
+
+def _check_prohibitions(src_dir: Path, prohibitions: Sequence[Prohibition]) -> list[str]:
+    """Statically report forbidden imports or calls — sound checks only.
+
+    Everything style-dependent (method calls on arbitrary receivers, aliased
+    builtins) is deliberately absent here; ``_DelegationMonitor`` covers it by
+    watching the code run.
+    """
+    files = _iter_source_files(src_dir)
+    own_roots = frozenset(p.stem for p in files) | {src_dir.name, "tracing"}
+    failures: list[str] = []
+    for path in files:
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError as exc:
             failures.append(f"{path.name}: generated source does not parse: {exc}")
             continue
-
-        imported: set[str] = set()
-        name_called: set[str] = set()
-        attr_called: set[str] = set()
-        defined: set[str] = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                imported.update(alias.name.split(".")[0] for alias in node.names)
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                imported.add(node.module.split(".")[0])
-            elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                defined.add(node.name)
-            elif isinstance(node, ast.Call):
-                func = node.func
-                if isinstance(func, ast.Name):
-                    name_called.add(func.id)
-                elif isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
-                    # Only a bare receiver counts — see Prohibition.attr_calls.
-                    # `self._engine.sort(...)` and `API().sort(...)` are the
-                    # module's own methods, not the builtin.
-                    if func.value.id != "self":
-                        attr_called.add(func.attr)
-
+        scan = _scan_module(tree, own_roots)
         for rule in prohibitions:
-            for bad in rule.imports:
-                if bad in imported:
-                    failures.append(f"{path.name}: imports forbidden module {bad!r} — {rule.reason}")
-            for bad in rule.name_calls:
-                # A module that defines its own function of this name is calling
-                # that, not the builtin.
-                if bad in name_called and bad not in defined:
-                    failures.append(f"{path.name}: calls builtin {bad}() — {rule.reason}")
-            for bad in rule.attr_calls:
-                if bad in attr_called:
-                    failures.append(f"{path.name}: calls .{bad}() — {rule.reason}")
+            failures.extend(_rule_failures(path.name, rule, scan))
     return failures
+
+
+class _DelegationMonitor:
+    """Catch prohibited-callable invocations made *from* generated code.
+
+    A ``sys.setprofile`` hook is the simplest mechanism that reliably attributes
+    a call to the file that made it. ``list.sort`` and friends are C methods, so
+    they cannot be monkeypatched and ``sys.addaudithook`` never sees them — but
+    every C call raises a ``c_call`` profile event carrying the callable and the
+    calling frame. Pure-Python stdlib delegation (``ast.literal_eval``, the
+    ``heapq`` fallback) instead raises a ``call`` event in the callee, whose
+    caller is one frame up. In both directions the verdict is behavioural: only
+    the calling frame's location matters, so the generated module's own
+    ``sort``/``sorted`` API can never be flagged and no alias can evade it.
+    """
+
+    def __init__(self, src_dir: Path, prohibitions: Sequence[Prohibition]) -> None:
+        self._prefixes = tuple(
+            f"{prefix}{os.sep}" for prefix in dict.fromkeys([str(src_dir), str(src_dir.resolve())])
+        )
+        self._reasons: dict[str, str] = {}
+        for rule in prohibitions:
+            for name in (*rule.name_calls, *rule.attr_calls):
+                if name not in self._reasons:
+                    self._reasons[name] = rule.reason
+        self._generated_cache: dict[str, bool] = {}
+        self._violations: dict[tuple[str, str], str] = {}
+
+    def _is_generated(self, filename: str) -> bool:
+        if filename not in self._generated_cache:
+            self._generated_cache[filename] = filename.startswith(self._prefixes)
+        return self._generated_cache[filename]
+
+    def _record(self, filename: str, name: str) -> None:
+        key = (Path(filename).name, name)
+        if key not in self._violations:
+            self._violations[key] = self._reasons[name]
+
+    def _profile(self, frame: Any, event: str, arg: Any) -> None:
+        if event == "c_call":
+            # C callables without __name__ exist; such a callable cannot be one
+            # of the prohibited stdlib names, so None is a correct non-match.
+            name = getattr(arg, "__name__", None)
+            if name in self._reasons and self._is_generated(frame.f_code.co_filename):
+                self._record(frame.f_code.co_filename, name)
+        elif event == "call":
+            code = frame.f_code
+            if code.co_name in self._reasons and not self._is_generated(code.co_filename):
+                caller = frame.f_back
+                if caller is not None and self._is_generated(caller.f_code.co_filename):
+                    self._record(caller.f_code.co_filename, code.co_name)
+
+    @contextmanager
+    def active(self) -> Iterator[None]:
+        previous = sys.getprofile()
+        sys.setprofile(self._profile)
+        try:
+            yield
+        finally:
+            sys.setprofile(previous)
+
+    def failures(self) -> list[str]:
+        return [
+            f"{file_name}: delegates to prohibited {name}() during execution — {reason}"
+            for (file_name, name), reason in sorted(self._violations.items())
+        ]
 
 
 def run_oracle(oracle: Oracle, workspace: Path) -> OracleResult:
@@ -290,11 +426,11 @@ def run_oracle(oracle: Oracle, workspace: Path) -> OracleResult:
         result.failures.append(f"no generated .py files under {src_dir}")
         return result
 
-    result.failures.extend(_check_prohibitions(src_dir, oracle.prohibitions))
-    if not _check_prohibitions(src_dir, oracle.prohibitions):
-        result.passed.append(f"no forbidden shortcuts ({len(oracle.prohibitions)} rules)")
+    static_failures = _check_prohibitions(src_dir, oracle.prohibitions)
+    result.failures.extend(static_failures)
 
-    with _generated_on_path(src_dir):
+    monitor = _DelegationMonitor(src_dir, oracle.prohibitions)
+    with _generated_on_path(src_dir), monitor.active():
         for name in oracle.required_names:
             try:
                 _resolve(src_dir, name, oracle.package_hint)
@@ -366,5 +502,10 @@ def run_oracle(oracle: Oracle, workspace: Path) -> OracleResult:
                 result.failures.append(
                     f"{err.label()}: returned {returned!r} instead of raising {err.exc_name}"
                 )
+
+    dynamic_failures = monitor.failures()
+    result.failures.extend(dynamic_failures)
+    if not static_failures and not dynamic_failures:
+        result.passed.append(f"no forbidden shortcuts ({len(oracle.prohibitions)} rules)")
 
     return result
