@@ -209,6 +209,7 @@ def _parse_verdicts(
 
     # Parse each output line; first token up to ':' is the node_id.
     verdicts_by_node: dict[str, dict[str, tuple[bool, str]]] = {}
+    unknown_ids: set[str] = set()
     for raw in text.strip().splitlines():
         line = raw.strip()
         if ":" not in line:
@@ -216,6 +217,11 @@ def _parse_verdicts(
         nid_part, rest = line.split(":", 1)
         nid = nid_part.strip()
         if nid not in by_id:
+            # A verdict-shaped line for an id outside the candidate set is a
+            # hallucinated id — dropped from accounting, but never silently
+            # (design/01 §7.4). Prose lines without axis verdicts stay quiet.
+            if _AXIS_RE.search(rest):
+                unknown_ids.add(nid)
             continue
         node_verdicts = verdicts_by_node.setdefault(nid, {})
         for m in _AXIS_RE.finditer(rest):
@@ -223,6 +229,13 @@ def _parse_verdicts(
             passed = m.group("verdict").upper() == "PASS"
             reason = (m.group("reason") or "").strip()
             node_verdicts[axis] = (passed, reason)
+    if unknown_ids:
+        forge_logger.emit(
+            "WARN", "XQUAL",
+            f"Ignoring verdict line(s) for {len(unknown_ids)} unknown node "
+            f"id(s) not in the candidate set — judge hallucinated ids",
+            f"unknown={sorted(unknown_ids)[:10]}",
+        )
 
     gaps: list[Gap] = []
     missing: dict[str, set[str]] = {}

@@ -201,3 +201,99 @@ async def test_still_unjudged_after_retry_raises() -> None:
     with pytest.raises(UnjudgedQualityError, match="HLR-0002"):
         await check(items)
     assert llm.ainvoke.await_count == 2  # exactly one retry, no infinite loop
+
+
+# ── Hallucinated node ids in judge verdicts (design/01 §7.4) ─────────────────
+#
+# Forensic origin: a halt message of the shape
+#   "Quality batch left 1 node(s) unjudged after retry — never defaulting to
+#    pass. Unjudged: HLR-9999: ['ATOMIC']"
+# where HLR-9999 exists in no graph. Unjudged accounting must be computed
+# strictly as candidate-set minus judged; verdict lines for unknown ids are
+# ignored with one WARN naming them; the retry only ever re-sends real
+# candidates — so a hallucinated id can never appear in the error.
+
+
+def _capture_emits(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
+    from backend.server import forge_logger as fl_module
+
+    captured: list[tuple[str, str, str]] = []
+
+    def capture(level: str, cat: object, msg: str, *args: object, **kw: object) -> None:
+        detail = " ".join(str(a) for a in args)
+        captured.append((level, str(cat), f"{msg} {detail}".strip()))
+
+    monkeypatch.setattr(fl_module.forge_logger, "emit", capture)
+    return captured
+
+
+def test_parse_warns_once_naming_unknown_verdict_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A verdict line for an id outside the candidate set is dropped — but
+    never silently: one WARN names the hallucinated id(s)."""
+    captured = _capture_emits(monkeypatch)
+    items = [("HLR-0001", "HLR", "Good", "The system shall sort.")]
+    text = (
+        "HLR-9999: ATOMIC=FAIL(phantom) EARS=PASS MATCH=PASS SPECIFIC=PASS\n"
+        "HLR-0001: ATOMIC=PASS EARS=PASS MATCH=PASS SPECIFIC=PASS"
+    )
+    gaps, missing = _parse_verdicts(items, text)
+
+    assert gaps == []
+    assert missing == {}
+    warns = [c for c in captured if c[0] == "WARN" and "HLR-9999" in c[2]]
+    assert len(warns) == 1, f"expected exactly one WARN naming HLR-9999, got {captured}"
+
+
+def test_parse_does_not_warn_on_prose_lines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Preamble/prose containing a colon is not a verdict line — no WARN."""
+    captured = _capture_emits(monkeypatch)
+    items = [("HLR-0001", "HLR", "Good", "The system shall sort.")]
+    text = (
+        "Here are the verdicts: as requested\n"
+        "HLR-0001: ATOMIC=PASS EARS=PASS MATCH=PASS SPECIFIC=PASS"
+    )
+    gaps, missing = _parse_verdicts(items, text)
+
+    assert gaps == []
+    assert missing == {}
+    assert not [c for c in captured if c[0] == "WARN"]
+
+
+@pytest.mark.asyncio
+async def test_unjudged_error_names_only_real_candidates() -> None:
+    """Exact halt-message shape regression: even when the judge hallucinates
+    HLR-9999 in both rounds, the error names only the REAL unjudged candidate
+    and the retry payload contains only real candidates."""
+    llm = _llm_seq(
+        # Round one: judges HLR-0001, hallucinates HLR-9999, drops HLR-0002's
+        # ATOMIC verdict.
+        "HLR-0001: ATOMIC=PASS EARS=PASS MATCH=PASS SPECIFIC=PASS\n"
+        "HLR-9999: ATOMIC=FAIL(phantom) EARS=PASS MATCH=PASS SPECIFIC=PASS\n"
+        "HLR-0002: EARS=PASS MATCH=PASS SPECIFIC=PASS",
+        # Retry: hallucinates again, still no ATOMIC verdict for HLR-0002.
+        "HLR-9999: ATOMIC=PASS EARS=PASS MATCH=PASS SPECIFIC=PASS\n"
+        "HLR-0002: EARS=PASS MATCH=PASS SPECIFIC=PASS",
+    )
+    items = [
+        ("HLR-0001", "HLR", "Good", "The system shall sort."),
+        ("HLR-0002", "HLR", "Other", "The system shall merge."),
+    ]
+    check = create_combined_quality_checker(llm)
+
+    with pytest.raises(UnjudgedQualityError) as excinfo:
+        await check(items)
+
+    assert str(excinfo.value) == (
+        "Quality batch left 1 node(s) unjudged after retry "
+        "— never defaulting to pass. Unjudged: HLR-0002: ['ATOMIC']"
+    )
+    assert "HLR-9999" not in str(excinfo.value)
+    assert set(excinfo.value.missing) <= {nid for nid, _, _, _ in items}
+    # The retry only ever re-sends REAL candidates.
+    retry_payload = llm.ainvoke.await_args_list[1].args[0][1].content
+    assert "[HLR-0002]" in retry_payload
+    assert "HLR-9999" not in retry_payload
