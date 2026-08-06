@@ -15,7 +15,10 @@ import subprocess
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from backend.pipeline.steps import StepResult
 
 from backend.codegen.bazel_gen import init_bazel_workspace
 from backend.graph.models import GraphNode, LifecycleState, NodeType
@@ -138,15 +141,23 @@ def _find_trace_targets(
     file_path: str,
     graph: Any,
 ) -> list[str]:
-    """Find TEST nodes this test function should trace to.
+    """Find the TEST nodes this test function's RESULT must be parented to.
 
     Follows the canonical chain: RESULT → TEST → CASE.
     Looks at CASE nodes owning this file, finds the function in line_traces,
     then finds TEST nodes that trace to those CASEs.
-    Falls back to the CASE node itself if no TEST node exists.
 
     When func_name is empty (bazel per-target results), matches by
     file_path alone — the RESULT covers the whole test file.
+
+    Raises:
+        RuntimeError: if no CASE node owns this test function, or the
+            matched CASEs have no TEST node. A RESULT's only valid parent
+            is a TEST node (design/01_architecture.md §2); a former
+            fall-back to the CASE node produced 230 ORPHAN_NODE gaps in
+            a live build. This function runs after phase 13 TEST sync,
+            so an unresolvable TEST parent is a real bug, never a state
+            to write around.
     """
     all_nodes = graph.all_nodes()
 
@@ -172,7 +183,11 @@ def _find_trace_targets(
             case_ids.append(node.node_id)
 
     if not case_ids:
-        return []
+        raise RuntimeError(
+            f"No CASE node owns test function {func_name!r} in {file_path!r} — "
+            "cannot record a RESULT without a TEST parent. The test file is "
+            "untraced; fix the CASE line_traces before recording evidence."
+        )
 
     # Step 2: find TEST nodes tracing to those CASEs
     test_ids: list[str] = []
@@ -182,8 +197,13 @@ def _find_trace_targets(
         if any(cid in node.trace_to for cid in case_ids):
             test_ids.append(node.node_id)
 
-    # Prefer TEST nodes (canonical chain), fall back to CASE
-    return test_ids if test_ids else case_ids
+    if not test_ids:
+        raise RuntimeError(
+            f"No TEST node traces to CASE(s) {case_ids} for test function "
+            f"{func_name!r} in {file_path!r}. RESULT nodes may only be "
+            "parented to TEST nodes — run phase 13 workspace sync first."
+        )
+    return test_ids
 
 
 def _resolve_requirement_traces(
@@ -198,25 +218,22 @@ def _resolve_requirement_traces(
     return list(dict.fromkeys(req_ids))  # dedupe, preserve order
 
 
-async def record_results(
-    workspace: Path, graph: Any, last_state: Any | None = None,
-) -> list[SingleTestResult]:
-    """Record test RESULT nodes in the graph.
+async def record_results(workspace: Path, graph: Any) -> list[SingleTestResult]:
+    """Record test RESULT nodes in the graph (phase 13, after TEST sync).
 
-    If *last_state* is provided and has test results, uses those instead
-    of re-running tests (avoids hitting the same errors twice).
+    Always runs the suite via bazel and parses fresh evidence — RESULTs
+    must describe the workspace as it stands, never a cached phase-12 run.
+
+    Raises:
+        RuntimeError: if any test function's TEST parent cannot be
+            resolved — an invalid RESULT is never written.
     """
-    forge_logger.emit("INFO", "CGEN ", "Recording test results as RESULT nodes...")
+    forge_logger.emit("INFO", "SYNC ", "Recording test results as RESULT nodes...")
 
-    # Use cached results from the gap loop when available
-    results: list[SingleTestResult]
-    if last_state and getattr(last_state, "test_results", None):
-        results = last_state.test_results
-    else:
-        results = run_and_parse_tests(workspace)
+    results = run_and_parse_tests(workspace)
 
     if not results:
-        forge_logger.emit("INFO", "CGEN ", "No test results to record")
+        forge_logger.emit("INFO", "SYNC ", "No test results to record")
         return results
 
     created = 0
@@ -224,7 +241,18 @@ async def record_results(
         parent_candidates = _find_trace_targets(
             tr.function_name, tr.file_path, graph,
         )
-        parent_id = parent_candidates[0] if parent_candidates else None
+        parent_id = parent_candidates[0]
+
+        # Write-path invariant guard: the graph engine does not validate
+        # parent types (only the agent-facing graph_write tools do), so
+        # enforce RESULT → TEST here before the engine write.
+        parent = graph.node_sync(parent_id)
+        if parent is None or parent.node_type != NodeType.TEST.value:
+            raise RuntimeError(
+                f"RESULT for {tr.test_id!r} resolved parent {parent_id!r} "
+                f"({getattr(parent, 'node_type', 'missing')}), but a RESULT's "
+                "only valid parent is a TEST node — refusing to write."
+            )
 
         # trace_to: include CASE/TEST parents (for frontend RESULT→CASE
         # status resolution) AND the HLR/LLR requirements they trace to.
@@ -252,12 +280,90 @@ async def record_results(
         created += 1
 
     forge_logger.emit(
-        "INFO", "CGEN ",
+        "INFO", "SYNC ",
         f"Recorded {created} RESULT node(s): "
         f"{sum(1 for r in results if r.status == 'passed')} passed, "
         f"{sum(1 for r in results if r.status == 'failed')} failed",
     )
     return results
+
+
+async def heal_result_parents(graph: Any) -> int:
+    """Re-parent RESULT nodes that are not children of a TEST node.
+
+    Resumability guard for phase 13: builds recorded before the
+    RESULT-parentage fix (or interrupted mid-sync) hold RESULT nodes
+    parented to CASE nodes — each one an ORPHAN_NODE gap. A resumed
+    phase 13 must heal that state deterministically before recording new
+    evidence. Resolution reuses ``_find_trace_targets`` on the RESULT's
+    own ``file_path``/``function_name`` properties; the TEST id is merged
+    into ``trace_to``.
+
+    Returns the number of RESULT nodes re-parented.
+
+    Raises:
+        RuntimeError: if a misparented RESULT's TEST node cannot be
+            resolved — healing never falls back to an invalid parent.
+    """
+    healed = 0
+    for node in list(graph.all_nodes()):
+        if node.node_type != NodeType.RESULT.value:
+            continue
+        parent = graph.node_sync(node.parent_id) if node.parent_id else None
+        if parent is not None and parent.node_type == NodeType.TEST.value:
+            continue
+        props = node.properties or {}
+        targets = _find_trace_targets(
+            props["function_name"], props["file_path"], graph,
+        )
+        test_id = targets[0]
+        await graph.reparent_node(
+            node.node_id,
+            test_id,
+            "workspace-sync",
+            "Heal RESULT parentage: a RESULT's only valid parent is a TEST node",
+        )
+        if test_id not in (node.trace_to or []):
+            await graph.update_node(
+                node.node_id,
+                content=None,
+                properties=None,
+                changed_by="workspace-sync",
+                change_reason="Merge TEST parent into RESULT trace_to",
+                trace_to=list(dict.fromkeys([test_id, *(node.trace_to or [])])),
+            )
+        healed += 1
+        forge_logger.emit(
+            "INFO", "SYNC ",
+            f"  HEAL {node.node_id}: parent {node.parent_id} → {test_id}",
+        )
+    return healed
+
+
+async def record_results_step(flow: Any, phase: int) -> StepResult:
+    """Phase 13 pipeline step: heal RESULT parentage, then record results.
+
+    Runs strictly after ``workspace_sync`` (which creates the TEST nodes
+    every RESULT is parented to) — see design/23_phase_13_workspace_sync.md.
+    """
+    forge_logger.emit(
+        "INFO", "PIPE ",
+        f"Phase {phase} · step: record_results",
+        phase=phase,
+    )
+    healed = await heal_result_parents(flow.graph)
+    if healed:
+        forge_logger.emit(
+            "INFO", "SYNC ", f"Healed {healed} misparented RESULT node(s)",
+        )
+    results = await record_results(flow._workspace, flow.graph)
+    forge_logger.emit(
+        "INFO", "SYNC ",
+        f"record_results step complete — {len(results)} result(s), "
+        f"{healed} healed",
+        phase=phase,
+    )
+    return {"step_name": "record_results", "deletions": 0}
 
 
 def _result_node_id(tr: SingleTestResult) -> str:

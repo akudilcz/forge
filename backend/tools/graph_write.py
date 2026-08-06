@@ -246,6 +246,7 @@ class GraphWriteTool(ForgeTool):
             kwargs.get("title", ""),
             kwargs.get("content", ""),
             trace_targets,
+            props,
         )
         if invariant_err:
             return invariant_err

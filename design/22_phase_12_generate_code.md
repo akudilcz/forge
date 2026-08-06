@@ -59,7 +59,7 @@ Phase 12: Code Gen (mission agent)
     5. Post-agent: tidy-up (deterministic cleanup)
     6. Persist line traces to graph nodes
     7. Trace audit (LLM verifies completeness)
-    8. Record test RESULT nodes + coverage metrics
+    8. Persist coverage metrics on the DESIGN node
 ```
 
 ### Step 1 — Init Workspace
@@ -104,9 +104,14 @@ All post-agent steps except the trace audit are deterministic (no LLM):
    nodes no longer in the result set.
 3. **Trace audit** (LLM) — verify trace completeness per file, suggest
    missing traces, persist results as `trace_audit` in node properties.
-4. **Record RESULT nodes** — one RESULT per test function with status
-   (`passed`/`failed`/`skipped`/`error`), closing the traceability
-   chain: `HLR -> LLR -> DESIGN -> CODE` and `CASE -> TEST -> RESULT`.
+4. **Persist coverage metrics** — statement/branch coverage from the
+   final gap-loop state is stored on the DESIGN node for the web UI.
+
+RESULT nodes are **not** recorded in Phase 12. A RESULT's only valid
+parent is a TEST node (design/01_architecture.md §2), and TEST nodes
+are created by Phase 13 workspace sync — recording earlier can only
+produce invalid parentage. RESULT recording is a Phase 13 step that
+runs after TEST sync (design/23_phase_13_workspace_sync.md).
 
 #### Fresh test evidence guarantee
 
@@ -322,15 +327,65 @@ reports) and fed back to the mission agent.
 | 1 | `SYNTAX_ERROR` | `ast.parse()` fails on a `.py` file | File cannot be imported or tested |
 | 2 | `MISSING_SOURCE` | DESIGN node with no file on disk | Agent has not written source yet |
 | 3 | `MISSING_TEST` | CASE node with no test file on disk | Agent has not written tests yet |
-| 4 | `FAILING_TESTS` | `bazel test` reports failure | Tests do not pass |
-| 5 | `INVALID_TRACES` | `@traces` references non-existent LLR ID | Trace annotation is wrong |
-| 6 | `UNTRACED_FUNCTIONS` | Public function without `@traces` | Function coverage gap |
-| 7 | `LOW_STRUCTURAL_COVERAGE` | `bazel coverage` < 100% for a file | Statement coverage gap |
-| 8 | `LOW_BRANCH_COVERAGE` | MC/DC branch coverage < 100% | DO-178C certification blocker |
-| 9 | `UNIMPLEMENTED_REQUIREMENT` | LLR absent from all source-file `@traces` | No implementing code exists |
-| 10 | `UNCOVERED_REQUIREMENT` | LLR has no passing test evidence | Requirement coverage gap |
-| 11 | `WEAK_TRACE` | Function traces to LLR but does not implement it | Misleading trace attribution |
-| 12 | `SCOPE_CREEP` | Function not backed by any requirement | Unrequired code |
+| 4 | `API_SURFACE_MISMATCH` | CONTRACT `public_api` entry not exposed by the workspace | Required public symbol missing, wrong kind, or module not top-level importable |
+| 5 | `PROHIBITED_CONSTRUCT` | CONTRACT `prohibited_constructs` entry used in `src/` | Implementation uses a forbidden technique |
+| 6 | `FAILING_TESTS` | `bazel test` reports failure | Tests do not pass |
+| 7 | `INVALID_TRACES` | `@traces` references non-existent LLR ID | Trace annotation is wrong |
+| 8 | `UNTRACED_FUNCTIONS` | Public function without `@traces` | Function coverage gap |
+| 9 | `LOW_STRUCTURAL_COVERAGE` | `bazel coverage` < 100% for a file | Statement coverage gap |
+| 10 | `LOW_BRANCH_COVERAGE` | MC/DC branch coverage < 100% | DO-178C certification blocker |
+| 11 | `UNIMPLEMENTED_REQUIREMENT` | LLR absent from all source-file `@traces` | No implementing code exists |
+| 12 | `UNCOVERED_REQUIREMENT` | LLR has no passing test evidence | Requirement coverage gap |
+| 13 | `WEAK_TRACE` | Function traces to LLR but does not implement it | Misleading trace attribution |
+| 14 | `SCOPE_CREEP` | Function not backed by any requirement | Unrequired code |
+
+### API-surface gate
+
+Deterministic check (`backend/codegen/api_surface.py`, run by
+`find_gaps`) that the workspace actually exposes every CONTRACT
+`properties.public_api` entry (schema: design/16). Purely static — AST
+facts collected by the workspace scanner, no code execution:
+
+- **Module**: `src/<module>.py` must exist for each entry's `module`.
+- **Symbol**: the entry's `symbol` must be defined in that file
+  (`Class.method` for methods) — or, for functions/classes, imported
+  into it via an absolute import (an explicit re-export counts).
+- **Kind**: the defined symbol's kind must match the entry's `kind`.
+- **Top-level importability**: relative imports (`from .x import y`)
+  in any `src/` file are a gap — src modules are consumed as top-level
+  modules (`from src.<module> import ...`), where relative imports
+  break. Absolute imports only. (Live trace: merge_sort oracle 1/24 —
+  the required API existed nowhere, the facade's relative imports
+  failed at import time, and codegen had fragmented one module into
+  ten invented files.)
+
+Each violation emits an `API_SURFACE_MISMATCH` gap naming the CONTRACT
+entry and the precise failure, so the mission agent must repair the
+surface before phase 12 can complete (`gaps_resolved` requires zero
+gaps). A CONTRACT lacking `public_api` entirely predates the schema:
+the gate logs a WARN and skips it — presence is enforced at phase 6
+write time (design/16), and phase 12's mission agent must not be
+blocked by a gap only a phase 6 re-run could close.
+
+### Prohibited-constructs gate
+
+Sibling check in the same module: each CONTRACT
+`properties.prohibited_constructs` entry (schema: design/16; optional)
+is a hard ban inside `src/`. The scanner's AST pass records, per file,
+an alias-resolved map of imported module names and called dotted names
+(`import ast as t; t.parse(x)` records the import `ast` and the call
+`ast.parse`; `from ast import literal_eval` resolves calls of
+`literal_eval` to `ast.literal_eval`). A construct `C` is violated by:
+
+- any import of `C` or of a submodule/member `C.x`;
+- any call whose resolved dotted name is `C` or starts with `C.`.
+
+Each hit emits a `PROHIBITED_CONSTRUCT` gap quoting file, line,
+construct, and the contract's rationale. Test files are exempt —
+prohibitions constrain the implementation, not its verification. (Live
+trace: expression_evaluator's generated `tokenizer_scan.py` delegated
+to `compile()` despite the whitepaper's §12 ban; it would have passed
+every functional check while implementing nothing.)
 
 The ordering reflects dependency: higher-priority gaps block meaningful
 verification of lower-priority ones. Environment and syntax issues (0-1)
@@ -497,6 +552,18 @@ Test files: `tests/test_<slugified_title>.py`
 Slugification: lowercase, strip trailing "design"/"implementation"/"spec",
 replace non-alphanumeric chars with underscores.
 
+### File layout discipline (anti-fragmentation)
+
+The file layout is decided by the DESIGN nodes, not by the mission
+agent: one source file per DESIGN at its declared `file_path`/target
+path. The agent must not invent additional modules beyond the designs
+(a live merge_sort build fragmented one module into ten files —
+`galloper`, `timsortengine_orchestration`, `sortapi_facade`, ... — and
+lost the required API entirely). The CONTRACT's `public_api` symbols
+must be importable from the module named in the contract, using
+absolute imports only (package-safe; relative imports break top-level
+consumption and are flagged by the API-surface gate).
+
 ---
 
 ## Node Types
@@ -510,7 +577,8 @@ Phase 12 creates two node types in the project graph:
 
 CODE nodes store `file_path`, `line_traces`, and coverage metrics.
 TEST nodes store `file_path`, `line_traces`, and linked CASE IDs.
-RESULT nodes (one per test function) are children of TEST nodes with
+RESULT nodes (one per test function, recorded by the Phase 13
+`record_results` step after TEST sync) are children of TEST nodes with
 status: `passed`, `failed`, `skipped`, or `error`. RESULT node IDs are
 `RESULT-{slug[:60]}-{sha256(test_id)[:8]}` — the truncated slug keeps
 IDs readable while the hash suffix keeps long test IDs sharing a

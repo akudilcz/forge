@@ -9,6 +9,53 @@ Each helper returns a ``(description, expected_output)`` tuple.
 
 from __future__ import annotations
 
+#: Contract categories that live builds repeatedly dropped between whitepaper
+#: and graph (topological_sort e2e: CyclicGraphError's ValueError base class,
+#: `find_cycle -> ... | None`, and the tie_breaker key-function arity all
+#: survived only inside an API-signature code block and never became
+#: requirements). Shared by the phase 2/3 derivation prompts (must-capture)
+#: and mirrored by ``CASE_CONTRACT_ENCODING`` for phase 9/10.
+NORMATIVE_MUST_CAPTURE = (
+    "MUST-CAPTURE categories — each normative fact in these categories is a\n"
+    "separate obligation and MUST become its own requirement (these are the\n"
+    "recurring casualties of summarisation):\n"
+    "  • Exception contracts: the exact exception class AND its base class\n"
+    "    (e.g. 'CyclicGraphError shall subclass ValueError'), plus any\n"
+    "    required attributes or message format on the exception.\n"
+    "  • Return-value contracts: the exact value and type returned in each\n"
+    "    documented situation — including None-vs-empty-collection\n"
+    "    distinctions and '| None' Optional returns.\n"
+    "  • Ordering / tie-break / determinism rules: WHAT order, WHEN the rule\n"
+    "    applies (e.g. at every selection step, not once up front),\n"
+    "    comparability fallbacks, and cross-run determinism guarantees.\n"
+    "  • Caller-supplied callable contracts: the exact signature and arity\n"
+    "    the callable is invoked with (e.g. a per-item key function, NOT a\n"
+    "    list transform).\n"
+    "API-signature code blocks are NORMATIVE requirements sources: every\n"
+    "fact in a signature (base classes, attribute types, '| None' returns,\n"
+    "Callable[...] shapes, keyword-only markers) is an obligation. NEVER\n"
+    "summarise a signature block as 'shall provide function X'.\n"
+)
+
+#: Phase 9/10 counterpart of ``NORMATIVE_MUST_CAPTURE``: how CASEs must
+#: encode those contracts so a wrong implementation cannot pass.
+CASE_CONTRACT_ENCODING = (
+    "CONTRACT-ENCODING RULES — acceptance criteria must make a wrong\n"
+    "implementation FAIL, not merely exercise the topic:\n"
+    "  • Exception cases: assert the exception's base class too (e.g. 'is\n"
+    "    caught by except ValueError') and any required attributes or\n"
+    "    message wording.\n"
+    "  • Return-value cases: assert the EXACT value — 'is None' where the\n"
+    "    contract says None; never accept an empty collection as equivalent.\n"
+    "  • Ordering/tie-break cases: use DISCRIMINATING inputs — data with\n"
+    "    real dependencies/edges such that an implementation applying the\n"
+    "    rule only to the initial candidates (instead of at every selection\n"
+    "    step) fails — and assert the FULL exact output sequence, never\n"
+    "    just membership or edge-free inputs.\n"
+    "  • Callable-parameter cases: invoke the callable with the exact arity\n"
+    "    the contract states (e.g. one item -> key), so a wrong arity breaks.\n"
+)
+
 # ── Per-gap-type helpers (each <= 20 lines) ──────────────────────────────────
 
 
@@ -49,6 +96,10 @@ def _doc_chunk(nid: str, ctx: str) -> tuple[str, str]:
         f"  single, already-sorted stays sorted') become one PARA per bullet.\n"
         f"- Error-handling sentences (e.g. 'shall raise TypeError on bad input')\n"
         f"  get their own PARA — separate concern from the happy path.\n"
+        f"- API-signature code blocks are NORMATIVE, not decoration: a code block\n"
+        f"  declaring base classes, attributes, '| None' returns, or Callable\n"
+        f"  parameter shapes carries one obligation per fact — keep the code block\n"
+        f"  verbatim in its PARA body so derivation can capture every fact.\n"
         f"- Prefer MORE granular PARAs over fewer large ones. One concern per PARA.\n"
         f"  There is no minimum word count; a one-sentence PARA is fine.\n\n"
         f"Rules:\n"
@@ -95,6 +146,7 @@ def _para_hlr(nid: str, ctx: str) -> tuple[str, str]:
         f"    behaviour, an edge-case rule, an error-handling rule. Count them.\n"
         f"    A paragraph that says 'shall do X; empty returns empty; raises\n"
         f"    TypeError on bad input' contains THREE obligations.\n"
+        f"{NORMATIVE_MUST_CAPTURE}"
         f"  Step B — CREATE ONE HLR PER OBLIGATION. If the paragraph contains N\n"
         f"    obligations, emit N graph_add_node calls, each a separate HLR\n"
         f"    under '{nid}'. Do not merge obligations into a compound HLR.\n"
@@ -190,7 +242,29 @@ def _contract(nid: str, ctx: str) -> tuple[str, str]:
         f"STEP 2: use graph_read (operation=children, node_id={nid}).\n\n"
         f"STEP 3: create a CONTRACT node as a child of '{nid}' via graph_add_node.\n"
         f"Content must specify: public function signatures, pre/post-conditions, "
-        f"behavioural invariants, external dependencies.\n"
+        f"behavioural invariants, external dependencies.\n\n"
+        f"STEP 4 — REQUIRED: pass properties with a structured public_api list.\n"
+        f"Every public symbol the module must expose becomes one entry:\n"
+        f'  properties = {{"public_api": [\n'
+        f'    {{"module": "<top-level module name>", "symbol": "<name or '
+        f'Class.method>",\n'
+        f'     "kind": "function|class|method", "signature": "<exact signature>"}},\n'
+        f"    ...]}}\n"
+        f"Where the source material contains signature blocks, transcribe each\n"
+        f"signature exactly — base classes, '| None' returns, keyword-only\n"
+        f"markers, Callable shapes — never summarise. The write is REJECTED\n"
+        f"without a valid non-empty public_api, and phase 12 verifies the\n"
+        f"workspace exposes every entry.\n\n"
+        f"STEP 5 — implementation prohibitions: if the source material forbids\n"
+        f"implementation techniques ('must not use X', 'forbidden', 'without\n"
+        f"using'), transcribe each ban into the same properties object:\n"
+        f'  "prohibited_constructs": [\n'
+        f'    {{"construct": "<dotted name, e.g. eval / compile / ast /'
+        f' ast.literal_eval>",\n'
+        f'     "rationale": "<the source material\'s stated reason,'
+        f' with section ref>"}}]\n'
+        f"omit the key entirely when the source material states none. Phase 12\n"
+        f"statically bans every listed construct in src/ (tests exempt).\n"
         f"Leave node_id empty — auto-assigns (e.g. CONTRACT-0001)."
         f"{ctx}",
         f"CONTRACT node written to the graph as a child of '{nid}'.",
@@ -310,7 +384,8 @@ def _test_hlr(nid: str, ctx: str, *, suite_id: str = "") -> tuple[str, str]:
         f"  The test steps MUST exercise the specific behaviour in '{nid}'.\n"
         f"  When a DESIGN excerpt is included in the context below, reference its\n"
         f"  actual method names in the test steps rather than invented APIs.\n"
-        f"  Align the Scope to the SUITE Scope where shown.\n\n"
+        f"  Align the Scope to the SUITE Scope where shown.\n"
+        f"{CASE_CONTRACT_ENCODING}\n"
         f"STRICT RULES: No pytest code. No file_write. No run_tests. "
         f"No SUITE id in trace_to. ONE tool call maximum."
         f"{ctx}",
@@ -344,7 +419,8 @@ def _test_llr(nid: str, ctx: str, *, suite_id: str = "") -> tuple[str, str]:
         f"  The test steps MUST exercise the specific behaviour in '{nid}'.\n"
         f"  When a DESIGN excerpt is included in the context below, reference its\n"
         f"  actual method names in the test steps rather than invented APIs.\n"
-        f"  Align the Scope to the SUITE Scope where shown.\n\n"
+        f"  Align the Scope to the SUITE Scope where shown.\n"
+        f"{CASE_CONTRACT_ENCODING}\n"
         f"STRICT RULES: No pytest code. No file_write. No run_tests. "
         f"No SUITE id in trace_to. ONE tool call maximum."
         f"{ctx}",

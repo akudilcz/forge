@@ -147,8 +147,8 @@ def test_find_trace_targets_via_test_node() -> None:
     assert targets == ["TEST-001"]
 
 
-def test_find_trace_targets_falls_back_to_case() -> None:
-    """Falls back to CASE node when no TEST node exists."""
+def test_find_trace_targets_no_test_node_raises() -> None:
+    """No fallback: a CASE without a TEST child is a loud error."""
     case = _make_node("CASE_HLR-001", "CASE_HLR", properties={
         "file_path": "tests/test_motion.py",
         "line_traces": [{"symbol": "test_plan", "start": 10, "end": 20, "llr_ids": ["LLR-001"]}],
@@ -156,12 +156,12 @@ def test_find_trace_targets_falls_back_to_case() -> None:
     graph = MagicMock()
     graph.all_nodes.return_value = [case]
 
-    targets = _find_trace_targets("test_plan", "tests/test_motion.py", graph)
-    assert targets == ["CASE_HLR-001"]
+    with pytest.raises(RuntimeError, match="TEST"):
+        _find_trace_targets("test_plan", "tests/test_motion.py", graph)
 
 
-def test_find_trace_targets_no_match() -> None:
-    """Returns empty list when function isn't found in any CASE."""
+def test_find_trace_targets_no_case_match_raises() -> None:
+    """A test function no CASE owns is a loud error, not an empty list."""
     case = _make_node("CASE_LLR-001", "CASE_LLR", properties={
         "file_path": "tests/test_other.py",
         "line_traces": [{"symbol": "test_other", "start": 1, "end": 5, "llr_ids": []}],
@@ -169,8 +169,8 @@ def test_find_trace_targets_no_match() -> None:
     graph = MagicMock()
     graph.all_nodes.return_value = [case]
 
-    targets = _find_trace_targets("test_plan", "tests/test_motion.py", graph)
-    assert targets == []
+    with pytest.raises(RuntimeError, match="CASE"):
+        _find_trace_targets("test_plan", "tests/test_motion.py", graph)
 
 
 def test_find_trace_targets_file_level_match() -> None:
@@ -179,11 +179,12 @@ def test_find_trace_targets_file_level_match() -> None:
         "file_path": "tests/test_motion.py",
         "line_traces": [{"symbol": "test_plan", "start": 10, "end": 20, "llr_ids": []}],
     })
+    test = _make_node("TEST-001", "TEST", trace_to=["CASE_LLR-001"])
     graph = MagicMock()
-    graph.all_nodes.return_value = [case]
+    graph.all_nodes.return_value = [case, test]
 
     targets = _find_trace_targets("", "tests/test_motion.py", graph)
-    assert targets == ["CASE_LLR-001"]
+    assert targets == ["TEST-001"]
 
 
 # ── trace_to includes CASE + requirements ─────────────────────────────────
@@ -197,9 +198,11 @@ def test_record_results_trace_to_includes_case_ids() -> None:
             "file_path": "tests/test_motion.py",
             "line_traces": [{"symbol": "test_plan", "start": 10, "end": 20, "llr_ids": ["LLR-001"]}],
         })
+    test = _make_node("TEST-001", "TEST", trace_to=["CASE_HLR-001", "HLR-001"])
     graph = MagicMock()
-    graph.all_nodes.return_value = [case]
-    graph.node_sync.side_effect = lambda nid: case if nid == "CASE_HLR-001" else None
+    nodes = {"CASE_HLR-001": case, "TEST-001": test}
+    graph.all_nodes.return_value = [case, test]
+    graph.node_sync.side_effect = lambda nid: nodes.get(nid)
 
     parent_candidates = _find_trace_targets("test_plan", "tests/test_motion.py", graph)
     req_ids = _resolve_requirement_traces(parent_candidates, graph)
@@ -210,7 +213,7 @@ def test_record_results_trace_to_includes_case_ids() -> None:
     assert "HLR-001" in trace_to
 
 
-# ── record_results() with cached test results ─────────────────────────────
+# ── record_results() ────────────────────────────────────────────────────────
 
 from unittest.mock import AsyncMock, patch
 
@@ -219,36 +222,21 @@ import pytest
 from backend.workspace.result_recorder import record_results
 
 
-@pytest.mark.asyncio
-async def test_record_results_uses_cached_test_results() -> None:
-    """When last_state has test_results, those are used (not re-run)."""
-    tr = SingleTestResult(
-        test_id="tests/test_motion.py::test_plan",
-        file_path="tests/test_motion.py",
-        function_name="test_plan",
-        status="passed",
-    )
-    last_state = MagicMock()
-    last_state.test_results = [tr]
-
-    case = _make_node("CASE_LLR-001", "CASE_LLR",
-        trace_to=["LLR-001"],
+def _recording_graph() -> MagicMock:
+    """Graph with a CASE + TEST pair for tests/test_motion.py::test_plan."""
+    case = _make_node("CASE_HLR-001", "CASE_HLR",
+        trace_to=["HLR-001"],
         properties={
             "file_path": "tests/test_motion.py",
             "line_traces": [{"symbol": "test_plan", "start": 10, "end": 20, "llr_ids": []}],
         })
+    test = _make_node("TEST-001", "TEST", trace_to=["CASE_HLR-001", "HLR-001"])
     graph = MagicMock()
-    graph.all_nodes.return_value = [case]
-    graph.node_sync.side_effect = lambda nid: case if nid == "CASE_LLR-001" else None
+    nodes = {n.node_id: n for n in (case, test)}
+    graph.all_nodes.return_value = list(nodes.values())
+    graph.node_sync.side_effect = lambda nid: nodes.get(nid)
     graph.add_node = AsyncMock()
-
-    with patch("backend.workspace.result_recorder.run_and_parse_tests") as mock_run:
-        results = await record_results(workspace=MagicMock(), graph=graph, last_state=last_state)
-
-    # Should NOT have called run_and_parse_tests
-    mock_run.assert_not_called()
-    assert len(results) == 1
-    assert results[0].status == "passed"
+    return graph
 
 
 @pytest.mark.asyncio
@@ -260,25 +248,17 @@ async def test_record_results_creates_result_nodes_with_correct_properties() -> 
         function_name="test_plan",
         status="failed",
     )
-    last_state = MagicMock()
-    last_state.test_results = [tr]
+    graph = _recording_graph()
 
-    case = _make_node("CASE_HLR-001", "CASE_HLR",
-        trace_to=["HLR-001"],
-        properties={
-            "file_path": "tests/test_motion.py",
-            "line_traces": [{"symbol": "test_plan", "start": 10, "end": 20, "llr_ids": []}],
-        })
-    graph = MagicMock()
-    graph.all_nodes.return_value = [case]
-    graph.node_sync.side_effect = lambda nid: case if nid == "CASE_HLR-001" else None
-    graph.add_node = AsyncMock()
-
-    await record_results(workspace=MagicMock(), graph=graph, last_state=last_state)
+    with patch(
+        "backend.workspace.result_recorder.run_and_parse_tests", return_value=[tr],
+    ):
+        await record_results(workspace=MagicMock(), graph=graph)
 
     assert graph.add_node.call_count == 1
     created_node = graph.add_node.call_args[0][0]
     assert created_node.node_type == "RESULT"
+    assert created_node.parent_id == "TEST-001"
     assert created_node.properties["status"] == "failed"
     assert created_node.properties["test_id"] == "tests/test_motion.py::test_plan"
     assert created_node.properties["file_path"] == "tests/test_motion.py"
@@ -295,9 +275,6 @@ async def test_record_results_trace_to_includes_parents_and_requirements() -> No
         function_name="test_plan",
         status="passed",
     )
-    last_state = MagicMock()
-    last_state.test_results = [tr]
-
     case = _make_node("CASE_LLR-007", "CASE_LLR",
         trace_to=["LLR-007", "HLR-003"],
         properties={
@@ -311,7 +288,10 @@ async def test_record_results_trace_to_includes_parents_and_requirements() -> No
     graph.node_sync.side_effect = lambda nid: test_node if nid == "TEST-007" else None
     graph.add_node = AsyncMock()
 
-    await record_results(workspace=MagicMock(), graph=graph, last_state=last_state)
+    with patch(
+        "backend.workspace.result_recorder.run_and_parse_tests", return_value=[tr],
+    ):
+        await record_results(workspace=MagicMock(), graph=graph)
 
     created_node = graph.add_node.call_args[0][0]
     # Parent candidates = [TEST-007], req_ids = TEST-007.trace_to = [CASE_LLR-007]
@@ -321,19 +301,20 @@ async def test_record_results_trace_to_includes_parents_and_requirements() -> No
 
 @pytest.mark.asyncio
 async def test_record_results_returns_list_of_single_test_result() -> None:
-    """Return value is the list of SingleTestResult."""
-    tr1 = SingleTestResult("t1::f1", "t1", "f1", "passed")
-    tr2 = SingleTestResult("t2::f2", "t2", "f2", "failed")
-    last_state = MagicMock()
-    last_state.test_results = [tr1, tr2]
+    """Return value is the list of SingleTestResult from the fresh run."""
+    tr = SingleTestResult(
+        "tests/test_motion.py::test_plan", "tests/test_motion.py",
+        "test_plan", "passed",
+    )
+    graph = _recording_graph()
 
-    graph = MagicMock()
-    graph.all_nodes.return_value = []
-    graph.add_node = AsyncMock()
+    with patch(
+        "backend.workspace.result_recorder.run_and_parse_tests", return_value=[tr],
+    ) as mock_run:
+        results = await record_results(workspace=MagicMock(), graph=graph)
 
-    results = await record_results(workspace=MagicMock(), graph=graph, last_state=last_state)
-
-    assert results == [tr1, tr2]
+    mock_run.assert_called_once()
+    assert results == [tr]
     assert isinstance(results[0], SingleTestResult)
 
 
@@ -342,49 +323,16 @@ async def test_record_results_returns_list_of_single_test_result() -> None:
 @pytest.mark.asyncio
 async def test_record_results_empty_results_returns_empty_list() -> None:
     """Returns empty list and does not create nodes when no results."""
-    last_state = MagicMock()
-    last_state.test_results = []
-
     graph = MagicMock()
     graph.add_node = AsyncMock()
 
-    results = await record_results(workspace=MagicMock(), graph=graph, last_state=last_state)
+    with patch(
+        "backend.workspace.result_recorder.run_and_parse_tests", return_value=[],
+    ):
+        results = await record_results(workspace=MagicMock(), graph=graph)
 
     assert results == []
     graph.add_node.assert_not_called()
-
-
-# ── record_results() without last_state ───────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_record_results_no_last_state_calls_run_and_parse() -> None:
-    """Falls back to run_and_parse_tests when last_state is None."""
-    tr = SingleTestResult("tests/t.py::test_a", "tests/t.py", "test_a", "passed")
-    graph = MagicMock()
-    graph.all_nodes.return_value = []
-    graph.add_node = AsyncMock()
-
-    with patch("backend.workspace.result_recorder.run_and_parse_tests", return_value=[tr]) as mock_run:
-        results = await record_results(workspace=MagicMock(), graph=graph, last_state=None)
-
-    mock_run.assert_called_once()
-    assert len(results) == 1
-    assert results[0].test_id == "tests/t.py::test_a"
-
-
-@pytest.mark.asyncio
-async def test_record_results_last_state_without_test_results_attr() -> None:
-    """Falls back to run_and_parse_tests when last_state lacks test_results."""
-    last_state = MagicMock(spec=[])  # spec=[] means no attributes at all
-    graph = MagicMock()
-    graph.all_nodes.return_value = []
-    graph.add_node = AsyncMock()
-
-    with patch("backend.workspace.result_recorder.run_and_parse_tests", return_value=[]) as mock_run:
-        results = await record_results(workspace=MagicMock(), graph=graph, last_state=last_state)
-
-    mock_run.assert_called_once()
-    assert results == []
 
 
 # ── _resolve_requirement_traces edge cases ─────────────────────────────────
@@ -449,7 +397,7 @@ def test_resolve_requirement_traces_empty_trace_to() -> None:
 # ── _find_trace_targets: multiple CASE nodes same file ─────────────────────
 
 def test_find_trace_targets_multiple_cases_same_file() -> None:
-    """Multiple CASE nodes matching the same file are all matched (per-file)."""
+    """Multiple CASE nodes matching the same file yield all their TESTs."""
     case1 = _make_node("CASE_LLR-001", "CASE_LLR", properties={
         "file_path": "tests/test_motion.py",
         "line_traces": [{"symbol": "test_plan", "start": 10, "end": 20, "llr_ids": []}],
@@ -458,18 +406,20 @@ def test_find_trace_targets_multiple_cases_same_file() -> None:
         "file_path": "tests/test_motion.py",
         "line_traces": [{"symbol": "test_execute", "start": 30, "end": 40, "llr_ids": []}],
     })
+    test1 = _make_node("TEST-001", "TEST", trace_to=["CASE_LLR-001"])
+    test2 = _make_node("TEST-002", "TEST", trace_to=["CASE_HLR-002"])
     graph = MagicMock()
-    graph.all_nodes.return_value = [case1, case2]
+    graph.all_nodes.return_value = [case1, case2, test1, test2]
 
-    # Per-file match (empty func_name): both CASEs match
+    # Per-file match (empty func_name): both CASEs match → both TESTs
     targets = _find_trace_targets("", "tests/test_motion.py", graph)
-    assert "CASE_LLR-001" in targets
-    assert "CASE_HLR-002" in targets
+    assert "TEST-001" in targets
+    assert "TEST-002" in targets
     assert len(targets) == 2
 
 
 def test_find_trace_targets_multiple_cases_same_file_per_function() -> None:
-    """Per-function match only returns CASE with the matching symbol."""
+    """Per-function match only returns the TEST of the matching CASE."""
     case1 = _make_node("CASE_LLR-001", "CASE_LLR", properties={
         "file_path": "tests/test_motion.py",
         "line_traces": [{"symbol": "test_plan", "start": 10, "end": 20, "llr_ids": []}],
@@ -478,11 +428,13 @@ def test_find_trace_targets_multiple_cases_same_file_per_function() -> None:
         "file_path": "tests/test_motion.py",
         "line_traces": [{"symbol": "test_execute", "start": 30, "end": 40, "llr_ids": []}],
     })
+    test1 = _make_node("TEST-001", "TEST", trace_to=["CASE_LLR-001"])
+    test2 = _make_node("TEST-002", "TEST", trace_to=["CASE_HLR-002"])
     graph = MagicMock()
-    graph.all_nodes.return_value = [case1, case2]
+    graph.all_nodes.return_value = [case1, case2, test1, test2]
 
     targets = _find_trace_targets("test_plan", "tests/test_motion.py", graph)
-    assert targets == ["CASE_LLR-001"]
+    assert targets == ["TEST-001"]
 
 
 # ── record_results with multiple results ───────────────────────────────────
@@ -492,44 +444,37 @@ async def test_record_results_multiple_results_creates_multiple_nodes() -> None:
     """Each SingleTestResult creates a separate RESULT node."""
     tr1 = SingleTestResult("t/a.py::test_a", "t/a.py", "test_a", "passed")
     tr2 = SingleTestResult("t/b.py::test_b", "t/b.py", "test_b", "failed")
-    last_state = MagicMock()
-    last_state.test_results = [tr1, tr2]
 
+    def _pair(case_id: str, test_id: str, fp: str, fn: str) -> list[MagicMock]:
+        case = _make_node(case_id, "CASE_LLR", trace_to=[], properties={
+            "file_path": fp,
+            "line_traces": [{"symbol": fn, "start": 1, "end": 5, "llr_ids": []}],
+        })
+        return [case, _make_node(test_id, "TEST", trace_to=[case_id])]
+
+    nodes = {
+        n.node_id: n
+        for n in _pair("CASE-A", "TEST-A", "t/a.py", "test_a")
+        + _pair("CASE-B", "TEST-B", "t/b.py", "test_b")
+    }
     graph = MagicMock()
-    graph.all_nodes.return_value = []
+    graph.all_nodes.return_value = list(nodes.values())
+    graph.node_sync.side_effect = lambda nid: nodes.get(nid)
     graph.add_node = AsyncMock()
 
-    results = await record_results(workspace=MagicMock(), graph=graph, last_state=last_state)
+    with patch(
+        "backend.workspace.result_recorder.run_and_parse_tests",
+        return_value=[tr1, tr2],
+    ):
+        results = await record_results(workspace=MagicMock(), graph=graph)
 
     assert graph.add_node.call_count == 2
     assert len(results) == 2
 
     node_ids = [call[0][0].node_id for call in graph.add_node.call_args_list]
     assert len(set(node_ids)) == 2  # Distinct node IDs
-
-
-@pytest.mark.asyncio
-async def test_record_results_parent_id_set_from_first_candidate() -> None:
-    """parent_id is set to the first element of parent_candidates."""
-    tr = SingleTestResult("tests/t.py::test_x", "tests/t.py", "test_x", "passed")
-    last_state = MagicMock()
-    last_state.test_results = [tr]
-
-    case = _make_node("CASE_LLR-001", "CASE_LLR",
-        trace_to=[],
-        properties={
-            "file_path": "tests/t.py",
-            "line_traces": [{"symbol": "test_x", "start": 1, "end": 5, "llr_ids": []}],
-        })
-    graph = MagicMock()
-    graph.all_nodes.return_value = [case]
-    graph.node_sync.return_value = case
-    graph.add_node = AsyncMock()
-
-    await record_results(workspace=MagicMock(), graph=graph, last_state=last_state)
-
-    created_node = graph.add_node.call_args[0][0]
-    assert created_node.parent_id == "CASE_LLR-001"
+    parents = {call[0][0].parent_id for call in graph.add_node.call_args_list}
+    assert parents == {"TEST-A", "TEST-B"}
 
 
 # ── run_and_parse_tests: fresh evidence guarantee ──────────────────────────
@@ -667,19 +612,121 @@ def test_run_and_parse_tests_no_test_files_returns_empty(
     mock_init.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_record_results_no_parent_candidates_sets_parent_none() -> None:
-    """parent_id is None when no CASE/TEST candidates match."""
-    tr = SingleTestResult("tests/orphan.py::test_orphan", "tests/orphan.py", "test_orphan", "passed")
-    last_state = MagicMock()
-    last_state.test_results = [tr]
+# ── Defect regression: RESULT must never be parented to a CASE ──────────────
+#
+# Live trace (topological_sort e2e build): 230 RESULT nodes were recorded
+# during phase 12, BEFORE phase 13 workspace sync created any TEST nodes.
+# `_find_trace_targets` silently fell back to the CASE node, producing 230
+# ORPHAN_NODE gaps (RESULT's only valid parent is TEST —
+# gap_analyser_integrity.VALID_PARENT_TYPES). Recording now happens in
+# phase 13 after TEST sync, and a missing TEST parent is a loud error.
 
+@pytest.mark.asyncio
+async def test_record_results_raises_when_test_nodes_absent() -> None:
+    """CASE matches but no TEST node exists: raise, never parent to CASE."""
+    tr = SingleTestResult(
+        "tests/test_motion.py::test_plan", "tests/test_motion.py",
+        "test_plan", "passed",
+    )
+    case = _make_node("CASE_LLR-0010", "CASE_LLR", trace_to=["LLR-001"], properties={
+        "file_path": "tests/test_motion.py",
+        "line_traces": [{"symbol": "test_plan", "start": 1, "end": 5, "llr_ids": []}],
+    })
+    graph = MagicMock()
+    graph.all_nodes.return_value = [case]
+    graph.add_node = AsyncMock()
+
+    with patch(
+        "backend.workspace.result_recorder.run_and_parse_tests", return_value=[tr],
+    ), pytest.raises(RuntimeError, match="TEST"):
+        await record_results(workspace=MagicMock(), graph=graph)
+
+    graph.add_node.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_record_results_raises_when_no_case_matches() -> None:
+    """A test function no CASE owns cannot produce a parentless RESULT."""
+    tr = SingleTestResult(
+        "tests/orphan.py::test_orphan", "tests/orphan.py", "test_orphan", "passed",
+    )
     graph = MagicMock()
     graph.all_nodes.return_value = []
     graph.add_node = AsyncMock()
 
-    await record_results(workspace=MagicMock(), graph=graph, last_state=last_state)
+    with patch(
+        "backend.workspace.result_recorder.run_and_parse_tests", return_value=[tr],
+    ), pytest.raises(RuntimeError, match="CASE"):
+        await record_results(workspace=MagicMock(), graph=graph)
 
-    created_node = graph.add_node.call_args[0][0]
-    assert created_node.parent_id is None
-    assert created_node.trace_to == []
+    graph.add_node.assert_not_called()
+
+
+# ── heal_result_parents: resumed phase 13 repairs a bad graph ───────────────
+
+def _heal_fixture() -> tuple[MagicMock, MagicMock, MagicMock, MagicMock]:
+    """Graph with a CASE-parented RESULT and the TEST that should own it."""
+    case = _make_node("CASE_LLR-0010", "CASE_LLR", trace_to=["LLR-001"], properties={
+        "file_path": "tests/test_motion.py",
+        "line_traces": [{"symbol": "test_plan", "start": 1, "end": 5, "llr_ids": []}],
+    })
+    test = _make_node("TEST-0065", "TEST", trace_to=["CASE_LLR-0010", "LLR-001"])
+    bad_result = _make_node("RESULT-tests_test_motion_py_test_plan-deadbeef", "RESULT",
+        trace_to=["CASE_LLR-0010"],
+        properties={
+            "file_path": "tests/test_motion.py",
+            "function_name": "test_plan",
+            "status": "passed",
+            "test_id": "tests/test_motion.py::test_plan",
+        })
+    bad_result.parent_id = "CASE_LLR-0010"
+    graph = MagicMock()
+    nodes = {n.node_id: n for n in (case, test, bad_result)}
+    graph.all_nodes.return_value = list(nodes.values())
+    graph.node_sync.side_effect = lambda nid: nodes.get(nid)
+    graph.reparent_node = AsyncMock()
+    graph.update_node = AsyncMock()
+    return graph, case, test, bad_result
+
+
+@pytest.mark.asyncio
+async def test_heal_result_parents_reparents_case_parented_result() -> None:
+    """A CASE-parented RESULT is re-parented onto its TEST node."""
+    from backend.workspace.result_recorder import heal_result_parents
+
+    graph, _case, test, bad_result = _heal_fixture()
+    healed = await heal_result_parents(graph)
+
+    assert healed == 1
+    args = graph.reparent_node.call_args
+    assert args[0][0] == bad_result.node_id
+    assert args[0][1] == test.node_id
+    # TEST id merged into trace_to
+    trace_call = graph.update_node.call_args
+    assert test.node_id in trace_call.kwargs["trace_to"]
+
+
+@pytest.mark.asyncio
+async def test_heal_result_parents_leaves_valid_results_untouched() -> None:
+    """RESULTs already parented to a TEST are not touched."""
+    from backend.workspace.result_recorder import heal_result_parents
+
+    graph, _case, test, bad_result = _heal_fixture()
+    bad_result.parent_id = test.node_id
+    healed = await heal_result_parents(graph)
+
+    assert healed == 0
+    graph.reparent_node.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_heal_result_parents_raises_when_no_test_exists() -> None:
+    """Healing cannot fall back: no TEST for the CASE is a loud error."""
+    from backend.workspace.result_recorder import heal_result_parents
+
+    graph, _case, test, _bad = _heal_fixture()
+    graph.all_nodes.return_value = [
+        n for n in graph.all_nodes.return_value if n.node_id != test.node_id
+    ]
+    with pytest.raises(RuntimeError, match="TEST"):
+        await heal_result_parents(graph)

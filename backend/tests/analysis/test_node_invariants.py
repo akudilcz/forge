@@ -190,3 +190,125 @@ def test_case_trace_non_case_types_skip() -> None:
 def test_normalisers() -> None:
     assert normalise_title("  Foo Bar ") == "foo bar"
     assert normalise_content(" X\n") == "x"
+
+
+# ── CONTRACT public_api shape (design/16 Structured Public API Surface) ──────
+
+
+def _api_entry() -> dict[str, str]:
+    return {
+        "module": "merge_sort",
+        "symbol": "sort",
+        "kind": "function",
+        "signature": "def sort(items: list) -> None",
+    }
+
+
+def test_contract_public_api_valid_passes() -> None:
+    from backend.analysis.node_invariants import check_contract_public_api
+
+    assert check_contract_public_api("CONTRACT", {"public_api": [_api_entry()]}) is None
+
+
+def test_contract_public_api_missing_rejected() -> None:
+    from backend.analysis.node_invariants import check_contract_public_api
+
+    msg = check_contract_public_api("CONTRACT", {})
+    assert msg is not None
+    assert "public_api" in msg
+
+
+def test_contract_public_api_empty_list_rejected() -> None:
+    from backend.analysis.node_invariants import check_contract_public_api
+
+    msg = check_contract_public_api("CONTRACT", {"public_api": []})
+    assert msg is not None
+    assert "public_api" in msg
+
+
+def test_contract_public_api_bad_kind_rejected() -> None:
+    from backend.analysis.node_invariants import check_contract_public_api
+
+    entry = _api_entry()
+    entry["kind"] = "coroutine"
+    msg = check_contract_public_api("CONTRACT", {"public_api": [entry]})
+    assert msg is not None
+    assert "kind" in msg
+
+
+def test_contract_public_api_missing_key_rejected() -> None:
+    from backend.analysis.node_invariants import check_contract_public_api
+
+    entry = _api_entry()
+    del entry["signature"]
+    msg = check_contract_public_api("CONTRACT", {"public_api": [entry]})
+    assert msg is not None
+    assert "signature" in msg
+
+
+def test_contract_public_api_empty_value_rejected() -> None:
+    from backend.analysis.node_invariants import check_contract_public_api
+
+    entry = _api_entry()
+    entry["symbol"] = "  "
+    msg = check_contract_public_api("CONTRACT", {"public_api": [entry]})
+    assert msg is not None
+    assert "symbol" in msg
+
+
+def test_contract_public_api_non_contract_skipped() -> None:
+    from backend.analysis.node_invariants import check_contract_public_api
+
+    assert check_contract_public_api("MODULE", {}) is None
+
+
+# ── CONTRACT prohibited_constructs shape (design/16, optional) ───────────────
+
+
+def test_prohibited_constructs_absent_is_valid() -> None:
+    from backend.analysis.node_invariants import check_contract_prohibited
+
+    assert check_contract_prohibited("CONTRACT", {}) is None
+
+
+def test_prohibited_constructs_valid_passes() -> None:
+    from backend.analysis.node_invariants import check_contract_prohibited
+
+    props = {
+        "prohibited_constructs": [
+            {"construct": "eval", "rationale": "§12 forbids delegation"},
+        ],
+    }
+    assert check_contract_prohibited("CONTRACT", props) is None
+
+
+def test_prohibited_constructs_missing_rationale_rejected() -> None:
+    from backend.analysis.node_invariants import check_contract_prohibited
+
+    props = {"prohibited_constructs": [{"construct": "eval"}]}
+    msg = check_contract_prohibited("CONTRACT", props)
+    assert msg is not None
+    assert "rationale" in msg
+
+
+def test_prohibited_constructs_empty_construct_rejected() -> None:
+    from backend.analysis.node_invariants import check_contract_prohibited
+
+    props = {"prohibited_constructs": [{"construct": " ", "rationale": "x"}]}
+    msg = check_contract_prohibited("CONTRACT", props)
+    assert msg is not None
+    assert "construct" in msg
+
+
+def test_prohibited_constructs_non_list_rejected() -> None:
+    from backend.analysis.node_invariants import check_contract_prohibited
+
+    msg = check_contract_prohibited("CONTRACT", {"prohibited_constructs": "eval"})
+    assert msg is not None
+    assert "prohibited_constructs" in msg
+
+
+def test_prohibited_constructs_non_contract_skipped() -> None:
+    from backend.analysis.node_invariants import check_contract_prohibited
+
+    assert check_contract_prohibited("MODULE", {"prohibited_constructs": "x"}) is None

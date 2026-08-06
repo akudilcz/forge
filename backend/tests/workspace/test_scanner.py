@@ -94,6 +94,88 @@ def test_analyse_file_valid_has_no_syntax_error(tmp_path: Path) -> None:
     assert state.syntax_error == ""
 
 
+def test_analyse_file_collects_api_symbols(tmp_path: Path) -> None:
+    """Top-level defs, classes, methods, and import aliases become symbols."""
+    code = (
+        "from src.util import helper\n"
+        "\n"
+        "def sort(items):\n"
+        "    pass\n"
+        "\n"
+        "class SortStats:\n"
+        "    def merge(self, other):\n"
+        "        pass\n"
+    )
+    f = tmp_path / "merge_sort.py"
+    f.write_text(code)
+
+    state = _analyse_file(f, "src/merge_sort.py")
+    assert state.symbols["sort"] == "function"
+    assert state.symbols["SortStats"] == "class"
+    assert state.symbols["SortStats.merge"] == "method"
+    assert state.symbols["helper"] == "import"
+    assert state.relative_imports == []
+
+
+def test_analyse_file_collects_relative_imports(tmp_path: Path) -> None:
+    """Relative imports are recorded verbatim for the API-surface gate."""
+    code = "from .galloper import gallop\nfrom ..pkg import x\n"
+    f = tmp_path / "facade.py"
+    f.write_text(code)
+
+    state = _analyse_file(f, "src/facade.py")
+    assert "from .galloper import gallop" in state.relative_imports
+    assert "from ..pkg import x" in state.relative_imports
+
+
+def test_analyse_file_syntax_error_yields_no_symbols(tmp_path: Path) -> None:
+    """A file that fails to parse reports no symbols or imports."""
+    f = tmp_path / "broken.py"
+    f.write_text('def bad(\n    x = f"{foo)s}"\n')
+
+    state = _analyse_file(f, "src/broken.py")
+    assert state.symbols == {}
+    assert state.relative_imports == []
+    assert state.imported_modules == {}
+    assert state.call_targets == {}
+
+
+def test_analyse_file_collects_imported_modules_with_lines(tmp_path: Path) -> None:
+    """Imports are recorded under their real dotted names with line numbers."""
+    code = (
+        "import ast as tree_mod\n"
+        "from ast import literal_eval\n"
+        "import os.path\n"
+    )
+    f = tmp_path / "mod.py"
+    f.write_text(code)
+
+    state = _analyse_file(f, "src/mod.py")
+    assert state.imported_modules["ast"] == [1]
+    assert state.imported_modules["ast.literal_eval"] == [2]
+    assert state.imported_modules["os.path"] == [3]
+
+
+def test_analyse_file_resolves_aliased_call_targets(tmp_path: Path) -> None:
+    """Calls through import aliases resolve to real dotted names."""
+    code = (
+        "import ast as tree_mod\n"
+        "from ast import literal_eval as le\n"
+        "\n"
+        "def run(s):\n"
+        "    tree_mod.parse(s)\n"
+        "    le(s)\n"
+        "    return eval(s)\n"
+    )
+    f = tmp_path / "mod.py"
+    f.write_text(code)
+
+    state = _analyse_file(f, "src/mod.py")
+    assert state.call_targets["ast.parse"] == [5]
+    assert state.call_targets["ast.literal_eval"] == [6]
+    assert state.call_targets["eval"] == [7]
+
+
 # ── scan_files ───────────────────────────────────────────────────────────────
 
 def test_scan_files_finds_src_and_tests(tmp_path: Path) -> None:

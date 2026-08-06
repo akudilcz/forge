@@ -45,9 +45,6 @@ from backend.codegen.post_gen import (  # noqa: F401 — re-exported for tests
     _persist_coverage_metrics as _persist_coverage_metrics,
 )
 from backend.codegen.post_gen import (
-    _record_test_results as _record_test_results,
-)
-from backend.codegen.post_gen import (
     _run_trace_audit as _run_trace_audit,
 )
 from backend.codegen.trace_persistence import (  # noqa: F401 — re-exported for callers/tests
@@ -135,7 +132,9 @@ async def run_code_gen(
     await _persist_traces(result, graph)
     await _run_trace_audit(result, workspace, graph)
 
-    await _record_test_results(workspace, graph, last_state)
+    # RESULT recording happens in phase 13 (after TEST sync) — here we
+    # only persist coverage metrics from the final gap-loop state.
+    await _persist_coverage_metrics(graph, last_state)
 
     elapsed = time.monotonic() - t0
     _log_summary(result, last_state, graph, gaps_resolved, elapsed, mission_stats)

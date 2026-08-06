@@ -10,6 +10,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from backend.codegen.api_surface import check_api_surface as _check_api_surface
+from backend.codegen.api_surface import (
+    check_prohibited_constructs as _check_prohibited_constructs,
+)
 from backend.codegen.failure_clustering import (  # noqa: F401 — re-exported for tests
     _build_error_summaries as _build_error_summaries,
 )
@@ -80,6 +84,8 @@ def find_gaps(
     _check_syntax_errors(gaps, source_files, test_files)
     _check_missing_sources(gaps, source_files, graph)
     _check_missing_tests(gaps, test_files, graph)
+    _check_api_surface(gaps, source_files, graph)
+    _check_prohibited_constructs(gaps, source_files, graph)
     _check_failing_tests(gaps, test_results)
     _check_invalid_traces(gaps, source_files, test_files, graph)
     _check_untraced_functions(gaps, source_files, test_files)

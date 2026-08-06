@@ -106,6 +106,20 @@ BUILD SYSTEM:
 CONVENTIONS:
 - Source files in src/, test files in tests/ (prefixed test_)
 - Import as: from src.<module> import <Class>
+- FILE LAYOUT IS DECIDED BY THE DESIGNS: one source file per DESIGN at
+  its declared path. Do NOT invent additional modules beyond the DESIGN
+  nodes — no facades, orchestration shims, or split-out helpers. A past
+  build fragmented one module into ten files and lost the public API.
+- API SURFACE: every CONTRACT properties.public_api entry must be
+  importable from the module it names (src/<module>.py) with the exact
+  symbol name and kind. The API_SURFACE_MISMATCH gap enforces this.
+- absolute imports only in src/ — a relative import (from .x import y)
+  breaks top-level importability and is flagged as a gap
+- PROHIBITED CONSTRUCTS: every CONTRACT properties.prohibited_constructs
+  entry is a HARD BAN inside src/ — no calls, imports, or aliased uses
+  of the construct (the PROHIBITED_CONSTRUCT gap enforces this
+  statically). Implement the behaviour yourself; delegating to a banned
+  construct is spec evasion, not implementation. Tests may use anything.
 - @traces("LLR-XXXX") on EVERY function in src/ — no exemptions,
   including __init__, dunder methods, and private helpers
 - @traces("LLR-XXXX", case="CASE_LLR-XXXX") on test functions
