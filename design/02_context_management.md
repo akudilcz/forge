@@ -98,6 +98,8 @@ Threads are therefore scoped **per gap**:
 
 The four batch phases (3, 5, 7, 8) follow a `[static prefix] + [dynamic suffix]` structure where the static prefix is the large cacheable graph snapshot and the dynamic suffix is the attempt-specific set of unresolved gaps. Retries inside a batch step benefit from Anthropic's prompt cache on the static prefix. Full content everywhere — no `[:N]` slices anywhere in `batch_prompts.py`.
 
+**Dedup judge alignment**: the semantic duplicate judge's pair prompt is likewise ordered `[system + SIBLINGS]` static prefix then `[TARGET]` dynamic suffix, so the prefix is shared across targets under one parent and across the byte-identical double-confirmation call (independence unaffected — see design/01 §7.4).
+
 **Wire-up note**: the structural split is in place in `batch_prompts.py`. Actual `cache_control` block emission depends on the provider — the project runs through an OpenAI-compatible proxy (LiteLLM). When the proxy is configured to pass `cache_control` through to an Anthropic backend, the static prefix naturally lines up as the cache breakpoint. No per-phase code change is required beyond the prompt structure already in place.
 
 ## Remaining follow-ups
@@ -110,6 +112,10 @@ The following items are tracked but depend on schema or orchestration changes ou
 ## Fail-loud on unresolved references
 
 `build_trace_to_context` raises `RuntimeError` when `trace_to` references cannot be resolved, instead of silently substituting an ancestor walk. `case_trace_check` no longer assumes coverage on LLM failures — the exception propagates. Both changes align with the project "no fallbacks" rule: mis-wired state surfaces as a real error, not a quiet degradation.
+
+## STALE_NODE repair context
+
+The `STALE_NODE` task description (`task_prompts_repair.py::_stale_node`) is self-sufficient: it inlines the staleness reason (`Gap.description`, carrying the provenance-hash mismatch explanation and the parent id from `Gap.context`), and — because the ancestor-chain context starts at the node itself — the node's own content and the parent's current content are already present in the packed context (token-budgeted by `context_budget.pack`, never truncated mid-string). The prompt tells the agent both blocks are in context and forbids redundant `graph_read` round-trips, and names `graph_refresh_provenance` explicitly for the "content still valid" outcome (which records the review without touching content). When no context could be assembled, the prompt falls back to explicit read instructions — stated, not silent.
 
 ## Staleness detectors
 

@@ -11,6 +11,7 @@ from typing import Any
 
 from typing_extensions import TypedDict
 
+from backend.quality.micro_repair import apply_micro_repair_batches
 from backend.server.forge_logger import forge_logger
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,10 @@ async def combined_quality(flow: Any, phase: int) -> StepResult:
 
     # NON_ATOMIC first so requirement splits land before title retitles.
     gaps.sort(key=lambda g: 0 if g.type == GapType.NON_ATOMIC_REQUIREMENT else 1)
+    # Batched micro-repair pre-pass (design/01 §7.4): N>=3 same-family
+    # title/wording gaps are fixed in one structured LLM call; only gaps it
+    # could not certify-resolve continue to per-gap dispatch below.
+    gaps = await apply_micro_repair_batches(flow, gaps)
     for gap in gaps:
         node = flow.graph.node_sync(gap.node_id)
         if node is None:

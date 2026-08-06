@@ -23,6 +23,7 @@ from typing_extensions import TypedDict
 from backend.analysis.gaps import Gap
 from backend.core.work_queue import work_queue
 from backend.pipeline.dispatch import DispatchQuotaError
+from backend.quality.micro_repair import apply_micro_repair_batches
 from backend.server.forge_logger import forge_logger
 
 if TYPE_CHECKING:
@@ -77,6 +78,11 @@ def create_qual_check_graph(flow: ForgeFlow) -> Any:
         planned = [
             g for n in nodes if n.node_id in gap_map for g in gap_map[n.node_id]
         ]
+        if planned:
+            # Batched micro-repair pre-pass (design/01 §7.4): N>=3 same-family
+            # title/wording gaps are fixed in one structured LLM call; only
+            # gaps it could not certify-resolve continue to per-gap dispatch.
+            planned = await apply_micro_repair_batches(flow, planned)
         # Populate work queue from quality gaps
         for g in planned:
             work_queue.add(

@@ -26,8 +26,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from backend.server.forge_logger import forge_logger
 
 _SYSTEM_PROMPT = """\
-You are a deduplication judge. Given a TARGET node and its SIBLINGS,
-decide whether the target is a TRUE semantic duplicate of any sibling.
+You are a deduplication judge. Given the SIBLINGS context followed by a
+TARGET node, decide whether the target is a TRUE semantic duplicate of
+any sibling.
 
 Two nodes are DUPLICATE only if they specify THE SAME OBLIGATION —
 i.e. a passing test written against one would also satisfy the other,
@@ -139,11 +140,16 @@ def create_semantic_checker(
     ) -> tuple[bool, str]:
         """One independent LLM judgment. Returns (is_duplicate, label)."""
         t0 = time.monotonic()
+        # Prompt-cache alignment (design/01 §7.4): [system + SIBLINGS] is the
+        # static prefix — shared across targets under one parent and across
+        # the byte-identical double-confirmation call — and the TARGET is the
+        # dynamic suffix. Provider-side KV/prompt caching reuses the prefix
+        # only; sampling of the two verdicts remains independent.
         response = await llm.ainvoke([
             SystemMessage(content=_SYSTEM_PROMPT),
             HumanMessage(content=(
-                f"TARGET REQUIREMENT ({node_id}):\n{node_content}\n\n"
-                f"SIBLINGS:\n{siblings_text}"
+                f"SIBLINGS:\n{siblings_text}\n\n"
+                f"TARGET REQUIREMENT ({node_id}):\n{node_content}"
             )),
         ])
         duration_ms = int((time.monotonic() - t0) * 1000)

@@ -150,12 +150,42 @@ def _untitled_node(nid: str, ctx: str) -> tuple[str, str]:
     )
 
 
-def _stale_node(nid: str, ctx: str) -> tuple[str, str]:
+def _stale_node(nid: str, ctx: str, gap: Gap) -> tuple[str, str]:
+    """Self-sufficient staleness repair prompt (design/02).
+
+    The ancestor-chain context starts at the node itself, so when *ctx* is
+    present it already carries BOTH the node's own content and the parent's
+    current content (token-budget packed) — the prompt says so and forbids
+    redundant ``graph_read`` round-trips. An empty *ctx* is stated loudly:
+    explicit read steps, never silence.
+    """
+    gctx = gap.context or {}
+    parent_id = gctx.get("parent_id", "<parent>")
+    reason = gap.description or (
+        f"Node '{nid}' is stale — parent '{parent_id}' content changed "
+        f"since this node was authored (provenance hash mismatch)."
+    )
+    if ctx:
+        source_note = (
+            f"The Context below already contains this node's current content "
+            f"(block [… {nid}]) AND the parent's current content "
+            f"(block [… {parent_id}]) — do NOT call graph_read; decide "
+            f"directly from the Context."
+        )
+    else:
+        source_note = (
+            f"STEP 0: graph_read(operation=node, node_id={nid}) and "
+            f"graph_read(operation=node, node_id={parent_id}) — read both "
+            f"contents first (no packed context was assembled for this gap)."
+        )
     return (
-        f"Node '{nid}' is stale — its parent's content changed since this "
-        f"node was authored (provenance hash mismatch).\n\n"
-        f"Read the node and its parent, then either:\n"
-        f"* content needs re-deriving → rewrite it via graph_update_node "
+        f"Node '{nid}' is STALE relative to its parent '{parent_id}'.\n"
+        f"Reason: {reason}\n\n"
+        f"{source_note}\n\n"
+        f"Compare this node's content against the parent's CURRENT content, "
+        f"then do exactly ONE of:\n"
+        f"* content needs re-deriving → graph_update_node(node_id={nid}, "
+        f"content=<content re-derived from the parent's current content>) "
         f"(this re-stamps provenance automatically), or\n"
         f"* content is still valid as-is → call "
         f"graph_refresh_provenance(node_id={nid}) to record the review "

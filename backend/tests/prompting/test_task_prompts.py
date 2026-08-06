@@ -301,3 +301,38 @@ class TestPhasePromptSpotChecks:
         assert "trace_to = ['LLR-0003']" in description
         assert CTX_SENTINEL in description
         assert "LLR-0003" in expected_output
+
+
+class TestStaleNodePrompt:
+    """STALE_NODE repairs must need zero graph_read round-trips (design/02):
+    the prompt carries the staleness reason, points at the node + parent
+    content already in the packed context, and names graph_refresh_provenance
+    for the "still valid" outcome."""
+
+    def _stale_gap(self) -> Gap:
+        return _gap(GapType.STALE_NODE, context={"parent_id": "PARA-0007"})
+
+    def test_prompt_states_the_staleness_reason(self) -> None:
+        gap = self._stale_gap()
+        description, _ = _entry(gap)
+        assert gap.description in description
+
+    def test_prompt_names_the_parent_node(self) -> None:
+        description, _ = _entry(self._stale_gap())
+        assert "PARA-0007" in description
+
+    def test_prompt_mentions_refresh_provenance_tool(self) -> None:
+        description, _ = _entry(self._stale_gap())
+        assert f"graph_refresh_provenance(node_id={NODE_ID})" in description
+
+    def test_with_context_prompt_forbids_redundant_reads(self) -> None:
+        """Context carries node + parent content — the agent must not re-read."""
+        description, _ = _entry(self._stale_gap())
+        assert CTX_SENTINEL in description
+        assert "do NOT call graph_read" in description
+
+    def test_without_context_prompt_instructs_reads(self) -> None:
+        """No packed context is stated loudly: explicit read steps, no silence."""
+        description, _ = _entry(self._stale_gap(), ctx="")
+        assert "graph_read" in description
+        assert "do NOT call graph_read" not in description

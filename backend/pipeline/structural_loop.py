@@ -30,6 +30,7 @@ from typing_extensions import TypedDict
 from backend.analysis.gaps import Gap
 from backend.core.work_queue import ActionRecord, work_queue
 from backend.pipeline.dispatch import DispatchQuotaError
+from backend.quality.micro_repair import apply_micro_repair_batches
 from backend.server.forge_logger import forge_logger
 
 if TYPE_CHECKING:
@@ -151,6 +152,11 @@ def create_structural_loop_graph(flow: ForgeFlow) -> Any:
         # the same gap again -> abandon again, forever.
         skipped: set[str] = set(state.get("abandoned") or set())
         gaps = flow._collect_phase_gaps(state["phase"], skipped)
+        if gaps:
+            # Batched micro-repair pre-pass (design/01 §7.4): N>=3 same-family
+            # title/wording gaps are fixed in one structured LLM call; only
+            # gaps it could not certify-resolve continue to per-gap dispatch.
+            gaps = await apply_micro_repair_batches(flow, gaps)
         if gaps:
             gap_summary = ", ".join(f"{g.type.value}:{g.node_id}" for g in gaps[:10])
             extra = f" (+{len(gaps) - 10} more)" if len(gaps) > 10 else ""

@@ -388,3 +388,31 @@ class TestVerdictCache:
         assert deleted is False
         assert llm.ainvoke.await_count == 2
         graph.delete_node.assert_not_awaited()
+
+
+class TestPromptCacheAlignment:
+    """Pair-prompt ordering (design/01 §7.4): [system + SIBLINGS] static prefix,
+    [TARGET] dynamic suffix — so provider-side prompt caching can reuse the
+    prefix across targets under one parent and across the confirmation call."""
+
+    async def test_siblings_precede_target_in_pair_prompt(self) -> None:
+        llm = _llm("UNIQUE - distinct obligation")
+        check = create_semantic_checker(llm, _graph(), {})
+
+        await check("PARA-0001", "some requirement text", "[PARA-0002] related text")
+
+        human = llm.ainvoke.call_args.args[0][1].content
+        assert human.index("SIBLINGS:") < human.index("TARGET REQUIREMENT (PARA-0001)")
+        # The target is the dynamic SUFFIX — nothing follows its content.
+        assert human.rstrip().endswith("some requirement text")
+
+    async def test_confirmation_call_prompt_is_byte_identical(self) -> None:
+        """Both independent verdict calls send the exact same messages — by design."""
+        llm = _llm_seq("DUPLICATE - overlap", "UNIQUE - distinct")
+        check = create_semantic_checker(llm, _graph(), {})
+
+        await check("PARA-0001", "some requirement text", "[PARA-0002] related text")
+
+        assert llm.ainvoke.await_count == 2
+        first, second = llm.ainvoke.call_args_list
+        assert [m.content for m in first.args[0]] == [m.content for m in second.args[0]]

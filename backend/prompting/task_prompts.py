@@ -97,7 +97,7 @@ def build_descriptions(
         GapType.UNTESTED_HLR: _test_hlr(nid, ctx, suite_id=suite_id),
         GapType.UNTESTED_LLR: _test_llr(nid, ctx, suite_id=suite_id),
         # UNSYNCED_DESIGN / UNSYNCED_TEST: handled by workspace_sync step (no agent)
-        GapType.STALE_NODE: _stale_node(nid, ctx),
+        GapType.STALE_NODE: _stale_node(nid, ctx, gap),
         GapType.ORPHAN_NODE: _orphan_node(nid, ctx),
         GapType.EMPTY_CONTENT: _empty_content(nid, ctx),
         GapType.STALE_TRACE_TO: _stale_trace(nid, gap, ctx),
