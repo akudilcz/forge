@@ -50,12 +50,20 @@ For each generated file in the workspace:
       or `error`. Evidence is always parsed fresh from this run — never
       cached from Phase 12 — so RESULTs describe the tidied workspace.
 
-   A RESULT's only valid parent is a TEST node. There is **no fallback**:
-   if no TEST node can be resolved for a test function (its file matches
-   no CASE, or the CASE has no TEST child), recording raises a
-   `RuntimeError` — an invalid RESULT is never written. Because this
-   step runs after TEST sync, a missing TEST parent indicates a real
-   sync or traceability bug and must halt the phase loudly.
+   A RESULT's only valid parent is a TEST node, and an invalid RESULT is
+   never written. Two distinct no-parent situations exist:
+
+   - **Auxiliary test file** — no CASE node owns the file at all (e.g. an
+     import-sanity or re-export test the mission agent added as
+     infrastructure). Such files are exercised by the test run but are
+     **not traceability evidence**: recording skips them with a WARN log
+     naming each skipped file, and reports the skip count. This is an
+     explicit, documented category — not a fallback.
+   - **Owned file, unresolvable TEST** — a CASE owns the file but the
+     function is missing from its `line_traces`, or no TEST node traces
+     the CASE. Because this step runs after TEST sync, this indicates a
+     real sync or traceability bug: recording raises a `RuntimeError`
+     and halts the phase loudly.
 
 ---
 

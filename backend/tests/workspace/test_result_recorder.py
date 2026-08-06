@@ -160,8 +160,8 @@ def test_find_trace_targets_no_test_node_raises() -> None:
         _find_trace_targets("test_plan", "tests/test_motion.py", graph)
 
 
-def test_find_trace_targets_no_case_match_raises() -> None:
-    """A test function no CASE owns is a loud error, not an empty list."""
+def test_find_trace_targets_unowned_file_returns_empty() -> None:
+    """A file NO CASE owns is auxiliary (design/23): empty list, caller skips."""
     case = _make_node("CASE_LLR-001", "CASE_LLR", properties={
         "file_path": "tests/test_other.py",
         "line_traces": [{"symbol": "test_other", "start": 1, "end": 5, "llr_ids": []}],
@@ -169,7 +169,19 @@ def test_find_trace_targets_no_case_match_raises() -> None:
     graph = MagicMock()
     graph.all_nodes.return_value = [case]
 
-    with pytest.raises(RuntimeError, match="CASE"):
+    assert _find_trace_targets("test_plan", "tests/test_motion.py", graph) == []
+
+
+def test_find_trace_targets_owned_file_untraced_function_raises() -> None:
+    """A CASE owns the file but not this function: loud error (real bug)."""
+    case = _make_node("CASE_LLR-001", "CASE_LLR", properties={
+        "file_path": "tests/test_motion.py",
+        "line_traces": [{"symbol": "test_other", "start": 1, "end": 5, "llr_ids": []}],
+    })
+    graph = MagicMock()
+    graph.all_nodes.return_value = [case]
+
+    with pytest.raises(RuntimeError, match="line_traces"):
         _find_trace_targets("test_plan", "tests/test_motion.py", graph)
 
 
@@ -645,18 +657,45 @@ async def test_record_results_raises_when_test_nodes_absent() -> None:
 
 
 @pytest.mark.asyncio
-async def test_record_results_raises_when_no_case_matches() -> None:
-    """A test function no CASE owns cannot produce a parentless RESULT."""
-    tr = SingleTestResult(
-        "tests/orphan.py::test_orphan", "tests/orphan.py", "test_orphan", "passed",
+async def test_record_results_skips_auxiliary_file_no_case_owns() -> None:
+    """A file NO CASE owns is auxiliary infrastructure (design/23): skipped
+    loudly, no RESULT written, no crash — the phase continues."""
+    aux = SingleTestResult(
+        "tests/test_design_modules_reexport.py::",
+        "tests/test_design_modules_reexport.py", "", "passed",
     )
     graph = MagicMock()
     graph.all_nodes.return_value = []
     graph.add_node = AsyncMock()
 
     with patch(
+        "backend.workspace.result_recorder.run_and_parse_tests", return_value=[aux],
+    ):
+        results = await record_results(workspace=MagicMock(), graph=graph)
+
+    assert results == [aux]
+    graph.add_node.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_record_results_raises_when_owned_file_function_untraced() -> None:
+    """A CASE owns the file but the function is not in its line_traces:
+    that is a real traceability bug — raise, never skip."""
+    tr = SingleTestResult(
+        "tests/test_motion.py::test_untraced", "tests/test_motion.py",
+        "test_untraced", "passed",
+    )
+    case = _make_node("CASE_LLR-0010", "CASE_LLR", trace_to=["LLR-001"], properties={
+        "file_path": "tests/test_motion.py",
+        "line_traces": [{"symbol": "test_plan", "start": 1, "end": 5, "llr_ids": []}],
+    })
+    graph = MagicMock()
+    graph.all_nodes.return_value = [case]
+    graph.add_node = AsyncMock()
+
+    with patch(
         "backend.workspace.result_recorder.run_and_parse_tests", return_value=[tr],
-    ), pytest.raises(RuntimeError, match="CASE"):
+    ), pytest.raises(RuntimeError, match="line_traces"):
         await record_results(workspace=MagicMock(), graph=graph)
 
     graph.add_node.assert_not_called()

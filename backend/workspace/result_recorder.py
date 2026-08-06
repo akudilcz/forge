@@ -162,6 +162,7 @@ def _find_trace_targets(
     all_nodes = graph.all_nodes()
 
     # Step 1: find CASE nodes matching this test
+    file_owned = False
     case_ids: list[str] = []
     for node in all_nodes:
         if node.node_type not in ("CASE_HLR", "CASE_LLR"):
@@ -170,6 +171,7 @@ def _find_trace_targets(
         node_file = props.get("file_path", "")
         if not node_file or node_file != file_path:
             continue
+        file_owned = True
 
         if func_name:
             # Per-function match: look for specific function in line_traces
@@ -183,10 +185,15 @@ def _find_trace_targets(
             case_ids.append(node.node_id)
 
     if not case_ids:
+        if not file_owned:
+            # Auxiliary test file (design/23): no CASE owns this file at
+            # all — it is infrastructure, not traceability evidence.
+            return []
         raise RuntimeError(
             f"No CASE node owns test function {func_name!r} in {file_path!r} — "
-            "cannot record a RESULT without a TEST parent. The test file is "
-            "untraced; fix the CASE line_traces before recording evidence."
+            "cannot record a RESULT without a TEST parent. The file belongs to "
+            "CASE(s) but this function is missing from their line_traces; fix "
+            "the CASE line_traces before recording evidence."
         )
 
     # Step 2: find TEST nodes tracing to those CASEs
@@ -237,10 +244,15 @@ async def record_results(workspace: Path, graph: Any) -> list[SingleTestResult]:
         return results
 
     created = 0
+    skipped_aux: list[str] = []
     for tr in results:
         parent_candidates = _find_trace_targets(
             tr.function_name, tr.file_path, graph,
         )
+        if not parent_candidates:
+            # Auxiliary file no CASE owns (design/23): loud skip, no RESULT.
+            skipped_aux.append(tr.file_path)
+            continue
         parent_id = parent_candidates[0]
 
         # Write-path invariant guard: the graph engine does not validate
@@ -279,6 +291,13 @@ async def record_results(workspace: Path, graph: Any) -> list[SingleTestResult]:
         await graph.add_node(result_node)
         created += 1
 
+    if skipped_aux:
+        unique = sorted(set(skipped_aux))
+        forge_logger.emit(
+            "WARN", "SYNC ",
+            f"Skipped {len(unique)} auxiliary test file(s) no CASE owns "
+            f"(not traceability evidence): {', '.join(unique)}",
+        )
     forge_logger.emit(
         "INFO", "SYNC ",
         f"Recorded {created} RESULT node(s): "
