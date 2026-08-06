@@ -40,8 +40,8 @@ an updated document set automatically.
 - **06 Traceability Matrix** — bidirectional cross-reference: paragraph → HLR
   → LLR → DESIGN → code file → test case → result.
 - **07 Coverage Report** — coverage stats, coverage gaps per module, and
-  per-test-case pass/fail derived from the RESULT nodes recorded at the end
-  of Phase 12.
+  per-test-case pass/fail derived from the RESULT nodes recorded during
+  Phase 13 workspace sync.
 
 ## Determinism
 
