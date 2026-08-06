@@ -56,3 +56,28 @@ def test_method_call_dot_not_treated_as_declaration() -> None:
     """`self.parse(x)` isn't a declaration — leading dot rules it out."""
     md = "inside another method, we call self.parse(x)"
     assert extract_function_names(md) == set()
+
+
+def test_extract_function_names_ignores_prose_parentheticals() -> None:
+    """English words followed by a spaced parenthetical are prose, not
+    signatures — live builds flagged 'thereafter (…)' as a function."""
+    md = (
+        "The mean is updated thereafter (using Welford's method) and "
+        "consecutive (adjacent) operators are rejected; the problem "
+        "(malformed input) raises."
+    )
+    assert extract_function_names(md) == set()
+
+
+def test_extract_function_names_ignores_dunders() -> None:
+    """Constructors/dunders are implementation detail; CONTRACTs never
+    list them, so extracting __init__ produced false mismatches."""
+    md = "class Stats:\n    def __init__(self) -> None: ...\n    def add(self, x: float) -> None: ..."
+    assert extract_function_names(md) == {"add"}
+
+
+def test_extract_function_names_ignores_private_helpers() -> None:
+    """Leading-underscore names are private by convention; CONTRACTs describe
+    the public surface, so private helpers in a DESIGN are not mismatches."""
+    md = "def _convert(tok: str) -> float: ...\ndef evaluate(expr: str) -> float: ..."
+    assert extract_function_names(md) == {"evaluate"}

@@ -20,11 +20,13 @@ from __future__ import annotations
 
 import re
 
-# Matches a Python-identifier-like token followed by an open paren. We accept
-# any leading whitespace or delimiter. Excludes leading dot (method calls),
-# which helps skip usage examples and focuses on declarations. Python/English
-# reserved words that routinely appear with parens are filtered below.
-_FN_TOKEN_RE = re.compile(r"(?<![.\w])([a-z_][a-z0-9_]{1,})\s*\(")
+# Matches a Python-identifier-like token immediately followed by an open
+# paren — no whitespace between name and paren, per PEP 8 signature style.
+# A spaced paren ("thereafter (using …)") is an English parenthetical, not a
+# declaration; live builds flagged such prose words as contract mismatches.
+# Excludes leading dot (method calls). Dunders (__init__ etc.) are excluded
+# below: CONTRACTs describe the public surface and never list constructors.
+_FN_TOKEN_RE = re.compile(r"(?<![.\w])([a-z_][a-z0-9_]{1,})\(")
 
 _STOPWORDS: frozenset[str] = frozenset({
     # Python keywords / builtins that take parens and appear in prose
@@ -56,6 +58,7 @@ def extract_function_names(markdown: str) -> set[str]:
         token.lower()
         for token in _FN_TOKEN_RE.findall(markdown)
         if token.lower() not in _STOPWORDS
+        and not token.startswith("_")
     }
 
 

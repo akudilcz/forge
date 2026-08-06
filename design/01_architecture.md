@@ -231,7 +231,7 @@ The `INCOMPLETE_DECOMPOSITION` check is context-sensitive: a simple HLR with one
 
 | Gap Type | Meaning | Detection |
 |----------|---------|-----------|
-| `CONTRACT_VIOLATION` | DESIGN doesn't conform to its MODULE's CONTRACT interface | LLM |
+| `CONTRACT_VIOLATION` | DESIGN doesn't conform to its MODULE's CONTRACT interface. Signature extraction counts only PEP-8-adjacent `name(` tokens and skips private (`_`-prefixed) and dunder names — CONTRACTs describe the public surface; prose parentheticals are never signatures | LLM |
 | `CROSS_MODULE_COUPLING` | DESIGN references internals of another MODULE | LLM |
 
 Container types (PROJECT, DOCUMENT, ARCHITECTURE, SUITE) are exempt from `EMPTY_CONTENT`. Workspace-sync types (CODE, TEST, RESULT) are exempt from `STALE_NODE`.
