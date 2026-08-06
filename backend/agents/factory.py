@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from typing import Any
@@ -41,6 +42,13 @@ class ThrottledChatOpenAI(ChatOpenAI):  # type: ignore[misc]
     #: Excluded from serialization so the cache key (``llm_string``) and
     #: LangChain dumps are unaffected — same treatment as the ``cache`` field.
     trace_writer: LLMTraceWriter | None = Field(default=None, exclude=True)
+
+    #: Hard wall-clock deadline per call. The httpx read timeout does not
+    #: fire on a trickling/wedged connection (live evidence: a call sat in
+    #: selector.poll for 43+ minutes), so every provider call is additionally
+    #: bounded by asyncio.wait_for. Excluded from the cache key like cache/
+    #: trace_writer.
+    call_deadline_seconds: int = Field(default=900, exclude=True)
 
     def _trace(
         self,
@@ -242,8 +250,11 @@ class ThrottledChatOpenAI(ChatOpenAI):  # type: ignore[misc]
             with log_context(call_id=call_id, model=self.model_name or None):
                 if args:
                     self._log_call(args[0])
+                deadline = float(self.call_deadline_seconds)
                 try:
-                    result = await super()._agenerate(*args, **kwargs)
+                    result = await asyncio.wait_for(
+                        super()._agenerate(*args, **kwargs), timeout=deadline
+                    )
                 except json.JSONDecodeError as exc:
                     # Provider returned a 200 with a malformed body — the
                     # openai client does not retry these. One bounded retry
@@ -254,7 +265,18 @@ class ThrottledChatOpenAI(ChatOpenAI):  # type: ignore[misc]
                         f"malformed provider body ({exc}); retrying once",
                         model=self.model_name or None, call_id=call_id,
                     )
-                    result = await super()._agenerate(*args, **kwargs)
+                    result = await asyncio.wait_for(
+                        super()._agenerate(*args, **kwargs), timeout=deadline
+                    )
+                except TimeoutError:
+                    # Wedged connection: httpx read timeout never fires on a
+                    # trickle (live: 43+ min in selector.poll). Hard deadline.
+                    forge_logger.emit(
+                        "ERROR", "LLM  ",
+                        f"call exceeded hard deadline {deadline:.0f}s — aborting",
+                        model=self.model_name or None, call_id=call_id,
+                    )
+                    raise
             dur = int((time.monotonic() - t0) * 1000)
             gens = getattr(result, "generations", None) or []
             message = gens[0].message if gens else None

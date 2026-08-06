@@ -1,5 +1,6 @@
 """Tests for AgentFactory and AgentPool."""
 
+import asyncio
 import json
 from collections.abc import Iterator
 from types import SimpleNamespace
@@ -510,3 +511,36 @@ class TestTransportJsonRetry:
         with patch.object(ChatOpenAI, "_agenerate", new=always_bad), \
                 pytest.raises(json.JSONDecodeError):
             await llm._agenerate([HumanMessage(content="hi")])
+
+
+class TestCallDeadline:
+    """A hard wall-clock deadline bounds every LLM call. Live evidence: a
+    trie pilot call wedged in selector.poll for 43+ minutes — the httpx
+    read timeout never fired (trickling/wedged connection), stalling
+    phase 10 until the process was killed."""
+
+    @pytest.mark.asyncio
+    async def test_agenerate_wedged_call_hits_deadline(self) -> None:
+        llm = _make_llm()
+        llm.call_deadline_seconds = 1
+
+        async def wedged(*args: object, **kwargs: object) -> object:
+            await asyncio.sleep(3600)
+            return None
+
+        with patch.object(ChatOpenAI, "_agenerate", new=wedged), \
+                pytest.raises(TimeoutError):
+            await llm._agenerate([HumanMessage(content="hi")])
+
+    @pytest.mark.asyncio
+    async def test_agenerate_fast_call_unaffected(self) -> None:
+        llm = _make_llm()
+        llm.call_deadline_seconds = 30
+        good = TestTransportJsonRetry._good_result()
+
+        async def fast(*args: object, **kwargs: object) -> object:
+            return good
+
+        with patch.object(ChatOpenAI, "_agenerate", new=fast):
+            result = await llm._agenerate([HumanMessage(content="hi")])
+        assert result is good

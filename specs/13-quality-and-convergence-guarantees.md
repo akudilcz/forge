@@ -229,6 +229,16 @@ requirement-wording repairs) are batched into one LLM call per family when
 three or more accumulate, with per-node failures falling back to normal
 dispatch — never silently dropped.
 
+
+### Hard per-call deadline
+
+Every LLM call is additionally bounded by a hard wall-clock deadline
+(`call_deadline_seconds`, default 900s, enforced with `asyncio.wait_for` at the
+transport seam). The HTTP read timeout alone cannot bound a trickling or wedged
+connection (live evidence: a call sat in the event loop's selector for 43+
+minutes); the deadline aborts the call loudly and the caller's normal
+retry/failure handling applies.
+
 ## Fail-loud principles
 
 - **Missing preconditions halt.** No `forge.md`, no API key (unless the
