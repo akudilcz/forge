@@ -5,7 +5,7 @@ public API (sort, sorted_copy, is_sorted) existed nowhere in the generated
 workspace. Codegen fragmented one module into ten invented files, the
 facade used relative imports that fail as top-level modules, and nothing
 exported the required names. The gate makes each CONTRACT ``public_api``
-entry a deterministic, blocking phase-12 check (design/22, design/16).
+entry a deterministic, blocking phase-12 check (specs/03, specs/13).
 """
 
 from __future__ import annotations
@@ -195,7 +195,7 @@ def test_non_contract_nodes_ignored() -> None:
     assert gaps == []
 
 
-# ── Prohibited constructs (design/16 "Prohibited constructs") ───────────────
+# ── Prohibited constructs (specs/13 "Prohibited constructs") ───────────────
 #
 # Live trace (expression_evaluator e2e): generated tokenizer_scan.py
 # delegated to compile() despite the whitepaper's §12 ban on

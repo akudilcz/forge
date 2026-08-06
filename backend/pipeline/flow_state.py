@@ -4,7 +4,7 @@ mapping, and the single-step control-flow signal.
 These are defined here and re-exported by :mod:`backend.pipeline.flow`, which
 remains the public facade (external code imports them from ``flow``).
 
-Design reference: design/01_architecture.md
+Design reference: specs/12-artifact-model-and-traceability.md
 """
 
 from __future__ import annotations

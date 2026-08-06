@@ -6,7 +6,7 @@ phase 2. A tiny two-section spec keeps the paid calls fast and cheap. The
 expensive run is cached at module scope so every assertion below shares one
 build, mirroring the ``built`` fixture in ``test_algorithm_builds.py``.
 
-Design reference: design/12_phase_02_parse_document.md
+Design reference: specs/03-build-pipeline.md
 """
 
 from __future__ import annotations

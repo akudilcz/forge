@@ -229,7 +229,7 @@ def test_stale_code_codegen_error_surfaces() -> None:
     assert "parser exploded" in gaps[0].context["codegen_error"]
 
 
-# ── CONTRACT_VIOLATION vs structured public_api (design/16, design/18) ───────
+# ── CONTRACT_VIOLATION vs structured public_api (specs/13) ───────
 
 _TOPO_API = [
     {
@@ -289,7 +289,7 @@ def test_alignment_public_api_signature_conflict_flagged() -> None:
 
 
 def test_alignment_legacy_contract_without_public_api_keeps_token_check() -> None:
-    """Contracts authored before design/16 keep the older token-subset
+    """Contracts authored before specs/13 keep the older token-subset
     behaviour (documented fallback)."""
     graph = _module_with_design(
         "Provides decompose(component) plus descendants(graph, node).",

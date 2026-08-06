@@ -110,7 +110,7 @@ class TestBuildMissionContext:
 
 class TestIncludeRenderedDocs:
     def test_lists_doc_names_without_bodies(self, tmp_path: Path) -> None:
-        """Slim context (design/22): doc bodies are re-readable via
+        """Slim context (specs/03): doc bodies are re-readable via
         read_docs, so only the name + size is inlined."""
         docs_dir = tmp_path / "docs"
         docs_dir.mkdir()
@@ -155,7 +155,7 @@ class TestIncludeTracingSource:
 
 class TestIncludeExistingFiles:
     def test_lists_files_without_bodies(self, tmp_path: Path) -> None:
-        """Slim context (design/22): file contents are re-readable via
+        """Slim context (specs/03): file contents are re-readable via
         file_read, so only path + line/char counts are inlined."""
         (tmp_path / "src").mkdir()
         (tmp_path / "src" / "core.py").write_text("class Core: pass")
@@ -676,7 +676,7 @@ class TestScoreBreakdownNoCoverage:
 
 
 class TestSystemPromptApiSurfacePins:
-    """Anti-fragmentation + API-surface conventions (design/22).
+    """Anti-fragmentation + API-surface conventions (specs/03).
 
     Live trace (merge_sort, oracle 1/24): codegen fragmented one module
     into ten invented files with relative imports and never exported the
@@ -706,7 +706,7 @@ class TestSystemPromptApiSurfacePins:
 
 class TestMissionHistoryBudgetWiring:
     """The mission agent must enforce llm.mission_token_budget via its
-    own pre_model_hook (design/22 §History Compaction). Pre-fix the
+    own pre_model_hook (specs/03 §History Compaction). Pre-fix the
     agent bypassed all trimming and prompts grew 52k→250k tokens."""
 
     def test_pre_model_hook_is_wired_with_mission_budget(self) -> None:
@@ -735,7 +735,7 @@ class TestMissionHistoryBudgetWiring:
 
 
 class TestSlimContext:
-    """Slim up-front context (design/22 §Context Pre-Loading): graph
+    """Slim up-front context (specs/03 §Context Pre-Loading): graph
     node content stays inline; file bodies and rendered-doc bodies are
     listed only, and the assembled token count is logged loudly."""
 

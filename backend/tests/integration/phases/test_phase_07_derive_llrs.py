@@ -1,7 +1,7 @@
 """Per-phase integration test for Phase 7 — Derive LLRs (real LLM).
 
 Phase 7 batch-derives Low-Level Requirements from HLRs within their MODULE and
-CONTRACT context (design/17_phase_07_derive_llrs.md). The precondition graph —
+CONTRACT context (specs/03-build-pipeline.md). The precondition graph —
 PROJECT → DOCUMENT → PARAs → HLRs → ARCHITECTURE → MODULE → CONTRACT, exactly
 the shape phases 0-6 produce — is seeded deterministically, and ONLY phase 7
 runs against the real LLM.

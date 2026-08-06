@@ -10,7 +10,7 @@ calls :func:`persist_run_artifacts` to copy the process's SQLite logs
 DB(s) and its ``llm_trace`` JSONL into ``<workspace>/.forge/`` next to
 ``forge.db``. A missing source is a loud WARN, never a silent skip.
 
-See ``design/25_observability.md`` §"Run artifact persistence".
+See ``specs/11-observability.md`` §"Run artifact persistence".
 """
 
 from __future__ import annotations

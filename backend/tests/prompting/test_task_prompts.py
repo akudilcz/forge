@@ -304,7 +304,7 @@ class TestPhasePromptSpotChecks:
 
 
 class TestStaleNodePrompt:
-    """STALE_NODE repairs must need zero graph_read round-trips (design/02):
+    """STALE_NODE repairs must need zero graph_read round-trips (specs/13):
     the prompt carries the staleness reason, points at the node + parent
     content already in the packed context, and names graph_refresh_provenance
     for the "still valid" outcome."""
@@ -413,7 +413,7 @@ class TestSpecFidelityPromptPins:
             assert phrase in description, phrase
 
     def test_contract_prompt_requires_structured_public_api(self) -> None:
-        """Phase 6 contracts carry properties.public_api (design/16).
+        """Phase 6 contracts carry properties.public_api (specs/13).
 
         Live trace (merge_sort, oracle 1/24): the whitepaper API never
         reached the workspace — nothing machine-checkable pinned the

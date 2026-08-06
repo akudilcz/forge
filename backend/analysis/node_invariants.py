@@ -1,4 +1,4 @@
-"""Shared authoring-invariant checks (design/01_architecture.md §3.6).
+"""Shared authoring-invariant checks (specs/12-artifact-model-and-traceability.md §3.6).
 
 Single source of truth for the deterministic invariants that graph-write
 tools enforce at write time (rejecting the write with an actionable tool
@@ -137,7 +137,7 @@ def check_min_content_length(node_type: str, content: str) -> str | None:
     return None
 
 
-# ── CONTRACT public_api shape (design/16 Structured Public API Surface) ──────
+# ── CONTRACT public_api shape (specs/13 Structured Public API Surface) ──────
 
 #: Allowed `kind` values for a CONTRACT public_api entry.
 CONTRACT_API_KINDS: frozenset[str] = frozenset({"function", "class", "method"})
@@ -154,11 +154,11 @@ def check_contract_public_api(
     Live trace (merge_sort e2e, oracle 1/24): prose-only contracts let
     codegen ship a workspace exposing none of the whitepaper's required
     symbols. The structured surface makes the API machine-checkable by
-    the phase-12 API-surface gate (design/22).
+    the phase-12 API-surface gate (specs/03).
     """
     if node_type != "CONTRACT":
         return None
-    fix = "Supply properties.public_api per design/16 and retry."
+    fix = "Supply properties.public_api per specs/13 and retry."
     api = properties.get("public_api")
     if not isinstance(api, list) or not api:
         return (
@@ -199,7 +199,7 @@ def check_contract_prohibited(
         return None
     if "prohibited_constructs" not in properties:
         return None
-    fix = "Fix properties.prohibited_constructs per design/16 and retry."
+    fix = "Fix properties.prohibited_constructs per specs/13 and retry."
     banned = properties["prohibited_constructs"]
     if not isinstance(banned, list):
         return (
@@ -279,7 +279,7 @@ def check_sibling_content_unique(
 ) -> str | None:
     """Same-type siblings must not carry identical (normalised) content.
 
-    PARA nodes are exempt (design/01 §3.5/§3.6): they mirror the source
+    PARA nodes are exempt (specs/12 §3.5/§3.6): they mirror the source
     document, whose identity is position + title — a whitepaper may
     legitimately repeat a sentence in two sections, and heading PARAs are
     empty by design.

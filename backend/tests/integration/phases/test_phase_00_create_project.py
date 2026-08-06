@@ -6,7 +6,7 @@ run repeatedly. They differ from the offline contract tests in
 (``ForgeBuilder`` builds the real graph, tool registry, agent pool and phase
 store) exactly as the integration pipeline does.
 
-Design reference: design/10_phase_00_create_project.md
+Design reference: specs/03-build-pipeline.md
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """Shared validation for workspace write tools.
 
 ``file_write``, ``multi_file_write`` and ``file_patch`` must enforce
-identical guarantees (design/22 "Tool Set"): the resolved target path
+identical guarantees (specs/03 "Tool Set"): the resolved target path
 stays inside the workspace, and Python content passes ``ast.parse``
 before anything is persisted.  Centralising the checks here keeps the
 three write paths symmetric — content one tool rejects cannot be landed

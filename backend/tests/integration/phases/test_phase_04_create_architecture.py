@@ -2,7 +2,7 @@
 
 Phase 4 dispatches a real Design Architect agent against the single
 UNARCHITECTED gap and must leave exactly one substantive ARCHITECTURE node
-under the PROJECT (design/14_phase_04_create_architecture.md).
+under the PROJECT (specs/03-build-pipeline.md).
 
 To isolate phase 4, the precondition graph (PROJECT, DOCUMENT, PARAs, HLRs)
 is seeded deterministically via the graph engine rather than by running the

@@ -1,4 +1,4 @@
-"""Behavioural tests for the batched micro-repair pre-pass (design/01 §7.4).
+"""Behavioural tests for the batched micro-repair pre-pass (specs/12 §7.4).
 
 N >= 3 same-family title/wording gaps must be repaired with ONE structured
 LLM call, with per-node fixes applied through the graph engine under the

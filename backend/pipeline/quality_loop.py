@@ -79,7 +79,7 @@ def create_qual_check_graph(flow: ForgeFlow) -> Any:
             g for n in nodes if n.node_id in gap_map for g in gap_map[n.node_id]
         ]
         if planned:
-            # Batched micro-repair pre-pass (design/01 §7.4): N>=3 same-family
+            # Batched micro-repair pre-pass (specs/12 §7.4): N>=3 same-family
             # title/wording gaps are fixed in one structured LLM call; only
             # gaps it could not certify-resolve continue to per-gap dispatch.
             planned = await apply_micro_repair_batches(flow, planned)

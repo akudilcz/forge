@@ -3,7 +3,7 @@
 When a cycle's gap list contains ``MIN_BATCH_SIZE`` or more gaps of the
 same batchable repair family (title fixes or requirement-wording fixes),
 one structured LLM call repairs the whole family instead of N per-gap
-agent dispatches (design/01 §7.4).
+agent dispatches (specs/12 §7.4).
 
 Safety model:
 
@@ -14,7 +14,7 @@ Safety model:
   invariant-rejected fix, or a transport failure of the batch call is
   logged and leaves the affected gap(s) OPEN for the normal per-gap
   dispatch path.
-* Resolution is certified per-gap by the analyser re-check (design/01
+* Resolution is certified per-gap by the analyser re-check (specs/12
   §8.3): a gap leaves the cycle only when its fix applied AND a fresh
   analyser scan no longer reports its exact ``(type, node_id)`` key.
   Judge-found types the analyser cannot re-detect are certified by the
@@ -71,7 +71,7 @@ async def apply_micro_repair_batches(flow: Any, gaps: list[Gap]) -> list[Gap]:
     if not applied:
         return gaps
 
-    # Per-gap resolution certificate (design/01 §8.3): only a fresh analyser
+    # Per-gap resolution certificate (specs/12 §8.3): only a fresh analyser
     # scan proves resolution for analyser-detectable gap types.
     open_keys = {(g.type, g.node_id) for g in flow._analyser.analyse(flow.graph)}
     remaining = [

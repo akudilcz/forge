@@ -488,7 +488,7 @@ def build_llm(
             (the semantic-dedup double confirmation) must pass False;
             everything else passes True. Only non-streaming
             ``.invoke``/``.ainvoke`` calls actually consult the cache.
-            See design/01_architecture.md §7.4.
+            See specs/12-artifact-model-and-traceability.md §7.4.
 
     Raises:
         RuntimeError: when the endpoint is not explicitly keyless
@@ -513,7 +513,7 @@ def build_llm(
         cache = SQLiteLLMCache(resolve_cache_db_path(config.llm.cache_dir))
 
     # Full request/response trace — every call, streaming or not, success or
-    # failure. See design/25_observability.md §"LLM call trace".
+    # failure. See specs/11-observability.md §"LLM call trace".
     trace_writer: LLMTraceWriter | None = None
     if config.llm.trace_enabled:
         trace_writer = LLMTraceWriter(resolve_trace_path(config.llm.trace_dir))
@@ -641,7 +641,7 @@ class AgentFactory:
 
         A ``pre_model_hook`` is attached to trim oldest messages when the
         accumulated conversation exceeds ``llm.dispatch_token_budget``
-        (exact tiktoken count — see design/02_context_management.md).
+        (exact tiktoken count — see specs/13-quality-and-convergence-guarantees.md).
         """
         from backend.pipeline.phase_context import make_trim_hook
 

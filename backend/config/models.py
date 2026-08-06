@@ -95,7 +95,7 @@ class LLMConfig(BaseModel):
     call_delay_ms: int = 400
     # Local SQLite response cache for non-streaming LLM calls. This flag is
     # the global kill switch; per-construction-site participation is explicit
-    # via build_llm(cacheable=...) — see design/01_architecture.md §7.4.
+    # via build_llm(cacheable=...) — see specs/12-artifact-model-and-traceability.md §7.4.
     cache_enabled: bool = True
     # Directory holding llm_cache.db; created on first use. A relative path
     # resolves against the repo root (never the process cwd), so integration
@@ -104,7 +104,7 @@ class LLMConfig(BaseModel):
     # Full request/response trace of every LLM call: one JSON record per call
     # appended to <trace_dir>/trace.<pid>.jsonl. A relative trace_dir resolves
     # against the repo root (same rule as cache_dir). See
-    # design/25_observability.md §"LLM call trace".
+    # specs/11-observability.md §"LLM call trace".
     trace_enabled: bool = True
     trace_dir: str = ".forge/llm_trace"
     num_ctx: int = 128000
@@ -121,20 +121,20 @@ class LLMConfig(BaseModel):
     # working session) but must be bounded: measured live, the unbounded
     # thread grew 52k→250k tokens over 140-250 calls. Enforced by the
     # pre_model_hook built in backend/codegen/mission_history.py::
-    # make_mission_trim_hook — see design/22 §History Compaction.
+    # make_mission_trim_hook — see specs/03 §History Compaction.
     mission_token_budget: int = 60000
     # Maximum nodes judged per combined-quality LLM call. The judge's verdict
     # block scales with node count, and one call over the whole phase truncates
     # at the provider output-token limit on large phases (live evidence:
     # 81 HLRs → 62 unjudged after retry). run_combined_quality_check chunks
-    # candidates to this size — see design/01_architecture.md §7.4.
+    # candidates to this size — see specs/12-artifact-model-and-traceability.md §7.4.
     quality_judge_batch_size: int = 25
     # Maximum items authored per batch-phase LLM call. Batch authoring output
     # scales with item count, and one call over the whole phase truncates at
     # the provider output-token limit on large documents (live evidence:
     # 46+ PARAs → 123 HLRs; the last PARAs never received HLRs and phase 3
     # halted awaiting_approval). Batch steps chunk their item lists to this
-    # size with per-chunk retry — see design/02_context_management.md
+    # size with per-chunk retry — see specs/13-quality-and-convergence-guarantees.md
     # §"Batch prompts".
     batch_author_chunk_size: int = 20
     options: LLMOptionsConfig = Field(default_factory=LLMOptionsConfig)

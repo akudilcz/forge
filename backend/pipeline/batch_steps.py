@@ -6,7 +6,7 @@ static graph snapshot so it makes globally consistent assignments.
 
 Because batch authoring *output* scales with item count, a single call over
 the whole phase truncates at the provider output-token limit on large
-documents (design/02 §Batch prompts — live evidence trace.1614841.jsonl).
+documents (specs/13 §Batch prompts — live evidence trace.1614841.jsonl).
 Each batch step therefore chunks its item list to
 ``LLMConfig.batch_author_chunk_size`` items per LLM call:
 
@@ -204,7 +204,7 @@ async def _run_chunked_batch(
 
     ``collect_ids`` returns the currently-unresolved item ids; ``prompt_for``
     builds the chunk prompt (static prefix snapshotted by the caller, so it is
-    byte-identical across chunk calls — design/02 §Batch prompts). Returns the
+    byte-identical across chunk calls — specs/13 §Batch prompts). Returns the
     ids still unresolved after every chunk's attempts (stragglers), which the
     caller must hand to per-gap structural dispatch.
     """
@@ -509,7 +509,7 @@ async def batch_phase8(flow: Any, phase: int) -> StepResult:
             return await _fallback_structural(flow, phase)
 
     # Straggler fallback: batch attempts exhausted with gaps still open must
-    # not end the phase with undispatched structural gaps (design/02).
+    # not end the phase with undispatched structural gaps (specs/13).
     if gaps:
         gaps = flow._collect_phase_gaps(phase, set())
     result = StepResult(step_name="batch_phase8", deletions=0)

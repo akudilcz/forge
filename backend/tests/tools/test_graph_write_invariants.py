@@ -403,7 +403,7 @@ def test_multi_graph_write_valid_batch_applies() -> None:
     assert len(graph.added) == 2
 
 
-# ── add_node: CONTRACT public_api (design/16) ────────────────────────────────
+# ── add_node: CONTRACT public_api (specs/13) ────────────────────────────────
 
 
 def _module_graph() -> _StubGraph:
@@ -532,7 +532,7 @@ def test_multi_graph_write_rejects_child_titled_as_pending_parent() -> None:
 
 def test_add_para_with_identical_sibling_content_accepted() -> None:
     """PARAs are exempt from byte-identical sibling rejection — a document
-    may repeat the same sentence in two sections (design/01 §3.5/§3.6)."""
+    may repeat the same sentence in two sections (specs/12 §3.5/§3.6)."""
     graph = _StubGraph([
         _n("DOC-0001", "DOCUMENT", content="doc body"),
         _n("PARA-0001", "PARA", parent_id="DOC-0001",

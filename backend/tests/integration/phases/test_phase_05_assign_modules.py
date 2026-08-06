@@ -2,7 +2,7 @@
 
 Phase 5 batch-dispatches a real agent over the UNMODULARISED gaps and must
 leave every HLR traced-to by a MODULE under the ARCHITECTURE
-(design/15_phase_05_assign_modules.md).
+(specs/03-build-pipeline.md).
 
 To isolate phase 5, the precondition graph (PROJECT, DOCUMENT, PARAs, HLRs,
 ARCHITECTURE) is seeded deterministically via the graph engine — the only

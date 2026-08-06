@@ -30,7 +30,7 @@ from backend.server.forge_logger import forge_logger
 class UnjudgedDedupError(RuntimeError):
     """A dedup judge call returned an unparseable provider body twice.
 
-    Raised after the single bounded retry (design/01 §7.4). The candidate's
+    Raised after the single bounded retry (specs/12 §7.4). The candidate's
     verdict is UNJUDGED: the node must be KEPT — never deleted on unparseable
     evidence — and the sweep continues past it instead of crashing the phase.
     Carries the raw body snippet so the sweep can log it at ERROR.
@@ -80,7 +80,7 @@ UNIQUE - <the distinct obligation this node specifies>
 
 _STICKY_UNIQUE = "UNIQUE"
 
-# ── Deterministic prescreen (design/01 §7.4) ─────────────────────────────────
+# ── Deterministic prescreen (specs/12 §7.4) ─────────────────────────────────
 #
 # Clearly-dissimilar pairs never reach the LLM judge. The threshold is
 # conservative: true semantic duplicates share far more than 20% of the
@@ -159,7 +159,7 @@ def create_semantic_checker(
     ) -> tuple[bool, str]:
         """One independent LLM judgment. Returns (is_duplicate, label)."""
         t0 = time.monotonic()
-        # Prompt-cache alignment (design/01 §7.4): [system + SIBLINGS] is the
+        # Prompt-cache alignment (specs/12 §7.4): [system + SIBLINGS] is the
         # static prefix — shared across targets under one parent and across
         # the byte-identical double-confirmation call — and the TARGET is the
         # dynamic suffix. Provider-side KV/prompt caching reuses the prefix
@@ -171,7 +171,7 @@ def create_semantic_checker(
                 f"TARGET REQUIREMENT ({node_id}):\n{node_content}"
             )),
         ]
-        # Bounded resilience (design/01 §7.4): a provider body the HTTP client
+        # Bounded resilience (specs/12 §7.4): a provider body the HTTP client
         # cannot parse surfaces as a raw json.JSONDecodeError from llm.ainvoke
         # (live: "Expecting value: line 157 column 1 (char 858)" halted a whole
         # build at phase 8). Retry the call exactly once; a second parse

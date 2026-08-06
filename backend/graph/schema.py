@@ -192,7 +192,7 @@ async def _migrate_derived_from_hash(db: aiosqlite.Connection) -> None:
     """Backfill ``properties.derived_from_hash`` provenance stamps — LOUDLY.
 
     STALE_NODE detection compares a child's stored provenance stamp against
-    the hash of its parent's current content (design/01 §2.6). Nodes created
+    the hash of its parent's current content (specs/12 §2.6). Nodes created
     before provenance stamping existed carry no stamp, and their historical
     parent content is unknowable — so the current parent content is taken as
     the provenance baseline (stamp-on-first-load). That assumption means any

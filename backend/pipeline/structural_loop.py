@@ -88,7 +88,7 @@ def _gap_already_resolved(flow: ForgeFlow, gap: Any) -> bool:
 
 
 def _gap_still_open(flow: ForgeFlow, gap: Gap) -> bool:
-    """Per-gap resolution certificate (design/01 §8.3).
+    """Per-gap resolution certificate (specs/12 §8.3).
 
     A gap is resolved only when a fresh analyser scan — a cheap in-memory
     pass — no longer reports its exact ``(type, node_id)`` key. This replaces
@@ -153,7 +153,7 @@ def create_structural_loop_graph(flow: ForgeFlow) -> Any:
         skipped: set[str] = set(state.get("abandoned") or set())
         gaps = flow._collect_phase_gaps(state["phase"], skipped)
         if gaps:
-            # Batched micro-repair pre-pass (design/01 §7.4): N>=3 same-family
+            # Batched micro-repair pre-pass (specs/12 §7.4): N>=3 same-family
             # title/wording gaps are fixed in one structured LLM call; only
             # gaps it could not certify-resolve continue to per-gap dispatch.
             gaps = await apply_micro_repair_batches(flow, gaps)

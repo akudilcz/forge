@@ -238,7 +238,7 @@ class TestVandalMutator:
 
         # Three PARA gaps per batch attempt, bounded by _MAX_BATCH_ATTEMPTS;
         # exhausted chunks then fall back to per-gap structural dispatch
-        # (design/02 §Batch prompts), itself bounded by _MAX_GAP_ATTEMPTS.
+        # (specs/13 §Batch prompts), itself bounded by _MAX_GAP_ATTEMPTS.
         assert len(agent.seen) == 3 * _MAX_BATCH_ATTEMPTS + 3 * _MAX_GAP_ATTEMPTS
         assert phase_status(flow, 3) == "awaiting_approval"
         # Only the scripted victim changed — every bystander is untouched.

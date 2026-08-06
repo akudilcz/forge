@@ -153,7 +153,7 @@ def _find_trace_targets(
     Raises:
         RuntimeError: if no CASE node owns this test function, or the
             matched CASEs have no TEST node. A RESULT's only valid parent
-            is a TEST node (design/01_architecture.md §2); a former
+            is a TEST node (specs/12-artifact-model-and-traceability.md §2); a former
             fall-back to the CASE node produced 230 ORPHAN_NODE gaps in
             a live build. This function runs after phase 13 TEST sync,
             so an unresolvable TEST parent is a real bug, never a state
@@ -186,7 +186,7 @@ def _find_trace_targets(
 
     if not case_ids:
         if not file_owned:
-            # Auxiliary test file (design/23): no CASE owns this file at
+            # Auxiliary test file (specs/03): no CASE owns this file at
             # all — it is infrastructure, not traceability evidence.
             return []
         raise RuntimeError(
@@ -250,7 +250,7 @@ async def record_results(workspace: Path, graph: Any) -> list[SingleTestResult]:
             tr.function_name, tr.file_path, graph,
         )
         if not parent_candidates:
-            # Auxiliary file no CASE owns (design/23): loud skip, no RESULT.
+            # Auxiliary file no CASE owns (specs/03): loud skip, no RESULT.
             skipped_aux.append(tr.file_path)
             continue
         parent_id = parent_candidates[0]
@@ -363,7 +363,7 @@ async def record_results_step(flow: Any, phase: int) -> StepResult:
     """Phase 13 pipeline step: heal RESULT parentage, then record results.
 
     Runs strictly after ``workspace_sync`` (which creates the TEST nodes
-    every RESULT is parented to) — see design/23_phase_13_workspace_sync.md.
+    every RESULT is parented to) — see specs/03-build-pipeline.md.
     """
     forge_logger.emit(
         "INFO", "PIPE ",

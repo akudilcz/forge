@@ -1,4 +1,4 @@
-"""Wiring tests: the batched micro-repair pre-pass (design/01 §7.4).
+"""Wiring tests: the batched micro-repair pre-pass (specs/12 §7.4).
 
 Every loop that dispatches batchable title/wording repair gaps per-gap must
 first offer the cycle's gap list to ``apply_micro_repair_batches`` and then

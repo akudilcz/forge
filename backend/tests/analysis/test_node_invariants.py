@@ -193,7 +193,7 @@ def test_normalisers() -> None:
     assert normalise_content(" X\n") == "x"
 
 
-# ── CONTRACT public_api shape (design/16 Structured Public API Surface) ──────
+# ── CONTRACT public_api shape (specs/13 Structured Public API Surface) ──────
 
 
 def _api_entry() -> dict[str, str]:
@@ -263,7 +263,7 @@ def test_contract_public_api_non_contract_skipped() -> None:
     assert check_contract_public_api("MODULE", {}) is None
 
 
-# ── CONTRACT prohibited_constructs shape (design/16, optional) ───────────────
+# ── CONTRACT prohibited_constructs shape (specs/13, optional) ───────────────
 
 
 def test_prohibited_constructs_absent_is_valid() -> None:

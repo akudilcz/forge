@@ -6,7 +6,7 @@ ONLY phase 9 against a real LLM. Proves the phase closes its single UNSUITED
 gap by writing exactly one SUITE node under PROJECT, and that a re-run is
 idempotent.
 
-Design reference: design/19_phase_09_write_test_strategy.md
+Design reference: specs/03-build-pipeline.md
 """
 
 from __future__ import annotations

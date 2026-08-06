@@ -25,7 +25,12 @@ deliverables/
         07-Coverage-Report.md              — coverage stats, gaps, metrics
     src/                                   — generated source code
     tests/                                 — generated test code
-    pyproject.toml                         — build configuration
+    tracing/                               — the @traces decorator package the
+                                             generated code imports (required
+                                             for the bundle to run)
+    pyproject.toml, setup.py, setup.cfg,
+    Makefile, requirements.txt             — build configuration (each
+                                             included when present)
 ```
 
 ## Rendered documents
@@ -46,8 +51,8 @@ an updated document set automatically.
 ## Determinism
 
 Phase 14 performs no LLM calls and no network I/O. Given the same graph
-snapshot, two runs produce byte-identical output (modulo file timestamps
-inside the ZIP).
+snapshot, two runs produce identical output (modulo file timestamps inside
+the ZIP and the generation timestamp in the README).
 
 ## Re-running
 

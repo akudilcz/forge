@@ -1,7 +1,7 @@
 """API-surface gate — verify CONTRACT public_api against the workspace.
 
-Deterministic phase-12 check (design/22 "API-surface gate"): every
-``properties.public_api`` entry on a CONTRACT node (schema: design/16)
+Deterministic phase-12 check (specs/03 "API-surface gate"): every
+``properties.public_api`` entry on a CONTRACT node (schema: specs/13)
 must be exposed by the generated workspace — module file present, symbol
 defined with the declared kind, and no relative imports anywhere in
 ``src/`` (src modules are consumed as top-level modules, where relative
@@ -40,7 +40,7 @@ def check_api_surface(
             continue
         api = (node.properties or {}).get("public_api")
         if not api:
-            # Legacy CONTRACT predating the design/16 schema: presence is
+            # Legacy CONTRACT predating the specs/13 schema: presence is
             # a phase-6 write-time invariant; the phase-12 mission agent
             # cannot author contracts, so blocking here would deadlock.
             forge_logger.emit(
@@ -111,7 +111,7 @@ def check_prohibited_constructs(
 ) -> None:
     """Emit PROHIBITED_CONSTRUCT gaps for banned constructs used in src/.
 
-    Each CONTRACT ``prohibited_constructs`` entry (design/16; optional) is
+    Each CONTRACT ``prohibited_constructs`` entry (specs/13; optional) is
     a hard ban on the implementation. Matching is alias-resolved and
     static: imports of the construct (or a member of it) and calls whose
     resolved dotted name is the construct (or starts with it). Test files

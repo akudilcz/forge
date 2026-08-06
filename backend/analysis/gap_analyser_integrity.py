@@ -27,7 +27,7 @@ from backend.graph.models import GraphNode, NodeType
 from backend.graph.provenance import DERIVED_FROM_HASH, provenance_hash
 from backend.server.forge_logger import forge_logger
 
-# Canonical parent-type constraints (design/01_architecture.md §2).
+# Canonical parent-type constraints (specs/12-artifact-model-and-traceability.md §2).
 # Maps child node_type → frozenset of valid parent node_types.
 # Node types absent from this dict (PROJECT, DOCUMENT, RECORD) have no constraint.
 #: The single source of truth for parent-child type compatibility.
@@ -69,7 +69,7 @@ class NodeIntegrityChecks:
     )
 
     def _check_staleness(self, graph: Any, node: GraphNode) -> list[Gap]:
-        """Provenance-hash staleness (design/01_architecture.md §2.6).
+        """Provenance-hash staleness (specs/12-artifact-model-and-traceability.md §2.6).
 
         STALE_NODE fires iff the child's ``properties.derived_from_hash``
         (stamped by the engine from the parent content the child was
@@ -265,7 +265,7 @@ class NodeIntegrityChecks:
         content hashes match are duplicates — the lowest node_id is kept; extras
         get an INCONSISTENT_CONTENT gap so the Quality Auditor can delete them.
 
-        PARA nodes are exempt (design/01 §3.5): they mirror the source
+        PARA nodes are exempt (specs/12 §3.5): they mirror the source
         document, whose sections may legitimately repeat identical text,
         and heading PARAs are empty by design — deleting one reparents its
         child sections and flattens the document tree.

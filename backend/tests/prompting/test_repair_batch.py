@@ -1,4 +1,4 @@
-"""Pins for the batched micro-repair prompt builder (design/01 §7.4).
+"""Pins for the batched micro-repair prompt builder (specs/12 §7.4).
 
 One structured LLM call repairs N same-family title/wording gaps. The
 payload must carry, per node: the node id, its full (capped) content, and

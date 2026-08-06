@@ -86,7 +86,7 @@ def test_extract_function_names_ignores_private_helpers() -> None:
     assert extract_function_names(md) == {"evaluate"}
 
 
-# ── public_api-aware checking (structured CONTRACT surface, design/16) ───────
+# ── public_api-aware checking (structured CONTRACT surface, specs/13) ───────
 
 _API = [
     {

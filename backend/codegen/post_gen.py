@@ -5,9 +5,9 @@ files and persistence of statement/branch coverage onto the DESIGN node
 for the web UI. RESULT nodes are NOT recorded here — a RESULT's only
 valid parent is a TEST node, which phase 13 workspace sync creates, so
 recording belongs to the phase 13 ``record_results_step``
-(design/23_phase_13_workspace_sync.md).
+(specs/03-build-pipeline.md).
 
-Design reference: design/22_phase_12_generate_code.md
+Design reference: specs/03-build-pipeline.md
 """
 
 from __future__ import annotations

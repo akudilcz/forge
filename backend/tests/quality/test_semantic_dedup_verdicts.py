@@ -391,7 +391,7 @@ class TestVerdictCache:
 
 
 class TestPromptCacheAlignment:
-    """Pair-prompt ordering (design/01 §7.4): [system + SIBLINGS] static prefix,
+    """Pair-prompt ordering (specs/12 §7.4): [system + SIBLINGS] static prefix,
     [TARGET] dynamic suffix — so provider-side prompt caching can reuse the
     prefix across targets under one parent and across the confirmation call."""
 

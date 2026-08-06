@@ -1,4 +1,4 @@
-"""Behavioural tests for run-artifact persistence (design/25).
+"""Behavioural tests for run-artifact persistence (specs/11).
 
 At end of run the flow copies this process's SQLite logs DB(s) and its
 llm_trace JSONL into ``<workspace>/.forge`` next to ``forge.db`` — pytest

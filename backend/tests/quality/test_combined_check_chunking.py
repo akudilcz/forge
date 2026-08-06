@@ -1,4 +1,4 @@
-"""Chunked judging for the combined quality check (design/01 §7.4).
+"""Chunked judging for the combined quality check (specs/12 §7.4).
 
 Live defect (priority_queue wave-2, phase 3): 81 HLRs judged in ONE call
 truncated after ~19 verdicts at the provider output-token limit; the retry

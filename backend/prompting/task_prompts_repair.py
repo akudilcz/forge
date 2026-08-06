@@ -151,7 +151,7 @@ def _untitled_node(nid: str, ctx: str) -> tuple[str, str]:
 
 
 def _stale_node(nid: str, ctx: str, gap: Gap) -> tuple[str, str]:
-    """Self-sufficient staleness repair prompt (design/02).
+    """Self-sufficient staleness repair prompt (specs/13).
 
     The ancestor-chain context starts at the node itself, so when *ctx* is
     present it already carries BOTH the node's own content and the parent's

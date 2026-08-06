@@ -197,7 +197,7 @@ class ForgeBuilder:
 
         Must mirror the server path (lifespan._init_tools /
         _build_file_tools) — the mission agent refuses to start without
-        evaluate_progress (design/22, Required tools).
+        evaluate_progress (specs/03, Required tools).
         """
         from backend.tools.check_trace_quality import CheckTraceQualityTool
         from backend.tools.evaluate_progress import EvaluateProgressTool

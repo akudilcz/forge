@@ -1,4 +1,4 @@
-"""Provenance-hash staleness primitives (design/01_architecture.md §2.6).
+"""Provenance-hash staleness primitives (specs/12-artifact-model-and-traceability.md §2.6).
 
 Every child node carries ``properties.derived_from_hash`` — the SHA-256 of
 the parent *content* it was authored against. The graph engine stamps it

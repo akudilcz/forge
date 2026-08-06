@@ -9,7 +9,7 @@ at every construction site.
 Only non-streaming ``.invoke``/``.ainvoke`` calls consult the cache
 (langchain-core routes them through ``_generate_with_cache`` /
 ``_agenerate_with_cache``); agent streaming paths bypass it entirely.
-See design/01_architecture.md §7.4, including the independence exemption for
+See specs/12-artifact-model-and-traceability.md §7.4, including the independence exemption for
 the semantic duplicate checker.
 """
 from __future__ import annotations

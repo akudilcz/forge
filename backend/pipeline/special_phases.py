@@ -4,9 +4,9 @@ Phases 0, 1, 11, 12, and 14 do not run the generic phase pipeline; each has a
 deterministic handler implemented here as a mixin that :class:`ForgeFlow`
 inherits, so the methods stay reachable on the flow instance unchanged.
 
-Design references: design/11_phase_01_ingest_document.md,
-design/21_phase_11_render_documentation.md, design/22_phase_12_generate_code.md,
-design/24_phase_14_build_deliverables.md
+Design references: specs/03-build-pipeline.md,
+specs/03-build-pipeline.md, specs/03-build-pipeline.md,
+specs/09-deliverables.md
 """
 
 from __future__ import annotations
@@ -149,7 +149,7 @@ class SpecialPhaseHandlers:
 
         Raises:
             RuntimeError: if the registry chain is unavailable — phase 12
-                must never run with zero tools (design/22, Required tools).
+                must never run with zero tools (specs/03, Required tools).
         """
         try:
             registry = self.pool._factory._registry

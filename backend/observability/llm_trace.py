@@ -11,7 +11,7 @@ response cache (``backend/agents/llm_cache.py``) — because per-phase
 integration tests chdir into throwaway workspaces and must still write to
 the repo-level directory.
 
-See ``design/25_observability.md`` §"LLM call trace".
+See ``specs/11-observability.md`` §"LLM call trace".
 """
 
 from __future__ import annotations

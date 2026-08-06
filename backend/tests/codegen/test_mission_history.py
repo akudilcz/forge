@@ -1,6 +1,6 @@
 """Behavioural tests for mission-thread history compaction.
 
-Design reference: design/22_phase_12_generate_code.md
+Design reference: specs/03-build-pipeline.md
 §"History Compaction (mission token budget)".
 
 The pruner must be deterministic, prune oldest tool results first, and

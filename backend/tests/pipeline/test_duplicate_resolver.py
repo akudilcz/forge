@@ -271,7 +271,7 @@ async def test_dispatch_still_dispatches_near_identical() -> None:
 async def test_para_nodes_never_deterministically_deleted() -> None:
     """PARAs mirror document structure — deleting one reparents its child
     sections and flattens the document, so the resolver must refuse and
-    leave PARA gaps to the LLM path (design/01 §7.4)."""
+    leave PARA gaps to the LLM path (specs/12 §7.4)."""
     canonical = _node("PARA-0008", "DOCUMENT-0001", "")
     dup = _node("PARA-0010", "DOCUMENT-0001", "")
     canonical.node_type = "PARA"

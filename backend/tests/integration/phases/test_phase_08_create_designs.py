@@ -1,7 +1,7 @@
 """Per-phase integration test for Phase 8 — Create Designs (real LLM).
 
 Phase 8 batch-authors DESIGN nodes per MODULE so that every LLR is traced-to by
-a DESIGN, then consolidates DESIGN sprawl (design/18_phase_08_create_designs.md).
+a DESIGN, then consolidates DESIGN sprawl (specs/03-build-pipeline.md).
 The precondition graph — PROJECT → DOCUMENT → PARAs → HLRs → ARCHITECTURE →
 MODULE → CONTRACT plus LLR children under each HLR, exactly the shape phases
 0-7 produce — is seeded deterministically, and ONLY phase 8 runs against the

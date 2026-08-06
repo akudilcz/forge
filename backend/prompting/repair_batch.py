@@ -5,7 +5,7 @@ gaps (non-shall requirement wording) each need one small per-node edit, yet
 the per-gap dispatch path re-sends the full system prompt and context for
 every node. This module builds the single-call prompt (same
 single-call-judges-all pattern as ``backend/quality/combined_check.py``)
-and parses the per-node fixes back out. See design/01 §7.4.
+and parses the per-node fixes back out. See specs/12 §7.4.
 
 The parser never invents a fix: a node line the model dropped, garbled, or
 left empty is reported as *missing* so its gap stays open for the normal

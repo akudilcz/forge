@@ -10,7 +10,7 @@ Uses a plan -> slice -> verify pipeline:
 Idempotent: re-running on a complete workspace finds no gaps per
 slice and exits immediately.
 
-Design reference: design/22_phase_12_generate_code.md
+Design reference: specs/03-build-pipeline.md
 """
 
 from __future__ import annotations
@@ -102,7 +102,7 @@ async def run_code_gen(
 
     ``config`` and ``tool_instances`` are required — a missing tool set
     previously degraded silently into a mission agent with zero tools
-    (design/22, Required tools).
+    (specs/03, Required tools).
     """
     t0 = time.monotonic()
     forge_logger.emit("INFO", "CGEN ", f"Phase 12 Code Gen started — workspace={workspace}")
@@ -167,7 +167,7 @@ def _enforce_coverage_gate(
         * Branch / MC/DC coverage == 100%.
         * Requirement coverage == 100% — every LLR is cited by a source
           ``@traces`` AND has a passing traced test (single coverage
-          definition, design/22).
+          definition, specs/03).
     """
     # Each gate only fires when the thing it covers is actually present:
     # - A graph with no LLRs → no requirement-coverage check (trivially OK).

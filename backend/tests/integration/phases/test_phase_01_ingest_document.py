@@ -4,7 +4,7 @@ Phase 1 is deterministic — no agent, no LLM call — so these tests are free.
 They run the production wiring (``ForgeBuilder``) rather than the mocked flow
 of ``backend/tests/test_phase_contracts.py``.
 
-Design reference: design/11_phase_01_ingest_document.md
+Design reference: specs/03-build-pipeline.md
 """
 
 from __future__ import annotations

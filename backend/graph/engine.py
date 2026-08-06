@@ -132,7 +132,7 @@ class ProjectGraph(QueryMixin, AlgorithmMixin):
             persist_props["sub_type"] = node.para_type
         persist_props.pop("trace_to", None)
 
-        # Provenance stamp (design/01 §2.6): record the parent content this
+        # Provenance stamp (specs/12 §2.6): record the parent content this
         # child was authored against. Stamped here — never by agents — so
         # every creation path gets it automatically.
         if node.parent_id and DERIVED_FROM_HASH not in persist_props:
@@ -213,7 +213,7 @@ class ProjectGraph(QueryMixin, AlgorithmMixin):
         assert node.content_updated_at is not None  # guaranteed by model_post_init
         new_content_ts = now if content_changed else node.content_updated_at.isoformat()
 
-        # Provenance stamp maintenance (design/01 §2.6):
+        # Provenance stamp maintenance (specs/12 §2.6):
         # * content change → the node was just re-authored against the CURRENT
         #   parent content, so re-stamp derived_from_hash.
         # * metadata-only update → carry the existing stamp over, even when the
@@ -379,7 +379,7 @@ class ProjectGraph(QueryMixin, AlgorithmMixin):
 
         await self._save_history(node, changed_by, reason)
 
-        # Re-stamp provenance against the NEW parent (design/01 §2.6): a
+        # Re-stamp provenance against the NEW parent (specs/12 §2.6): a
         # deliberate move must never trigger a stale storm by itself.
         new_props = dict(node.properties)
         if new_parent_id:

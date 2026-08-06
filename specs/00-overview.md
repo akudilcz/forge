@@ -43,12 +43,16 @@ disk.
 ## Guarantees
 
 - **Full traceability.** Every artefact traces to the paragraph that justified
-  it; every paragraph traces to the artefacts derived from it.
+  it; every paragraph traces to the artefacts derived from it. See
+  [12-artifact-model-and-traceability.md](12-artifact-model-and-traceability.md).
 - **No silent fallbacks.** Missing preconditions (no whitepaper, no provider
-  key, missing node) produce loud errors rather than degraded output.
-- **Idempotent re-runs.** Re-running a phase on a complete graph is a no-op.
-- **Reversibility.** The graph stores version history; consequential actions
-  can be undone.
+  key, missing node) produce loud errors rather than degraded output. See
+  [13-quality-and-convergence-guarantees.md](13-quality-and-convergence-guarantees.md).
+- **Idempotent re-runs.** Re-running a phase on a complete graph is a no-op,
+  and a new process over the same graph DB and workspace resumes exactly
+  where the last one stopped.
+- **Reversibility.** Deletion is soft and node rewrites are versioned;
+  consequential actions can be undone.
 
 ## Non-goals
 

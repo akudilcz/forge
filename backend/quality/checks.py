@@ -92,7 +92,7 @@ async def run_combined_quality_check(flow: Any, phase: int) -> list[Gap]:
         for n in nodes
         if (n.title or "").strip() and (n.content or "").strip()
     ]
-    # Sticky PASS verdicts (design/01 §7.4): a node whose title+content is
+    # Sticky PASS verdicts (specs/12 §7.4): a node whose title+content is
     # unchanged since its last full PASS is not re-sent to the judge. FAIL is
     # never cached, so repaired nodes are always re-judged. The cache lives on
     # the flow — AttributeError here is a missing precondition, not a fallback.
@@ -111,7 +111,7 @@ async def run_combined_quality_check(flow: Any, phase: int) -> list[Gap]:
     if not items:
         return []
 
-    # Chunked judging (design/01 §7.4): one call over a whole large phase
+    # Chunked judging (specs/12 §7.4): one call over a whole large phase
     # truncates at the provider output-token limit (live evidence: 81 HLRs →
     # 62 unjudged after retry), so candidates are judged in chunks. Sets of
     # at most one chunk keep the original single-call behaviour.

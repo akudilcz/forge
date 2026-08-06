@@ -11,7 +11,7 @@ everything-inline context was 52-179k tokens re-sent on every one of
 140-250 LLM calls; the slim context targets ≤30k on a merge_sort-sized
 build. The assembled token count is logged loudly.
 
-Design reference: design/22_phase_12_generate_code.md §Context Pre-Loading
+Design reference: specs/03-build-pipeline.md §Context Pre-Loading
 """
 
 from __future__ import annotations

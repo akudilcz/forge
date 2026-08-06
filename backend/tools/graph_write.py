@@ -235,7 +235,7 @@ class GraphWriteTool(ForgeTool):
 
         trace_targets = _parse_trace_to(kwargs, props)
 
-        # Write-time invariant enforcement (design/01 §3.6): reject writes
+        # Write-time invariant enforcement (specs/12 §3.6): reject writes
         # the Gap Analyser would flag anyway, so the agent fixes them in
         # the same turn instead of a later paid repair dispatch.
         invariant_err = validate_add_node(
@@ -286,7 +286,7 @@ class GraphWriteTool(ForgeTool):
             props = props or {}
             props["sub_type"] = para_type_raw
 
-        # Write-time invariant enforcement (design/01 §3.6) on the fields
+        # Write-time invariant enforcement (specs/12 §3.6) on the fields
         # this update actually changes.
         try:
             existing = graph.node_sync(node_id)  # type: ignore[attr-defined]
@@ -420,7 +420,7 @@ class GraphWriteTool(ForgeTool):
 
         Re-stamps ``properties.derived_from_hash`` from the LIVE parent
         content without touching the node's own content — a free
-        alternative to a paid no-op content rewrite (design/01 §2.6).
+        alternative to a paid no-op content rewrite (specs/12 §2.6).
         """
         from backend.graph.provenance import (  # noqa: PLC0415
             DERIVED_FROM_HASH,

@@ -5,7 +5,7 @@ with the Gap Analyser, so tool and analyser can never diverge) to the
 graph-write tools. A violating write is rejected with an ``ERROR: ...``
 string the agent can act on in the same turn, instead of landing in the
 graph and costing a later paid repair dispatch
-(design/01_architecture.md §3.6).
+(specs/12-artifact-model-and-traceability.md §3.6).
 
 Graph-capability guards: these validators consult the live graph for
 sibling and trace-target lookups. When the injected graph object cannot

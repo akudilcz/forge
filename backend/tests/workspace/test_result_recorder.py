@@ -161,7 +161,7 @@ def test_find_trace_targets_no_test_node_raises() -> None:
 
 
 def test_find_trace_targets_unowned_file_returns_empty() -> None:
-    """A file NO CASE owns is auxiliary (design/23): empty list, caller skips."""
+    """A file NO CASE owns is auxiliary (specs/03): empty list, caller skips."""
     case = _make_node("CASE_LLR-001", "CASE_LLR", properties={
         "file_path": "tests/test_other.py",
         "line_traces": [{"symbol": "test_other", "start": 1, "end": 5, "llr_ids": []}],
@@ -658,7 +658,7 @@ async def test_record_results_raises_when_test_nodes_absent() -> None:
 
 @pytest.mark.asyncio
 async def test_record_results_skips_auxiliary_file_no_case_owns() -> None:
-    """A file NO CASE owns is auxiliary infrastructure (design/23): skipped
+    """A file NO CASE owns is auxiliary infrastructure (specs/03): skipped
     loudly, no RESULT written, no crash — the phase continues."""
     aux = SingleTestResult(
         "tests/test_design_modules_reexport.py::",

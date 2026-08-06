@@ -13,7 +13,7 @@ or reordered, so every AI tool call keeps its matching tool result and
 providers never see orphaned calls. The pruned list is passed to the
 model via ``llm_input_messages``; checkpointed state is never mutated.
 
-Preservation rule (design/22 §History Compaction) — ALWAYS kept verbatim:
+Preservation rule (specs/03 §History Compaction) — ALWAYS kept verbatim:
 
 1. The system prompt.
 2. The initial mission context (first ``HumanMessage``).
@@ -58,7 +58,7 @@ def _message_tokens(message: Any) -> int:
 
 
 def _protected_indices(messages: list[Any]) -> set[int]:
-    """Indices covered by the preservation rule (design/22)."""
+    """Indices covered by the preservation rule (specs/03)."""
     protected: set[int] = set()
 
     for i, message in enumerate(messages):

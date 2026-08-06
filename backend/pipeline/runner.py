@@ -50,7 +50,7 @@ PHASE_STEPS: dict[int, list[StepFn]] = {
     8: [batch_phase8, quality_gaps, combined_quality, semantic, design_consolidation],
     10: [batch_phase10, quality_gaps, combined_quality, semantic, case_trace_coverage],
     # RESULT recording runs after sync so every RESULT has a TEST parent
-    # (design/23); the step also heals misparented RESULTs on resume.
+    # (specs/03); the step also heals misparented RESULTs on resume.
     13: [workspace_sync, record_results_step],
 }
 

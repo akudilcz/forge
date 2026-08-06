@@ -37,7 +37,7 @@ def has_broken_imports(code: str, available_modules: set[str]) -> bool:
     workspace imports (``src.<name>`` with no matching file in src/) mark
     a file as broken; unknown third-party roots surface later as
     TEST_ENV_BROKEN gaps and stdlib recognition is irrelevant here, so
-    neither is ever grounds for deletion. Design: design/22 (Step 2).
+    neither is ever grounds for deletion. Design: specs/03 (Step 2).
     """
     try:
         tree = _ast.parse(code)
@@ -141,7 +141,7 @@ def compute_requirement_coverage_detail(
 ) -> dict[str, Any]:
     """Detailed requirement coverage: covered/uncovered LLR IDs + totals.
 
-    An LLR is *covered* iff BOTH legs hold (design/22, coverage model):
+    An LLR is *covered* iff BOTH legs hold (specs/03, coverage model):
 
     * at least one **source** function carries ``@traces`` citing it
       (the requirement is implemented), AND

@@ -289,7 +289,7 @@ async def test_empty_workspace_completes_with_minimal_wellformed_bundle(
 ) -> None:
     """No graph nodes, no generated files — still a well-formed bundle.
 
-    design/24_phase_14_build_deliverables.md specifies deterministic
+    specs/09-deliverables.md specifies deterministic
     packaging with no failure path, so the phase must complete and produce
     the doc skeleton rather than raising or emitting a corrupt archive.
     """

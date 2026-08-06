@@ -5,7 +5,7 @@ codegen-hash fingerprint onto its DESIGN/CASE node, stamps codegen
 errors so failures surface as STALE_CODE gaps, and clears stale trace
 props from nodes whose files are now owned elsewhere.
 
-Design reference: design/22_phase_12_generate_code.md
+Design reference: specs/03-build-pipeline.md
 """
 
 from __future__ import annotations

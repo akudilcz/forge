@@ -10,7 +10,7 @@ Phase boundaries invalidate every thread via the nonce.
 An audit measured 90–98% of per-gap dispatch tokens as re-sent dead
 history under the old per-(phase, gap_type) scoping — every gap of a
 type appended to one unbounded thread. Cross-gap "learning" was mostly
-pattern-shortcutting; see design/02_context_management.md for the
+pattern-shortcutting; see specs/13-quality-and-convergence-guarantees.md for the
 follow-up note on a summary mechanism if transfer proves valuable.
 
 When accumulated prompt size exceeds the configured dispatch budget,

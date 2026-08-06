@@ -1,6 +1,6 @@
 """Industrial-strength structured logging for FORGE.
 
-See ``design/25_observability.md`` for the architecture and
+See ``specs/11-observability.md`` for the architecture and
 ``specs/11-observability.md`` for the user-facing spec. Public surface:
 
 * :class:`LogRecord`  — the canonical structured log record

@@ -5,7 +5,7 @@ deliverables pack (06-Traceability-Matrix.md and 07-Coverage-Report.md).
 Re-exported by :mod:`backend.rendering.deliverables`, which remains the
 public facade.
 
-Design reference: design/24_phase_14_build_deliverables.md
+Design reference: specs/09-deliverables.md
 """
 
 from __future__ import annotations

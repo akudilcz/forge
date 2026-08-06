@@ -203,7 +203,7 @@ async def test_still_unjudged_after_retry_raises() -> None:
     assert llm.ainvoke.await_count == 2  # exactly one retry, no infinite loop
 
 
-# ── Hallucinated node ids in judge verdicts (design/01 §7.4) ─────────────────
+# ── Hallucinated node ids in judge verdicts (specs/12 §7.4) ─────────────────
 #
 # Forensic origin: a halt message of the shape
 #   "Quality batch left 1 node(s) unjudged after retry — never defaulting to

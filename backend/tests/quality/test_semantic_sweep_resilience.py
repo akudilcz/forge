@@ -1,4 +1,4 @@
-"""Bounded resilience for the semantic dedup judge (design/01 §7.4).
+"""Bounded resilience for the semantic dedup judge (specs/12 §7.4).
 
 Live defect (online_statistics r4, trace .forge/llm_trace/trace.829201.jsonl,
 call-e93cb8b792bf): the deepseek provider returned a body the HTTP client could

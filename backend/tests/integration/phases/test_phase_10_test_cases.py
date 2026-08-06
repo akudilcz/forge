@@ -7,7 +7,7 @@ step (``batch_phase10``) plus the case-trace coverage check leave every HLR
 and LLR traced by at least one CASE, close the UNTESTED_HLR / UNTESTED_LLR
 gaps, and that a re-run is idempotent.
 
-Design reference: design/20_phase_10_write_test_cases.md
+Design reference: specs/03-build-pipeline.md
 """
 
 from __future__ import annotations

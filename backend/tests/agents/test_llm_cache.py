@@ -1,6 +1,6 @@
 """Tests for backend/agents/llm_cache.py — SQLite-backed LLM response cache.
 
-Behavioural coverage per design/01_architecture.md §7.4:
+Behavioural coverage per specs/12-artifact-model-and-traceability.md §7.4:
 - cache DB file (and its parent directory) created on first use;
 - a second identical ``.ainvoke`` is served from cache (no second model call);
 - distinct prompts are never cross-served;

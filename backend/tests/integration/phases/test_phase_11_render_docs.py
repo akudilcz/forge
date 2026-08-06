@@ -8,7 +8,7 @@ MODULE → CONTRACT → LLRs → DESIGN → SUITE → CASEs) and prove the docs 
 rendered with the seeded requirement text inlined, that an empty graph renders
 without crashing, and that a re-run overwrites cleanly and reproducibly.
 
-Design reference: design/21_phase_11_render_documentation.md
+Design reference: specs/03-build-pipeline.md
 """
 
 from __future__ import annotations

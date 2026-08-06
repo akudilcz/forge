@@ -55,7 +55,7 @@ async def combined_quality(flow: Any, phase: int) -> StepResult:
 
     # NON_ATOMIC first so requirement splits land before title retitles.
     gaps.sort(key=lambda g: 0 if g.type == GapType.NON_ATOMIC_REQUIREMENT else 1)
-    # Batched micro-repair pre-pass (design/01 §7.4): N>=3 same-family
+    # Batched micro-repair pre-pass (specs/12 §7.4): N>=3 same-family
     # title/wording gaps are fixed in one structured LLM call; only gaps it
     # could not certify-resolve continue to per-gap dispatch below.
     gaps = await apply_micro_repair_batches(flow, gaps)

@@ -6,7 +6,7 @@ build_env) drifted apart — one omitted ``datetime``/``random``/``unittest``
 "add to requirements.txt" diagnostics every phase-12 iteration). This
 module replaces all of them.
 
-Design reference: design/22_phase_12_generate_code.md (Step 2).
+Design reference: specs/03-build-pipeline.md (Step 2).
 """
 
 from __future__ import annotations

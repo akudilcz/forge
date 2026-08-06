@@ -2,7 +2,7 @@
 
 Phase 3 batch-dispatches a real Requirements Engineer agent over every
 UNCOVERED_PARA gap and must leave each functional paragraph covered by at
-least one HLR child (design/13_phase_03_derive_hlrs.md).
+least one HLR child (specs/03-build-pipeline.md).
 
 These tests make real, paid LLM calls. Phases 0-2 are run for real against a
 deliberately tiny two-section spec so that phase 3 operates on genuine parser

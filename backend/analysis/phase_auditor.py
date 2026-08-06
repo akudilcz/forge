@@ -5,7 +5,7 @@ complete. The auditor runs the Gap Analyser and checks that every required
 gap type is absent from the graph — both for the current phase and all
 prior phases (regression check).
 
-Design reference: design/01_architecture.md §8.4
+Design reference: specs/12-artifact-model-and-traceability.md §8.4
 """
 
 from __future__ import annotations

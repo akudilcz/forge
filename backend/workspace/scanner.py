@@ -46,7 +46,7 @@ class FileState:
     total_functions: int = 0
     traced_functions: int = 0
     syntax_error: str = ""
-    #: Top-level API facts for the phase-12 API-surface gate (design/22):
+    #: Top-level API facts for the phase-12 API-surface gate (specs/03):
     #: name -> kind ("function" | "class" | "method" for "Class.method",
     #: "import" for names bound by absolute imports).
     symbols: dict[str, str] = field(default_factory=dict)

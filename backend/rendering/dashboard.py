@@ -8,7 +8,7 @@ The rendered docs are the primary context for Phase 12 code generation
 agents. Each node section inlines the full text of traced requirements
 so agents never have to cross-reference documents.
 
-Design reference: design/21_phase_11_render_documentation.md
+Design reference: specs/03-build-pipeline.md
 """
 
 from __future__ import annotations

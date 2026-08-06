@@ -8,7 +8,7 @@ via WebSocket so the frontend renders updates in real time.
 An ActionHistory tracks every fix attempt to prevent thrashing — the system
 never repeats a failed approach.
 
-Design reference: design/01_architecture.md §10
+Design reference: specs/12-artifact-model-and-traceability.md §10
 """
 
 from __future__ import annotations

@@ -396,7 +396,7 @@ class TestPhase09WritesSuite:
 
 class TestPhase09SuitePrompt:
     """The _suite prompt is grounded in ARCHITECTURE + MODULEs + HLRs
-    assembled by ``build_context_for_gap`` (design/19 'Context Provided')."""
+    assembled by ``build_context_for_gap`` (specs/03-build-pipeline.md, phase 9)."""
 
     async def test_task_description_embeds_architecture_modules_and_hlrs(
         self, flow: ForgeFlow, graph: ProjectGraph, scripted: ScriptedAgent

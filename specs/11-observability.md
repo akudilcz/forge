@@ -1,12 +1,13 @@
-# Observability & Log Viewer
+# 11 — Observability
 
 The system records every significant event of a build run — phase transitions,
 agent dispatches, gap detection, LLM calls, tool invocations, graph writes,
-and decisions — to a queryable structured log store. The log store is the
-primary lens for diagnosing *why* a build took a given shape, and for the
-frontend's live feed and post-run analysis.
+and decisions — to a queryable structured log store, and additionally records
+the **complete request and response of every LLM call** to a durable trace.
+Together these answer both "what did the build do?" and "exactly what did the
+model see and say?".
 
-## User-facing behaviour
+## Structured log store
 
 ### Live log feed
 
@@ -38,13 +39,65 @@ The response includes the flattened record plus the `extras` JSON blob for
 non-promoted fields. Results are capped at 10,000 rows and ordered by
 `ts_ms DESC`.
 
-### Retention
+Every record carries correlation context set automatically per async task
+(`run_id`, `phase`, `cycle`, `gap_type`, `node_id`, `call_id`, …), so a
+single filter isolates all events of one build, one phase, one gap, or one
+LLM turn.
 
-Records older than **30 days** are pruned at server startup. The
-retention window is fixed; there is no user control. The sink is
-best-effort: under backpressure records are dropped rather than
-blocking the build loop, and the drop count is visible via
-`logs_dropped` and surfaced in the summary.
+### Retention and backpressure
+
+At server startup, records older than **3 days** are pruned, and if the DB
+still exceeds **500 MB** the oldest records are pruned until it fits. The
+bounds are fixed; there is no rotation or user control. The sink is
+best-effort: under backpressure records are dropped rather than blocking the
+build loop, and the drop count is recorded (`logs_dropped`) and surfaced in
+the summary.
+
+## LLM call trace
+
+Every LLM call — streaming or not, successful or failed — is appended as one
+JSON record to `<llm.trace_dir>/trace.<pid>.jsonl` (default
+`.forge/llm_trace/`, resolved against the repo root). Each record carries:
+
+- The **full request** (messages and bound tool definitions) and **full
+  response** (text and tool calls — assembled from chunks on the streaming
+  path).
+- `call_id` — the same correlation ID as the logs DB, so metadata (tokens,
+  duration) in the logs joins to full bodies in the trace.
+- Model, temperature, duration, token counts, the error (failures are traced
+  too), and the full correlation context (run, phase, cycle, gap, node).
+
+Records are flushed and fsynced per call — a crash loses at most the
+in-flight call. Controlled by `llm.trace_enabled` (default on) and
+`llm.trace_dir` (see [07-settings.md](07-settings.md)). Trace files are not
+pruned automatically.
+
+Division of labour between the three stores: the **logs DB** holds per-call
+metadata, the **trace** holds full bodies with build linkage, and the
+**response cache** (`llm_cache.db`) holds bodies only for cacheable
+non-streaming calls, keyed by prompt with no build linkage.
+
+## Run artifact persistence
+
+At the end of every build run, the process's logs DB(s) and its LLM trace
+are copied into `<workspace>/.forge/` next to `forge.db`, so each build's
+evidence survives later pruning and can be analysed offline. A missing
+source is a loud warning, never a silent skip.
+
+## Analysis tools
+
+Three read-only command-line reports run over the persisted artifacts:
+
+- **`backend.scripts.phase_timing_report <logs-db>`** — where the time went:
+  wall-clock span per phase, operation durations by category, and LLM hot
+  spots (calls, seconds, prompt tokens) by gap type.
+- **`backend.scripts.waste_report <forge-db> <logs-db> <threshold>`** —
+  LLM spend that did not contribute to the finished build: repeat dispatches
+  of the same gap, work on nodes later deleted (and node churn), no-op
+  rewrites, and oversized prompts, with a total-vs-wasted token summary.
+- **`backend.scripts.forge_watch <forge-db>`** — live progress dashboard:
+  polls a running build's DB read-only and prints phase state plus node
+  counts.
 
 ## Categories
 
@@ -76,6 +129,7 @@ Each event is tagged with exactly one `LogCategory`:
 | `CGEN` / `BZEL` | Code-gen + Bazel events. |
 | `AUDIT` | Phase auditor completion checks. |
 | `DLVR` | Deliverables rendering. |
+| `OBS` | Run-artifact persistence. |
 | `QUEUE` / `POOL` / `THROT` | Work queue / agent pool / LLM throttle. |
 | `HTTP` / `WS` | HTTP request lifecycle + WebSocket sessions. |
 | `USER` / `AUTH` / `SYS` / `STORE` | User actions / auth / system / store events. |

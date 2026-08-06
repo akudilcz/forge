@@ -6,7 +6,7 @@ through :meth:`ForgeLogger.emit`. Mixed into
 :class:`backend.server.forge_logger.ForgeLogger`, which provides the
 concrete ``emit`` implementation.
 
-Design reference: design/25_observability.md
+Design reference: specs/11-observability.md
 """
 
 from __future__ import annotations

@@ -188,13 +188,13 @@ class CorpusStalenessChecks:
     ) -> list[Gap]:
         """Emit CONTRACT_VIOLATION when a DESIGN contradicts the CONTRACT.
 
-        With a structured ``properties.public_api`` (design/16), a DESIGN
+        With a structured ``properties.public_api`` (specs/13), a DESIGN
         is flagged ONLY when it declares an annotated signature reusing a
         public function's name that contradicts the public_api entry —
         internal helpers the CONTRACT never lists are legitimate design
         detail, not violations. Contracts without public_api keep the
         legacy token-subset check (documented fallback for graphs authored
-        before design/16).
+        before specs/13).
         """
         from backend.quality.signature_validator import (  # noqa: PLC0415
             find_design_contract_mismatches,
@@ -227,7 +227,7 @@ class CorpusStalenessChecks:
                 if conflicts:
                     gaps.append(_public_api_conflict_gap(design, contract, conflicts))
                 continue
-            # Legacy fallback: prose-only CONTRACT (pre-design/16 graphs).
+            # Legacy fallback: prose-only CONTRACT (pre-specs/13 graphs).
             extra = find_design_contract_mismatches(contract.content, design.content)
             if extra:
                 gaps.append(_legacy_mismatch_gap(design, contract, extra))
@@ -353,7 +353,7 @@ def _legacy_mismatch_gap(
     contract: GraphNode,
     extra: list[str],
 ) -> Gap:
-    """CONTRACT_VIOLATION under the pre-design/16 token-subset fallback."""
+    """CONTRACT_VIOLATION under the pre-specs/13 token-subset fallback."""
     return Gap(
         type=GapType.CONTRACT_VIOLATION,
         priority=GapPriority.MAINTENANCE,

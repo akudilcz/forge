@@ -76,7 +76,7 @@ class MultiGraphWriteTool(ForgeTool):
 
         # Whole-batch invariant pre-validation (multi_file_write precedent):
         # any violating operation rejects the batch atomically, so a bad op
-        # can never leave the graph half-written (design/01 §3.6).
+        # can never leave the graph half-written (specs/12 §3.6).
         rejections = _prevalidate_batch(graph, ops)
         if rejections:
             return "\n".join(

@@ -13,7 +13,7 @@ re-verified against the live graph at resolution time, the deletion is
 logged loudly through ``forge_logger``, and a deletion that fails to
 remove the node raises ``RuntimeError``. Near-duplicates (anything not
 byte-identical when resolved) fall through to the existing LLM path,
-where the semantic-dedup safety rules of design/01_architecture.md §7.4
+where the semantic-dedup safety rules of specs/12-artifact-model-and-traceability.md §7.4
 apply.
 """
 
@@ -54,7 +54,7 @@ async def try_resolve_exact_duplicate(flow: Any, gap: Gap) -> bool:
     if dup is not None and dup.node_type == "PARA":
         # PARAs mirror document structure: deleting one reparents its child
         # sections onto the document root and flattens the tree. Never
-        # resolved deterministically (design/01 §3.5); the LLM path with
+        # resolved deterministically (specs/12 §3.5); the LLM path with
         # double confirmation owns any semantic PARA merge.
         forge_logger.emit(
             "INFO", "DEDUP",

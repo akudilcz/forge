@@ -12,8 +12,8 @@ phases patch ``graph.add_node`` with an ``AsyncMock`` and assert its call count,
 which cannot catch a wrong ``parent_id``, a wrong ``layer``, or a lost
 ``trace_to`` — precisely the fields the rest of the pipeline depends on.
 
-What each phase must guarantee is documented in ``design/10_phase_00_*.md``
-through ``design/24_phase_14_*.md``.
+What each phase must guarantee is documented in ``specs/03-build-pipeline.md``
+through ``specs/09*.md``.
 """
 
 from __future__ import annotations

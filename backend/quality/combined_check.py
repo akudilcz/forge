@@ -219,7 +219,7 @@ def _parse_verdicts(
         if nid not in by_id:
             # A verdict-shaped line for an id outside the candidate set is a
             # hallucinated id — dropped from accounting, but never silently
-            # (design/01 §7.4). Prose lines without axis verdicts stay quiet.
+            # (specs/12 §7.4). Prose lines without axis verdicts stay quiet.
             if _AXIS_RE.search(rest):
                 unknown_ids.add(nid)
             continue

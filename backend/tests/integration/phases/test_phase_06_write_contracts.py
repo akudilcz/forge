@@ -1,6 +1,6 @@
 """Per-phase integration test for Phase 6 — Write Contracts (real LLM).
 
-Phase 6 must give every MODULE a CONTRACT child (design/16_phase_06_write_contracts.md).
+Phase 6 must give every MODULE a CONTRACT child (specs/03-build-pipeline.md).
 Rather than paying for phases 0-5 with live agents, the precondition graph is
 seeded deterministically — PROJECT → DOCUMENT → PARAs → HLRs → ARCHITECTURE →
 MODULEs with trace links, mirroring exactly what those phases produce — and then

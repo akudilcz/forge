@@ -4,7 +4,7 @@ Assembles a professional documentation pack from the project graph and
 workspace files. No LLM calls — purely deterministic extraction,
 formatting, and ZIP bundling.
 
-Design reference: design/24_phase_14_build_deliverables.md
+Design reference: specs/09-deliverables.md
 """
 
 from __future__ import annotations

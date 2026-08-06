@@ -174,7 +174,7 @@ async def run_semantic_check(
         content = node.content or "(no content)"
         if node_traces:
             content = f"trace_to={list(node_traces)}\n{content}"
-        # Bounded resilience (design/01 §7.4): after the checker's single
+        # Bounded resilience (specs/12 §7.4): after the checker's single
         # retry, an unparseable judge response leaves this candidate UNJUDGED.
         # The node is KEPT — never deleted on unparseable evidence — and the
         # sweep continues; one bad provider body must not halt the phase.

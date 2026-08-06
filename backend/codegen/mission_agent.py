@@ -8,7 +8,7 @@ to get gap feedback whenever it wants.
 The graph acts as scoreboard (checking completeness via value function),
 not as project manager (prescribing workflow).
 
-Design reference: design/22_phase_12_generate_code.md
+Design reference: specs/03-build-pipeline.md
 """
 
 from __future__ import annotations
@@ -227,7 +227,7 @@ def create_mission_agent(
 
     Raises:
         RuntimeError: if the filtered tool set lacks any required mission
-            tool (see ``_REQUIRED_MISSION_TOOLS`` and design/22).
+            tool (see ``_REQUIRED_MISSION_TOOLS`` and specs/03).
     """
     from langgraph.checkpoint.memory import MemorySaver
 
@@ -245,7 +245,7 @@ def create_mission_agent(
     # History compaction: the mission thread runs 100+ sequential LLM
     # calls, so an unbounded conversation dominates build cost (measured
     # 52k→250k-token prompts). The hook enforces llm.mission_token_budget
-    # with the preservation rule in design/22 §History Compaction.
+    # with the preservation rule in specs/03 §History Compaction.
     return create_react_agent(
         model=llm,
         tools=tools,

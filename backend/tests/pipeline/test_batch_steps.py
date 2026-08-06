@@ -572,7 +572,7 @@ async def test_run_batch_agent_uses_union_constraints_for_allow_gap_types() -> N
     mock_reset.assert_called_once_with(token)
 
 
-# ── Chunked batch authoring (design/02 §Batch prompts, design/13) ───────────
+# ── Chunked batch authoring (specs/13 §Batch prompts) ───────────
 #
 # Live defect: one whole-batch phase-3 call had to author HLRs for 46+ PARAs
 # in a single response; the response hit the provider output-token limit, the
@@ -639,7 +639,7 @@ async def test_batch_phase3_chunks_large_para_set_with_static_prefix() -> None:
     sizes = [len(_dynamic_para_ids(p)) for p in prompts]
     assert sizes == [20, 20, 5]
     static_prefixes = {p.split("UNCOVERED PARAGRAPHS")[0] for p in prompts}
-    assert len(static_prefixes) == 1  # byte-identical static prefix per design/02
+    assert len(static_prefixes) == 1  # byte-identical static prefix per specs/13
     flow._run_structural_loop.assert_not_awaited()
 
 
@@ -893,7 +893,7 @@ async def test_batch_phase8_falls_back_when_attempts_exhaust_with_gaps() -> None
 
 
 def test_llm_config_batch_author_chunk_size_default() -> None:
-    """LLMConfig exposes the batch authoring chunk size (design/02)."""
+    """LLMConfig exposes the batch authoring chunk size (specs/13)."""
     from backend.config.models import LLMConfig
 
     assert LLMConfig().batch_author_chunk_size == 20

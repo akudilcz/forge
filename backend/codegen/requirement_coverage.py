@@ -1,6 +1,6 @@
 """Requirement-coverage checkers — LLR implementation and test evidence.
 
-The two legs of the single coverage definition (design/22):
+The two legs of the single coverage definition (specs/03):
 source-side (every LLR cited by a source ``@traces``) and test-side
 (every LLR cited by a passing traced test function).
 """
@@ -25,7 +25,7 @@ def _check_unimplemented_requirement(
 
     An LLR is *implemented* iff at least one source-file function carries
     a ``@traces`` annotation citing it. This is the source-side leg of the
-    single coverage definition (design/22): a passing traced test alone is
+    single coverage definition (specs/03): a passing traced test alone is
     NOT coverage. Without this check, an LLR with no implementing code
     passed every completion gate — the live run reported "Req 53/53"
     while 15 LLRs never reached src/.

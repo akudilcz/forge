@@ -3,7 +3,7 @@
 Coordinates the Gap Analyser, Agent Pool, and Phase Store to drive a
 project from Phase 0 (workspace init) through Phase 14 (deliverables).
 
-Design reference: design/01_architecture.md
+Design reference: specs/12-artifact-model-and-traceability.md
 """
 
 from __future__ import annotations
@@ -90,7 +90,7 @@ class ForgeFlow(SpecialPhaseHandlers):
         # Sticky combined-quality PASS verdicts, keyed by
         # (node_id, title+content hash). FAIL is never cached — a repaired
         # node must be re-judged. Flow-scoped, rebuilt on restart: worst case
-        # after a restart is one full re-judging sweep (design/01 §7.4).
+        # after a restart is one full re-judging sweep (specs/12 §7.4).
         self._quality_verdict_cache: dict[tuple[str, str], str] = {}
 
     # ── Public interface ─────────────────────────────────────────────────────
@@ -501,7 +501,7 @@ class ForgeFlow(SpecialPhaseHandlers):
     def _graph_state_count(self) -> int:
         # Version-sum heuristic. Retired as a resolution signal — the
         # structural loop certifies resolution by re-running the analyser
-        # (design/01 §8.3). Still used by dispatch.py to detect partial work
+        # (specs/12 §8.3). Still used by dispatch.py to detect partial work
         # before retrying a transient API failure.
         if self.graph is None:
             return 0

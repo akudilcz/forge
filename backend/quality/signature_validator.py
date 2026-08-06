@@ -3,7 +3,7 @@
 Two checking regimes, selected by what the CONTRACT provides:
 
 **Structured** (``find_public_api_conflicts``): when the CONTRACT carries
-``properties.public_api`` (design/16), a DESIGN violates the contract
+``properties.public_api`` (specs/13), a DESIGN violates the contract
 **only** when it declares an annotated signature reusing a public
 function's name and none of its declarations for that name agrees with
 the ``public_api`` signature. Agreement is deliberately forgiving —
@@ -17,7 +17,7 @@ CONTRACT_VIOLATION gaps on internal accessors like ``in_degree`` /
 ``decompose``).
 
 **Legacy fallback** (``find_design_contract_mismatches``): contracts
-authored before design/16 have prose only, so we extract function-like
+authored before specs/13 have prose only, so we extract function-like
 identifier tokens (word followed by an opening paren) from both sides
 and flag DESIGN tokens the CONTRACT text never mentions.
 """
@@ -89,7 +89,7 @@ def find_design_contract_mismatches(
     return sorted(design_fns - contract_fns)
 
 
-# ── Structured public_api checking (design/16) ───────────────────────────────
+# ── Structured public_api checking (specs/13) ───────────────────────────────
 
 #: A declared signature: parameter names in order, return type or None.
 SignatureShape = tuple[list[str], str | None]
