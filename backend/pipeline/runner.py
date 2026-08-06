@@ -14,7 +14,6 @@ from typing import Any
 from backend.pipeline.batch_steps import (
     batch_phase3,
     batch_phase7,
-    batch_phase8,
     batch_phase10,
 )
 from backend.pipeline.steps import (
@@ -39,7 +38,7 @@ StepFn = Callable[[Any, int], Awaitable[StepResult]]
 _DEFAULT_STEPS: list[StepFn] = [structural, quality_gaps, combined_quality, semantic]
 
 # Per-phase step overrides.
-# Phases 3, 7, 8 use batch authoring (one prompt writes multiple nodes).
+# Phases 3, 7 and 10 use batch authoring (one prompt writes multiple nodes).
 # ``combined_quality`` is a single LLM call that judges every authored node
 # on atomicity + EARS + title match + title specificity in one shot, replacing
 # the former per-node req_quality and title_quality passes.
@@ -53,6 +52,15 @@ _DEFAULT_STEPS: list[StepFn] = [structural, quality_gaps, combined_quality, sema
 # and completion criteria still key on phase number 5, and a resumed
 # old-shape graph (MODULEs present, HLRs unassigned) completes through the
 # same residual route.
+#
+# Phase 8 follows the same shape (U8, specs/03 Phases 7-8): DESIGNs are
+# authored in phase 7's fused implementable-spec pass (LLR + DESIGN per
+# MODULE, one quality/semantic boundary for both node types), so phase 8 is
+# verification-only — design_consolidation merges DESIGN sprawl, then the
+# default verification pipeline dispatches residual UNDESIGNED gaps per
+# gap. Phase number 8 and its completion criterion (no UNDESIGNED) are
+# preserved for phase_store/resume/auditor, and a resumed old-shape graph
+# (LLRs authored, DESIGNs missing) completes through the residual route.
 PHASE_STEPS: dict[int, list[StepFn]] = {
     # Phase 2: deterministic markdown → PARA split first (zero LLM calls for
     # qualifying documents); the structural loop remains the LLM chunking
@@ -60,7 +68,7 @@ PHASE_STEPS: dict[int, list[StepFn]] = {
     2: [deterministic_parse, structural, quality_gaps, combined_quality, semantic],
     3: [batch_phase3, quality_gaps, combined_quality, semantic],
     7: [batch_phase7, quality_gaps, combined_quality, semantic],
-    8: [batch_phase8, quality_gaps, combined_quality, semantic, design_consolidation],
+    8: [design_consolidation, structural, quality_gaps, combined_quality, semantic],
     10: [batch_phase10, quality_gaps, combined_quality, semantic, case_trace_coverage],
     # RESULT recording runs after sync so every RESULT has a TEST parent
     # (specs/03); the step also heals misparented RESULTs on resume.

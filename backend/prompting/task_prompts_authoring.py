@@ -103,6 +103,24 @@ CONTRACT_OBLIGATION_FIELDS = (
     "behaviour.\n"
 )
 
+#: U8 (specs/03 Phases 7-8): the DO-178C dividing litmus applied by the
+#: fused implementable-spec authoring pass. HLR→LLR→DESIGN is a single
+#: refinement level (CAST-15): LLRs and their DESIGNs are authored together,
+#: and this litmus decides which artifact each fact belongs to. Mirrors the
+#: CONTRACT/DESIGN dividing rule from U2 (``CONTRACT_OBLIGATION_FIELDS``).
+IMPLEMENTABLE_SPEC_LITMUS = (
+    "DO-178C LITMUS — which artifact a fact belongs to:\n"
+    "  • LLR: a requirement a developer can implement DIRECTLY from its own\n"
+    "    text plus the CONTRACT alone — no other requirement or design\n"
+    "    document needed. One atomic EARS obligation each; observable\n"
+    "    behaviour only. If an LLR fails this litmus, split or reword it.\n"
+    "  • DESIGN: private structure and algorithm choice ONLY — class names,\n"
+    "    method signatures, internal data structures, chosen algorithms.\n"
+    "    Never observable behaviour: anything expressible as a\n"
+    "    precondition, postcondition, raises obligation, or invariant is\n"
+    "    CONTRACT/LLR material and must NOT live only in a DESIGN.\n"
+)
+
 #: Phase 9/10 counterpart of ``NORMATIVE_MUST_CAPTURE``: how CASEs must
 #: encode those contracts so a wrong implementation cannot pass.
 CASE_CONTRACT_ENCODING = (

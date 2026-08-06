@@ -1148,91 +1148,61 @@ class TestFallbackStructural:
         assert result == expected
 
 
-class TestRunFastTraces:
-    """Tests for _run_fast_traces."""
+class TestGroupUnrefinedByModule:
+    """Tests for _group_unrefined_by_module (U8 fused phase 7)."""
 
-    @pytest.mark.asyncio
-    async def test_counts_resolved(self) -> None:
-        from backend.pipeline.batch_steps import _run_fast_traces
+    def test_groups_by_owning_module(self) -> None:
+        from backend.pipeline.batch_steps import _group_unrefined_by_module
 
-        flow = MagicMock()
-        gap1 = MagicMock()
-        gap2 = MagicMock()
-        gap3 = MagicMock()
-
-        with patch("backend.pipeline.dispatch.try_fast_trace", new_callable=AsyncMock) as mock_ft:
-            mock_ft.side_effect = [True, False, True]
-            result = await _run_fast_traces(flow, [gap1, gap2, gap3])
-        assert result == 2
-
-    @pytest.mark.asyncio
-    async def test_empty_gaps(self) -> None:
-        from backend.pipeline.batch_steps import _run_fast_traces
-
-        flow = MagicMock()
-        with patch("backend.pipeline.dispatch.try_fast_trace", new_callable=AsyncMock):
-            result = await _run_fast_traces(flow, [])
-        assert result == 0
-
-
-class TestGroupUndesignedByModule:
-    """Tests for _group_undesigned_by_module."""
-
-    def test_groups_by_module(self) -> None:
-        from backend.pipeline.batch_steps import _group_undesigned_by_module
-
-        llr1 = _mock_node("LLR-1", "LLR", parent_id="HLR-1", content="spec1")
-        llr2 = _mock_node("LLR-2", "LLR", parent_id="HLR-1", content="spec2")
-        mod = _mock_node("MOD-1", "MODULE", content="module")
+        hlr1 = _mock_node("HLR-1", "HLR", content="shall parse")
+        hlr2 = _mock_node("HLR-2", "HLR", content="shall report")
+        mod = _mock_node("MOD-1", "MODULE", content="module",
+                         trace_to=["HLR-1", "HLR-2"])
         con = _mock_node("CON-1", "CONTRACT", content="contract")
         des = _mock_node("DES-1", "DESIGN", content="design", trace_to=["LLR-99"])
 
-        flow = _make_flow(nodes=[llr1, llr2, mod, con, des])
+        flow = _make_flow(nodes=[hlr1, hlr2, mod, con, des])
         flow.graph.nodes_tracing_to = MagicMock(return_value=["MOD-1"])
         flow.graph.children_sync.return_value = [con, des]
 
         gap1 = MagicMock()
-        gap1.node_id = "LLR-1"
+        gap1.node_id = "HLR-1"
         gap2 = MagicMock()
-        gap2.node_id = "LLR-2"
+        gap2.node_id = "HLR-2"
 
-        result = _group_undesigned_by_module(flow, [gap1, gap2])
-        assert len(result) == 1
-        mod_id, context = result[0]
+        groups, ungrouped = _group_unrefined_by_module(flow, [gap1, gap2])
+        assert ungrouped == []
+        assert len(groups) == 1
+        mod_id, context = groups[0]
         assert mod_id == "MOD-1"
-        assert len(context["undesigned_llrs"]) == 2
+        assert context["hlr_ids"] == ["HLR-1", "HLR-2"]
+        assert context["contract"] is not None
+        assert context["contract"]["node_id"] == "CON-1"
+        assert [d["node_id"] for d in context["designs"]] == ["DES-1"]
 
-    def test_llr_not_found_skipped(self) -> None:
-        from backend.pipeline.batch_steps import _group_undesigned_by_module
+    def test_hlr_not_found_skipped(self) -> None:
+        from backend.pipeline.batch_steps import _group_unrefined_by_module
 
         flow = _make_flow()
         gap = MagicMock()
         gap.node_id = "GHOST"
-        result = _group_undesigned_by_module(flow, [gap])
-        assert result == []
+        groups, ungrouped = _group_unrefined_by_module(flow, [gap])
+        assert groups == []
+        assert ungrouped == []
 
-    def test_llr_no_parent_skipped(self) -> None:
-        from backend.pipeline.batch_steps import _group_undesigned_by_module
+    def test_no_owning_module_is_ungrouped(self) -> None:
+        """An HLR no MODULE traces to cannot join a fused batch — it is
+        returned as ungrouped so the step routes it to per-gap dispatch."""
+        from backend.pipeline.batch_steps import _group_unrefined_by_module
 
-        llr = _mock_node("LLR-1", "LLR", parent_id=None)
-        # Override parent_id to None explicitly
-        llr.parent_id = None
-        flow = _make_flow(nodes=[llr])
-        gap = MagicMock()
-        gap.node_id = "LLR-1"
-        result = _group_undesigned_by_module(flow, [gap])
-        assert result == []
-
-    def test_no_module_ids_skipped(self) -> None:
-        from backend.pipeline.batch_steps import _group_undesigned_by_module
-
-        llr = _mock_node("LLR-1", "LLR", parent_id="HLR-1")
-        flow = _make_flow(nodes=[llr])
+        hlr = _mock_node("HLR-1", "HLR", content="shall parse")
+        flow = _make_flow(nodes=[hlr])
         flow.graph.nodes_tracing_to = MagicMock(return_value=[])
         gap = MagicMock()
-        gap.node_id = "LLR-1"
-        result = _group_undesigned_by_module(flow, [gap])
-        assert result == []
+        gap.node_id = "HLR-1"
+        groups, ungrouped = _group_unrefined_by_module(flow, [gap])
+        assert groups == []
+        assert ungrouped == ["HLR-1"]
 
 
 class TestBatchPhaseNoGapsEarlyExit:
@@ -1254,15 +1224,6 @@ class TestBatchPhaseNoGapsEarlyExit:
         flow = _make_flow(gaps=[])
         result = await batch_phase7(flow, 7)
         assert result["step_name"] == "batch_phase7"
-        assert result["deletions"] == 0
-
-    @pytest.mark.asyncio
-    async def test_batch_phase8_no_gaps(self) -> None:
-        from backend.pipeline.batch_steps import batch_phase8
-
-        flow = _make_flow(gaps=[])
-        result = await batch_phase8(flow, 8)
-        assert result["step_name"] == "batch_phase8"
         assert result["deletions"] == 0
 
 
@@ -1303,13 +1264,16 @@ class TestBatchPhaseExceptionFallback:
         from backend.pipeline.batch_steps import batch_phase7
 
         hlr = _mock_node("HLR-1", "HLR", content="text")
+        mod = _mock_node("MOD-1", "MODULE", content="module", trace_to=["HLR-1"])
         gap = Gap(
             type=GapType.UNREFINED_HLR,
             priority=GapPriority.REQUIREMENTS_LLR,
             node_id="HLR-1",
             description="test",
         )
-        flow = _make_flow(nodes=[hlr], gaps=[gap])
+        flow = _make_flow(nodes=[hlr, mod])
+        flow.graph.nodes_tracing_to = MagicMock(return_value=["MOD-1"])
+        flow._collect_phase_gaps.return_value = [gap]
 
         with (
             patch(
@@ -1327,66 +1291,6 @@ class TestBatchPhaseExceptionFallback:
         mock_fb.assert_awaited_once()
 
 
-class TestBatchPhase8Specifics:
-    """Tests specific to batch_phase8."""
-
-    @pytest.mark.asyncio
-    async def test_batch_phase8_fast_path_resolves_all(self) -> None:
-        """All gaps resolved by fast path — no batch agent needed."""
-        from backend.pipeline.batch_steps import batch_phase8
-
-        gap = Gap(
-            type=GapType.UNDESIGNED,
-            priority=GapPriority.DESIGN,
-            node_id="LLR-1",
-            description="test",
-        )
-        flow = _make_flow(gaps=[gap])
-        # First call returns gaps, fast path resolves them, second call returns empty
-        flow._collect_phase_gaps.side_effect = [[gap], []]
-
-        with patch(
-            "backend.pipeline.batch_steps._run_fast_traces", new_callable=AsyncMock, return_value=1
-        ):
-            result = await batch_phase8(flow, 8)
-        assert result["step_name"] == "batch_phase8"
-
-    @pytest.mark.asyncio
-    async def test_batch_phase8_fallback_on_zero_tool_calls(self) -> None:
-        """Falls back to structural when batch agent makes no tool calls."""
-        from backend.pipeline.batch_steps import batch_phase8
-
-        llr = _mock_node("LLR-1", "LLR", parent_id="HLR-1", content="spec")
-        mod = _mock_node("MOD-1", "MODULE", content="module")
-        gap = Gap(
-            type=GapType.UNDESIGNED,
-            priority=GapPriority.DESIGN,
-            node_id="LLR-1",
-            description="test",
-        )
-        flow = _make_flow(nodes=[llr, mod], gaps=[gap])
-        flow.graph.nodes_tracing_to = MagicMock(return_value=["MOD-1"])
-        flow.graph.children_sync.return_value = []
-        # Gaps persist through all attempts
-        flow._collect_phase_gaps.return_value = [gap]
-
-        with (
-            patch(
-                "backend.pipeline.batch_steps._run_fast_traces", new_callable=AsyncMock, return_value=0
-            ),
-            patch(
-                "backend.pipeline.batch_steps._run_batch_agent", new_callable=AsyncMock, return_value=0
-            ),
-            patch(
-                "backend.pipeline.batch_steps._fallback_structural",
-                new_callable=AsyncMock,
-                return_value={"step_name": "structural", "deletions": 0},
-            ) as mock_fb,
-        ):
-            await batch_phase8(flow, 8)
-        mock_fb.assert_awaited_once()
-
-
 class TestBatchPhaseAgentSuccess:
     """Test batch_phase functions with successful agent invocation."""
 
@@ -1395,17 +1299,23 @@ class TestBatchPhaseAgentSuccess:
         from backend.pipeline.batch_steps import batch_phase7
 
         hlr = _mock_node("HLR-1", "HLR", content="text")
-        gap = Gap(
-            type=GapType.UNREFINED_HLR,
-            priority=GapPriority.REQUIREMENTS_LLR,
-            node_id="HLR-1",
-            description="test",
-        )
-        flow = _make_flow(nodes=[hlr], gaps=[gap])
-        flow._collect_phase_gaps.side_effect = [[gap], []]
+        mod = _mock_node("MOD-1", "MODULE", content="module", trace_to=["HLR-1"])
+        flow = _make_flow(nodes=[hlr, mod])
+        flow.graph.nodes_tracing_to = MagicMock(return_value=["MOD-1"])
+        pending = {"HLR-1"}
+        flow._collect_phase_gaps.side_effect = lambda phase, skipped: [
+            Gap(type=GapType.UNREFINED_HLR, priority=GapPriority.REQUIREMENTS_LLR,
+                node_id=hid, description="test")
+            for hid in sorted(pending)
+        ]
+
+        async def fake_agent(*args: object, **kwargs: object) -> int:
+            pending.clear()
+            return 3
 
         with patch(
-            "backend.pipeline.batch_steps._run_batch_agent", new_callable=AsyncMock, return_value=3
+            "backend.pipeline.batch_steps._run_batch_agent",
+            new_callable=AsyncMock, side_effect=fake_agent,
         ):
             result = await batch_phase7(flow, 7)
         assert result["step_name"] == "batch_phase7"

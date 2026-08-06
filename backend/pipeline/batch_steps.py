@@ -16,10 +16,12 @@ Each batch step therefore chunks its item list to
 3. Items still unresolved after a chunk's attempts exhaust are stragglers;
    the step falls back to individual per-gap structural dispatch for them.
 
-Used by phases 3, 7, 8 (naturally chunked per MODULE) and 10. Other phases
-use the per-gap structural loop. Phase 5 has no batch step (U7, specs/03):
-HLR→MODULE allocation is authored in phase 4, and phase 5 only verifies it,
-dispatching residual unassigned HLRs through the structural loop.
+Used by phases 3, 7 (fused LLR+DESIGN authoring per MODULE — U8) and 10.
+Other phases use the per-gap structural loop. Phases 5 and 8 have no batch
+step (U7/U8, specs/03): phase 5 only verifies the HLR→MODULE allocation
+authored in phase 4, and phase 8 only verifies the DESIGN coverage authored
+by phase 7's fused pass — both dispatch residual gaps through the
+structural loop.
 """
 
 from __future__ import annotations
@@ -30,9 +32,9 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage
 
-from backend.analysis.gaps import Gap, GapType
+from backend.analysis.gaps import GapType
 from backend.pipeline.batch_graph import (
-    _group_undesigned_by_module as _group_undesigned_by_module,
+    _group_unrefined_by_module as _group_unrefined_by_module,
 )
 from backend.pipeline.batch_graph import (
     _node_to_dict as _node_to_dict,
@@ -53,7 +55,6 @@ from backend.pipeline.steps import StepResult
 from backend.prompting.batch_prompts import (
     build_batch_phase3_prompt,
     build_batch_phase7_prompt,
-    build_batch_phase8_prompt,
     build_batch_phase10_prompt,
 )
 from backend.server.forge_logger import forge_logger
@@ -320,36 +321,88 @@ async def batch_phase3(flow: Any, phase: int) -> StepResult:
     return result
 
 
-# ── Phase 7: UNREFINED_HLR ──────────────────────────────────────────────────
+# ── Phase 7: UNREFINED_HLR → fused LLR + DESIGN authoring (U8) ──────────────
 
 
 async def batch_phase7(flow: Any, phase: int) -> StepResult:
-    """Chunk-derive LLRs from HLRs with per-chunk retry.
+    """Fused implementable-spec authoring: LLRs AND their DESIGNs per MODULE.
 
-    Static context (all LLRs + MODULE/CONTRACT content) is snapshotted once
-    and shared across chunk calls; only the unrefined-HLR list varies.
-    Stragglers fall through to per-gap structural dispatch.
+    HLR→LLR→DESIGN is a single refinement level (CAST-15, specs/03
+    Phases 7-8): for each MODULE, one chunked batch pass emits every
+    uncovered HLR's LLR(s) and each LLR's DESIGN coverage in the same
+    response, with both trace edges written at creation. Phase 8 becomes
+    verification-only. The create allowlist is widened to LLR + DESIGN
+    (``allow_gap_types``), and BOTH node types are tracked so phase 7's
+    single quality/semantic boundary covers the whole fused output.
+
+    Static context per module (MODULE + CONTRACT record + existing
+    LLRs/DESIGNs) is snapshotted once; only the uncovered-HLR list varies
+    across chunk retries. Uncovered HLRs owned by no MODULE, and HLRs a
+    chunk's attempts cannot refine, fall through to per-gap structural
+    dispatch; residual UNDESIGNED gaps route per-gap in phase 8.
     """
-    forge_logger.emit("INFO", "BATCH", f"Phase {phase} · batch: UNREFINED_HLR")
-    before_ids = _snapshot_node_ids(flow, "LLR")
+    forge_logger.emit("INFO", "BATCH", f"Phase {phase} · batch: fused LLR+DESIGN")
+    before_llrs = _snapshot_node_ids(flow, "LLR")
+    before_designs = _snapshot_node_ids(flow, "DESIGN")
 
-    all_nodes = flow.graph.all_nodes()
-    all_llrs = [_node_to_dict(n) for n in all_nodes if n.node_type == "LLR"]
-    mc = [_node_to_dict(n) for n in all_nodes if n.node_type in ("MODULE", "CONTRACT")]
+    all_llrs = [
+        _node_to_dict(n) for n in flow.graph.all_nodes() if n.node_type == "LLR"
+    ]
+    gaps = flow._collect_phase_gaps(phase, set())
+    groups, ungrouped = _group_unrefined_by_module(flow, gaps)
+    unresolved: set[str] = set(ungrouped)
+    if ungrouped:
+        forge_logger.emit(
+            "WARN", "BATCH",
+            f"Phase {phase} · {len(ungrouped)} uncovered HLR(s) owned by no "
+            f"MODULE — per-gap dispatch required",
+            phase=phase, ungrouped=len(ungrouped),
+        )
 
-    def prompt_for(ids: list[str]) -> str:
-        return build_batch_phase7_prompt(_node_dicts_for_ids(flow, ids), all_llrs, mc)
-
-    unresolved = await _run_chunked_batch(
-        flow, phase, GapType.UNREFINED_HLR,
-        _gap_ids_collector(flow, phase), prompt_for,
-    )
+    for module_id, context in groups:
+        forge_logger.emit(
+            "INFO", "BATCH",
+            f"Phase {phase} · MODULE {module_id}: "
+            f"{len(context['hlr_ids'])} uncovered HLR(s)",
+        )
+        unresolved.update(
+            await _run_fused_module_chunks(flow, phase, context, all_llrs)
+        )
 
     result = StepResult(step_name="batch_phase7", deletions=0)
     if unresolved:
         result = await _fallback_structural(flow, phase)
-    _track_new_nodes(flow, "LLR", before_ids)
+    _track_new_nodes(flow, "LLR", before_llrs)
+    _track_new_nodes(flow, "DESIGN", before_designs)
     return result
+
+
+async def _run_fused_module_chunks(
+    flow: Any,
+    phase: int,
+    context: dict[str, Any],
+    all_llrs: list[dict[str, Any]],
+) -> set[str]:
+    """Run one MODULE's fused chunk batches; return its straggler HLR ids."""
+    module_hlr_ids: list[str] = context["hlr_ids"]
+
+    def collect_ids() -> list[str]:
+        live = {g.node_id for g in flow._collect_phase_gaps(phase, set())}
+        return [hid for hid in module_hlr_ids if hid in live]
+
+    def prompt_for(ids: list[str]) -> str:
+        return build_batch_phase7_prompt(
+            _node_dicts_for_ids(flow, ids),
+            context["module"],
+            context["contract"],
+            all_llrs,
+            context["designs"],
+        )
+
+    return await _run_chunked_batch(
+        flow, phase, GapType.UNREFINED_HLR, collect_ids, prompt_for,
+        allow_gap_types=[GapType.UNREFINED_HLR, GapType.UNDESIGNED],
+    )
 
 
 # ── Phase 10: UNTESTED_HLR + UNTESTED_LLR → CASE_HLR/CASE_LLR batch ─────────
@@ -438,79 +491,9 @@ def _untested_requirement_ids(flow: Any) -> tuple[list[str], list[str]]:
     return hlr_ids, llr_ids
 
 
-# ── Phase 8: UNDESIGNED per MODULE ──────────────────────────────────────────
-
-
-async def batch_phase8(flow: Any, phase: int) -> StepResult:
-    """Batch-assign LLRs to DESIGNs with fast-path + per-MODULE batch.
-
-    The fast-path runs at the start of every cycle, not just pre-loop, so
-    LLRs created by deletions in prior cycles still benefit from
-    deterministic trace linking before any LLM work happens.
-    """
-    forge_logger.emit("INFO", "BATCH", f"Phase {phase} · batch: UNDESIGNED")
-    before_ids = _snapshot_node_ids(flow, "DESIGN")
-
-    gaps: list[Gap] = []
-    for attempt in range(1, _MAX_BATCH_ATTEMPTS + 1):
-        gaps = flow._collect_phase_gaps(phase, set())
-        if not gaps:
-            break
-
-        # Fast-path each cycle: link LLRs that can be matched without LLM.
-        resolved = await _run_fast_traces(flow, gaps)
-        if resolved:
-            forge_logger.emit(
-                "INFO",
-                "BATCH",
-                f"Phase {phase} · attempt {attempt} · fast-path resolved {resolved}",
-            )
-            gaps = flow._collect_phase_gaps(phase, set())
-            if not gaps:
-                break
-
-        total_calls = 0
-        for module_id, context in _group_undesigned_by_module(flow, gaps):
-            prompt = build_batch_phase8_prompt(**context)
-            forge_logger.emit(
-                "INFO",
-                "BATCH",
-                f"Phase {phase} · attempt {attempt} · MODULE {module_id}: "
-                f"{len(context['undesigned_llrs'])} LLRs",
-            )
-            try:
-                calls = await _run_batch_agent(
-                    flow,
-                    GapType.UNDESIGNED,
-                    prompt,
-                    phase,
-                )
-                total_calls += calls
-            except Exception as exc:  # noqa: BLE001
-                forge_logger.emit("WARN", "BATCH", f"Batch failed for {module_id}: {exc}")
-
-        if total_calls == 0:
-            return await _fallback_structural(flow, phase)
-
-    # Straggler fallback: batch attempts exhausted with gaps still open must
-    # not end the phase with undispatched structural gaps (specs/13).
-    if gaps:
-        gaps = flow._collect_phase_gaps(phase, set())
-    result = StepResult(step_name="batch_phase8", deletions=0)
-    if gaps:
-        result = await _fallback_structural(flow, phase)
-    _track_new_nodes(flow, "DESIGN", before_ids)
-    return result
-
-
-async def _run_fast_traces(flow: Any, gaps: list[Gap]) -> int:
-    """Run fast-path trace linking for UNDESIGNED gaps. Returns count resolved."""
-    from backend.pipeline.dispatch import try_fast_trace  # noqa: PLC0415
-
-    resolved = 0
-    for gap in gaps:
-        if await try_fast_trace(flow, gap):
-            resolved += 1
-    return resolved
-
+# Phase 8 deliberately has NO batch step (U8, specs/03 Phase 8): DESIGNs are
+# authored in phase 7's fused pass; phase 8 verifies, and its ``structural``
+# step dispatches residual UNDESIGNED gaps per gap (the deterministic
+# fast-path in ``dispatch.try_fast_trace`` links to an existing DESIGN
+# without an LLM call whenever one exists).
 

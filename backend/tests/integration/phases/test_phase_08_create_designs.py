@@ -1,11 +1,12 @@
-"""Per-phase integration test for Phase 8 — Create Designs (real LLM).
+"""Per-phase integration test for Phase 8 — Verify Design Coverage (real LLM).
 
-Phase 8 batch-authors DESIGN nodes per MODULE so that every LLR is traced-to by
-a DESIGN, then consolidates DESIGN sprawl (specs/03-build-pipeline.md).
+Phase 8 is verification-only under U8 (specs/03): DESIGNs are authored in
+phase 7's fused implementable-spec pass, so this phase consolidates DESIGN
+sprawl and dispatches per-gap agents ONLY for residual undesigned LLRs.
 The precondition graph — PROJECT → DOCUMENT → PARAs → HLRs → ARCHITECTURE →
-MODULE → CONTRACT plus LLR children under each HLR, exactly the shape phases
-0-7 produce — is seeded deterministically, and ONLY phase 8 runs against the
-real LLM.
+MODULE → CONTRACT plus LLR children under each HLR, with NO DESIGNs (the
+resume shape whose leftovers phase 8 must repair) — is seeded
+deterministically, and ONLY phase 8 runs against the real LLM.
 
 The graph is kept tiny (2 HLRs, 2 LLRs, 1 MODULE).  Covered:
 

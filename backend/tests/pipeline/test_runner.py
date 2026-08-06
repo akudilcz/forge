@@ -63,12 +63,20 @@ def test_get_steps_custom_for_phase_10() -> None:
     assert "case_trace_coverage" in names
 
 
-def test_get_steps_custom_for_phase_8() -> None:
-    """Phase 8 uses batch_phase8 + design_consolidation."""
-    steps = get_steps(8)
-    names = [s.__name__ for s in steps]
-    assert "batch_phase8" in names
-    assert "design_consolidation" in names
+def test_get_steps_phase_8_verification_only() -> None:
+    """U8: DESIGN authoring is fused into phase 7's implementable-spec pass,
+    so phase 8 has NO batch authoring step. It runs design_consolidation
+    plus the default verification pipeline — ``structural`` is the residual
+    per-gap dispatch route for leftover UNDESIGNED gaps (specs/03 Phase 8)."""
+    names = [s.__name__ for s in get_steps(8)]
+    assert "batch_phase8" not in names
+    assert names == [
+        "design_consolidation",
+        "structural",
+        "quality_gaps",
+        "combined_quality",
+        "semantic",
+    ]
 
 
 def test_get_steps_custom_for_phase_3() -> None:
@@ -103,11 +111,13 @@ def test_get_steps_phase_13_records_results_after_sync() -> None:
 
 
 def test_get_steps_batch_for_phase_7() -> None:
-    """Phase 7 uses batch_phase7 + combined_quality."""
+    """Phase 7 uses the fused batch_phase7 (LLR + DESIGN authoring, U8) with
+    one quality/semantic boundary covering both artifact types."""
     steps = get_steps(7)
     names = [s.__name__ for s in steps]
     assert "batch_phase7" in names
     assert "combined_quality" in names
+    assert "semantic" in names
 
 
 def test_get_steps_returns_copy() -> None:

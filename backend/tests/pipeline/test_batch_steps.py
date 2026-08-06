@@ -11,7 +11,6 @@ from backend.pipeline.batch_steps import (
     _node_to_dict,
     _run_batch_agent,
     batch_phase3,
-    batch_phase8,
     batch_phase10,
 )
 from backend.prompting.batch_prompts import (
@@ -19,7 +18,6 @@ from backend.prompting.batch_prompts import (
     _format_para_list,
     build_batch_phase3_prompt,
     build_batch_phase7_prompt,
-    build_batch_phase8_prompt,
     build_batch_phase10_prompt,
 )
 
@@ -82,25 +80,45 @@ def test_phase3_prompt_includes_all_paras_and_hlrs() -> None:
     assert "derive_requirement" in prompt
 
 
-def test_phase7_prompt_includes_hlrs_and_llrs() -> None:
+def test_phase7_prompt_includes_hlrs_llrs_module_and_designs() -> None:
+    """U8 fused prompt: module context, existing LLRs AND existing DESIGNs."""
     hlrs = [{"node_id": "HLR-001", "title": "T", "content": "shall..."}]
+    mod = {"node_id": "MOD-001", "title": "Engine", "content": "Class plan: Engine."}
+    con = {"node_id": "CON-001", "content": "interface spec",
+           "properties": {"public_api": [{"module": "engine", "symbol": "run",
+                                          "kind": "function",
+                                          "signature": "def run() -> int"}]}}
     llrs = [{"node_id": "LLR-001", "parent_id": "HLR-002", "title": "L",
              "content": "s"}]
-    mc = [{"node_id": "MOD-001", "node_type": "MODULE", "title": "M",
-           "trace_to": []}]
-    prompt = build_batch_phase7_prompt(hlrs, llrs, mc)
+    designs = [{"node_id": "DES-001", "title": "D", "trace_to": ["LLR-001"],
+                "content": "Class Engine"}]
+    prompt = build_batch_phase7_prompt(hlrs, mod, con, llrs, designs)
     assert "HLR-001" in prompt
     assert "LLR-001" in prompt
-
-
-def test_phase8_prompt_includes_module_context() -> None:
-    mod = {"node_id": "MOD-001", "title": "Engine", "content": "class plan"}
-    con = {"node_id": "CON-001", "content": "interface spec"}
-    llrs = [{"node_id": "LLR-001", "title": "T", "content": "shall..."}]
-    designs = [{"node_id": "DES-001", "title": "D", "trace_to": ["LLR-002"]}]
-    prompt = build_batch_phase8_prompt(mod, con, llrs, designs)
     assert "MOD-001" in prompt
-    assert "LLR-001" in prompt
+    assert "DES-001" in prompt
+    assert "def run() -> int" in prompt
+
+
+def test_phase7_prompt_is_fused_implementable_spec_authoring() -> None:
+    """U8 pins: the fused prompt instructs BOTH artifact levels in one
+    response — LLR(s) per HLR and a DESIGN per LLR, with both trace edges
+    written at creation — and carries the DO-178C litmus dividing rule."""
+    from backend.prompting.task_prompts_authoring import IMPLEMENTABLE_SPEC_LITMUS
+
+    hlrs = [{"node_id": "HLR-001", "title": "T", "content": "shall..."}]
+    mod = {"node_id": "MOD-001", "title": "Engine", "content": "Class plan: Engine."}
+    prompt = build_batch_phase7_prompt(hlrs, mod, None, [], [])
+    assert IMPLEMENTABLE_SPEC_LITMUS in prompt
+    # Both artifact levels are emitted in the same response.
+    assert "node_type=LLR" in prompt
+    assert "node_type=DESIGN" in prompt
+    # Trace edges at write: LLR -> HLR, DESIGN -> LLR(s), DESIGN parent MODULE.
+    assert 'trace_to=["<hlr_id>"]' in prompt
+    assert "trace_to=[<llr_id" in prompt
+    assert "parent_id=MOD-001" in prompt
+    # DESIGN reuse stays preferred over sprawl.
+    assert "graph_add_traces" in prompt
 
 
 # ── Batch step functions ────────────────────────────────────────────────────
@@ -381,31 +399,115 @@ async def test_batch_phase10_skips_agent_when_all_requirements_tested() -> None:
     assert result["step_name"] == "batch_phase10"
 
 
-# ── batch_phase8 exception fallback ─────────────────────────────────────────
+# ── batch_phase7 fused pass (U8) ────────────────────────────────────────────
+
+
+def _fused_phase7_flow(
+    hlr_count: int, chunk_size: int,
+) -> tuple[MagicMock, set[str], list[MagicMock]]:
+    """Flow with ``hlr_count`` unrefined HLRs all owned by MODULE MOD-1."""
+    from backend.analysis.gaps import Gap, GapPriority, GapType
+
+    hlrs = [
+        _mock_node(f"HLR-{i:04d}", "HLR", title=f"T{i}",
+                   content=f"The system shall {i}.")
+        for i in range(hlr_count)
+    ]
+    mod = _mock_node("MOD-1", "MODULE", content="Class plan: Engine.",
+                     trace_to=[h.node_id for h in hlrs])
+    con = _mock_node("CON-1", "CONTRACT", content="interface spec")
+    for n in (*hlrs, mod):
+        n.properties = {}
+    con.properties = {
+        "public_api": [{"module": "engine", "symbol": "run",
+                        "kind": "function", "signature": "def run() -> int"}],
+    }
+    nodes: list[MagicMock] = [*hlrs, mod, con]
+    flow = _make_flow(nodes=nodes)
+    del flow._batch_new_node_ids  # not a MagicMock auto-attribute
+    flow.graph.all_nodes.side_effect = lambda: list(nodes)
+    flow.graph.nodes_tracing_to = MagicMock(return_value=["MOD-1"])
+    flow.graph.children_sync.return_value = [con]
+    flow.config.llm.batch_author_chunk_size = chunk_size
+    pending = {h.node_id for h in hlrs}
+
+    def collect(phase: int, skipped: set[str]) -> list[Gap]:
+        return [
+            Gap(type=GapType.UNREFINED_HLR, priority=GapPriority.REQUIREMENTS_LLR,
+                node_id=hid, description="unrefined")
+            for hid in sorted(pending)
+        ]
+
+    flow._collect_phase_gaps.side_effect = collect
+    return flow, pending, nodes
 
 
 @pytest.mark.asyncio
-async def test_batch_phase8_exception_falls_back_to_structural() -> None:
-    from backend.analysis.gaps import Gap, GapPriority, GapType
+async def test_batch_phase7_passes_union_allow_gap_types() -> None:
+    """U8: the fused pass must widen the create allowlist so one LLM turn
+    may write BOTH node types — LLR (UNREFINED_HLR) and DESIGN (UNDESIGNED)."""
+    from backend.analysis.gaps import GapType
+    from backend.pipeline.batch_steps import batch_phase7
 
-    llr = _mock_node("LLR-1", "LLR", parent_id="HLR-1", content="spec")
-    mod = _mock_node("MOD-1", "MODULE", content="module plan")
-    gap = Gap(type=GapType.UNDESIGNED, priority=GapPriority.DESIGN,
-              node_id="LLR-1", description="test")
+    flow, pending, _nodes = _fused_phase7_flow(1, 20)
 
-    flow = _make_flow(nodes=[llr, mod], gaps=[gap])
-    flow.graph.nodes_tracing_to = MagicMock(return_value=["MOD-1"])
-    flow.graph.children_sync.return_value = []
-    flow._collect_phase_gaps.return_value = [gap]
+    async def fake_agent(*args: Any, **kwargs: Any) -> int:
+        pending.clear()
+        return 1
+
+    with patch(
+        "backend.pipeline.batch_steps._run_batch_agent",
+        new_callable=AsyncMock, side_effect=fake_agent,
+    ) as mock_run:
+        result = await batch_phase7(flow, 7)
+
+    assert result["step_name"] == "batch_phase7"
+    mock_run.assert_awaited_once()
+    call = mock_run.await_args
+    assert call is not None
+    assert call.args[1] == GapType.UNREFINED_HLR
+    assert call.kwargs["allow_gap_types"] == [
+        GapType.UNREFINED_HLR, GapType.UNDESIGNED,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_batch_phase7_tracks_new_llr_and_design_ids() -> None:
+    """U8 boundary economics: ONE quality/semantic boundary covers both
+    artifact types — the fused batch tracks new LLR AND DESIGN node ids."""
+    from backend.pipeline.batch_steps import batch_phase7
+
+    flow, pending, nodes = _fused_phase7_flow(1, 20)
+
+    async def fake_agent(*args: Any, **kwargs: Any) -> int:
+        nodes.append(_mock_node("LLR-NEW", "LLR", parent_id="HLR-0000"))
+        nodes.append(
+            _mock_node("DESIGN-NEW", "DESIGN", parent_id="MOD-1",
+                       trace_to=["LLR-NEW"])
+        )
+        pending.clear()
+        return 2
+
+    with patch(
+        "backend.pipeline.batch_steps._run_batch_agent",
+        new_callable=AsyncMock, side_effect=fake_agent,
+    ):
+        await batch_phase7(flow, 7)
+
+    assert flow._batch_new_node_ids == {"LLR-NEW", "DESIGN-NEW"}
+
+
+@pytest.mark.asyncio
+async def test_batch_phase7_stragglers_fall_back_per_gap() -> None:
+    """HLRs a chunk's attempts cannot refine route to per-gap dispatch."""
+    from backend.pipeline.batch_steps import batch_phase7
+
+    flow, _pending, _nodes = _fused_phase7_flow(1, 20)  # pending never clears
 
     with (
         patch(
-            "backend.pipeline.batch_steps._run_fast_traces",
-            new_callable=AsyncMock, return_value=0,
-        ),
-        patch(
             "backend.pipeline.batch_steps._run_batch_agent",
-            new_callable=AsyncMock, side_effect=RuntimeError("boom"),
+            new_callable=AsyncMock, return_value=1,
         ),
         patch(
             "backend.pipeline.batch_steps._fallback_structural",
@@ -413,8 +515,41 @@ async def test_batch_phase8_exception_falls_back_to_structural() -> None:
             return_value={"step_name": "structural", "deletions": 0},
         ) as mock_fb,
     ):
-        result = await batch_phase8(flow, 8)
-    mock_fb.assert_awaited_once_with(flow, 8)
+        result = await batch_phase7(flow, 7)
+
+    mock_fb.assert_awaited_once_with(flow, 7)
+    assert result["step_name"] == "structural"
+
+
+@pytest.mark.asyncio
+async def test_batch_phase7_unmoduled_hlrs_route_per_gap() -> None:
+    """An unrefined HLR owned by no MODULE cannot join a fused module batch —
+    it must route straight to per-gap structural dispatch, never be dropped."""
+    from backend.analysis.gaps import Gap, GapPriority, GapType
+    from backend.pipeline.batch_steps import batch_phase7
+
+    hlr = _mock_node("HLR-1", "HLR", content="The system shall parse.")
+    flow = _make_flow(nodes=[hlr])
+    flow.graph.nodes_tracing_to = MagicMock(return_value=[])
+    gap = Gap(type=GapType.UNREFINED_HLR, priority=GapPriority.REQUIREMENTS_LLR,
+              node_id="HLR-1", description="unrefined")
+    flow._collect_phase_gaps.return_value = [gap]
+
+    with (
+        patch(
+            "backend.pipeline.batch_steps._run_batch_agent",
+            new_callable=AsyncMock,
+        ) as mock_run,
+        patch(
+            "backend.pipeline.batch_steps._fallback_structural",
+            new_callable=AsyncMock,
+            return_value={"step_name": "structural", "deletions": 0},
+        ) as mock_fb,
+    ):
+        result = await batch_phase7(flow, 7)
+
+    mock_run.assert_not_awaited()
+    mock_fb.assert_awaited_once_with(flow, 7)
     assert result["step_name"] == "structural"
 
 
@@ -678,27 +813,11 @@ async def test_batch_phase3_small_set_single_call_unchanged() -> None:
 
 
 @pytest.mark.asyncio
-async def test_batch_phase7_chunks_unrefined_hlrs() -> None:
-    """Phase 7 chunks its unrefined-HLR list; 12 HLRs, chunk 5 → 3 calls."""
-    from backend.analysis.gaps import Gap, GapPriority, GapType
+async def test_batch_phase7_chunks_unrefined_hlrs_within_module() -> None:
+    """Phase 7 chunks a module's unrefined-HLR list; 12 HLRs, chunk 5 → 3 calls."""
     from backend.pipeline.batch_steps import batch_phase7
 
-    hlrs = [
-        _mock_node(f"HLR-{i:04d}", "HLR", title=f"T{i}", content=f"The system shall {i}.")
-        for i in range(12)
-    ]
-    flow = _make_flow(nodes=list(hlrs))
-    flow.config.llm.batch_author_chunk_size = 5
-    pending = {h.node_id for h in hlrs}
-
-    def collect(phase: int, skipped: set[str]) -> list[Gap]:
-        return [
-            Gap(type=GapType.UNREFINED_HLR, priority=GapPriority.REQUIREMENTS_LLR,
-                node_id=hid, description="unrefined")
-            for hid in sorted(pending)
-        ]
-
-    flow._collect_phase_gaps.side_effect = collect
+    flow, pending, _nodes = _fused_phase7_flow(12, 5)
     batch_sizes: list[int] = []
 
     def fake_build(unrefined: list[dict[str, Any]], *args: Any, **kwargs: Any) -> str:
@@ -765,43 +884,6 @@ async def test_batch_phase10_chunks_untested_requirements() -> None:
     assert result["step_name"] == "batch_phase10"
     assert batch_sizes == [10, 10, 5]
     assert len(flow._batch_new_node_ids) == 25
-
-
-@pytest.mark.asyncio
-async def test_batch_phase8_falls_back_when_attempts_exhaust_with_gaps() -> None:
-    """Phase 8: gaps remaining after all batch attempts → per-gap dispatch."""
-    from backend.analysis.gaps import Gap, GapPriority, GapType
-    from backend.pipeline.batch_steps import _MAX_BATCH_ATTEMPTS, batch_phase8
-
-    llr = _mock_node("LLR-1", "LLR", parent_id="HLR-1", content="spec")
-    mod = _mock_node("MOD-1", "MODULE", content="module plan")
-    gap = Gap(type=GapType.UNDESIGNED, priority=GapPriority.DESIGN,
-              node_id="LLR-1", description="undesigned")
-    flow = _make_flow(nodes=[llr, mod])
-    flow.graph.nodes_tracing_to = MagicMock(return_value=["MOD-1"])
-    flow.graph.children_sync.return_value = []
-    flow._collect_phase_gaps.return_value = [gap]  # never resolves
-
-    with (
-        patch(
-            "backend.pipeline.batch_steps._run_fast_traces",
-            new_callable=AsyncMock, return_value=0,
-        ),
-        patch(
-            "backend.pipeline.batch_steps._run_batch_agent",
-            new_callable=AsyncMock, return_value=1,  # non-zero: no zero-call path
-        ) as mock_run,
-        patch(
-            "backend.pipeline.batch_steps._fallback_structural",
-            new_callable=AsyncMock,
-            return_value={"step_name": "structural", "deletions": 0},
-        ) as mock_fb,
-    ):
-        result = await batch_phase8(flow, 8)
-
-    assert mock_run.await_count == _MAX_BATCH_ATTEMPTS
-    mock_fb.assert_awaited_once_with(flow, 8)
-    assert result["step_name"] == "structural"
 
 
 def test_llm_config_batch_author_chunk_size_default() -> None:

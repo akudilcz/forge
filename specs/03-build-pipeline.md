@@ -16,8 +16,8 @@ dedicated dashboard per phase via `/phase/:phaseNum`.
 | 4 | Create Architecture   | Agent           | ARCHITECTURE node + MODULE nodes with HLR allocations | No `UNARCHITECTED` |
 | 5 | Verify Module Allocation | Deterministic check + Agent (residual per-gap) | Trace links for residual unassigned HLRs | No `UNMODULARISED` |
 | 6 | Write Contracts       | Agent           | One CONTRACT per MODULE                    | No `UNCONTRACTED` |
-| 7 | Derive LLRs           | Agent (batch)   | Low-level requirements                     | No `UNREFINED_HLR` |
-| 8 | Create Designs        | Agent (batch)   | DESIGN specs per module                    | No `UNDESIGNED` |
+| 7 | Author Implementable Spec | Agent (fused batch per MODULE) | Low-level requirements + DESIGN specs, authored together | No `UNREFINED_HLR` |
+| 8 | Verify Design Coverage | Deterministic consolidation + check + Agent (residual per-gap) | Merged DESIGNs; trace links / residual DESIGNs for leftover LLRs | No `UNDESIGNED` |
 | 9 | Write Test Strategy   | Agent           | SUITE node                                 | No `UNSUITED` |
 |10 | Write Test Cases      | Agent (batch)   | CASE_HLR / CASE_LLR nodes                  | No `UNTESTED_HLR` / `UNTESTED_LLR` |
 |11 | Render Documentation  | Deterministic   | 8 Markdown docs in `workspace/docs/`       | Render returns |
@@ -39,11 +39,13 @@ detailed requirements are elaborated in Phase 7.
 Within every agent-driven phase, quality runs **inline**: after structural
 work, the phase runs deterministic quality checks, batched LLM quality
 judging, and semantic duplicate removal over the node types it created.
-Phases whose gaps are interdependent (3, 7, 8, 10) use batch dispatch —
+Phases whose gaps are interdependent (3, 7, 10) use batch dispatch —
 the agent sees all gaps and all existing target nodes at once, in chunks of
 `llm.batch_author_chunk_size` (default 20); anything a batch cannot close
 falls back to one-at-a-time dispatch, so no structural gap is ever left
-unattempted.
+unattempted. Phase 7's batch is fused and per-MODULE: it authors each
+uncovered HLR's LLR(s) and each LLR's DESIGN in the same response, which
+is why phase 8 — like phase 5 — is verification and residual repair only.
 
 ## Phase-by-phase
 
@@ -142,22 +144,50 @@ A CONTRACT without a well-formed `public_api` (or with malformed obligation
 fields) is rejected at write time. Contracts are the coordination boundary
 all downstream phases are checked against.
 
-**7 — Derive LLRs.** Each HLR is refined into one or more atomic, testable,
-EARS-form low-level requirements, scoped to the owning MODULE's CONTRACT.
-This phase carries the highest quality bar, including a decomposition-
-completeness check (do the LLRs jointly cover the HLR, given the contract?).
-LLRs carry the same persisted `verification_method` / `derived` (+
-`derived_rationale`) properties as HLRs, shape-checked at write time — an
-LLR that exists for design necessity rather than direct HLR text is marked
-derived, with rationale.
+**7 — Author the Implementable Spec (LLRs + DESIGNs, fused).** One batch
+authoring pass per MODULE writes, for each uncovered HLR, its atomic
+EARS-form LLR(s) AND each LLR's DESIGN coverage in the same response.
+Rationale: HLR→LLR→DESIGN is a *single* refinement level (the CAST-15
+observation that low-level requirements ARE the software design — "one
+level of requirements above source code"); deriving LLRs in one pass and
+then inventing DESIGNs for them in a separate later pass produced an
+artificial second refinement over the same material, plus a second
+quality/semantic boundary to pay for. The fused prompt carries the
+module's CONTRACT record (prose plus the structured `public_api` with its
+obligation fields), the EARS patterns, the requirement-provenance fields,
+and the DO-178C litmus that divides the two artifact levels: an LLR must
+be directly implementable from its own text plus the CONTRACT alone, while
+DESIGN holds only private structure and algorithm choice — never
+observable behaviour (the U2 dividing rule). Both trace edges are written
+at creation: LLR→HLR (parent + `trace_to`), DESIGN→LLR (`trace_to`, with
+parent MODULE). The pass is chunked to `llm.batch_author_chunk_size`;
+uncovered HLRs owned by no MODULE, and HLRs a chunk's attempts cannot
+refine, fall back to per-gap dispatch. Because the fused batch tracks both
+new node types, phase 7's single quality/semantic boundary covers LLRs and
+DESIGNs together — one boundary where there used to be two. This phase
+carries the highest quality bar, including a decomposition-completeness
+check (do the LLRs jointly cover the HLR, given the contract?). LLRs carry
+the same persisted `verification_method` / `derived` (+
+`derived_rationale`) properties as HLRs, shape-checked at write time.
+Complete when no HLR lacks LLR children.
 
-**8 — Create Designs.** DESIGN specs per MODULE (class names, method
-signatures, responsibilities), each tracing to the LLRs it implements.
-Complete when every LLR is covered by a DESIGN. LLRs that fit an existing
-DESIGN are linked deterministically without an LLM call; a consolidation
-step merges DESIGN sprawl — many LLRs deliberately share one DESIGN. DESIGNs
-are checked against the CONTRACT's public surface and for cross-module
-coupling.
+**8 — Verify Design Coverage.** Verification and residual repair only —
+this phase authors nothing in the normal flow (same shape as phase 5). A
+consolidation step first merges DESIGN sprawl — many LLRs deliberately
+share one DESIGN, and the number of DESIGNs must not exceed the module's
+class plan. Then the deterministic every-LLR-covered check (the
+`UNDESIGNED` analyser gap) verifies the coverage emitted by phase 7's
+fused pass; per-gap agent dispatch runs *only* for residual undesigned
+LLRs (bounded by the structural loop's circuit breaker), and an LLR that
+fits an existing DESIGN is linked deterministically without an LLM call
+(the fast-path). DESIGNs are checked against the CONTRACT's public surface
+and for cross-module coupling. Phase number 8 and its completion criterion
+are preserved for the phase store, resume, and the auditor. Resume paths:
+a build interrupted mid-phase-7 under the old shape (some HLRs refined, no
+DESIGNs) completes 7 under the fused pass and 8 as pure verification; a
+build interrupted mid-phase-8 (LLRs authored, DESIGNs missing) completes 8
+through the residual per-gap route; a fully authored graph passes 8 with
+zero dispatches. Complete when every LLR is covered by a DESIGN.
 
 **9 — Write Test Strategy.** A single SUITE node: test types, coverage
 targets, environment, and per-module verification approach, authored with

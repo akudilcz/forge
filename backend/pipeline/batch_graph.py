@@ -3,7 +3,8 @@
 Supports the batch step functions in ``batch_steps.py``: converting
 graph nodes to prompt-ready dicts, snapshotting node IDs so newly
 created nodes can be tracked for the semantic step, and grouping
-UNDESIGNED LLR gaps by their owning MODULE.
+UNREFINED_HLR gaps by their owning MODULE for the fused
+implementable-spec authoring pass (U8, specs/03 Phases 7-8).
 """
 
 from __future__ import annotations
@@ -52,38 +53,35 @@ def _track_new_nodes(flow: Any, node_type: str, before: set[str]) -> set[str]:
     return new_ids
 
 
-def _group_undesigned_by_module(
+def _group_unrefined_by_module(
     flow: Any,
     gaps: list[Gap],
-) -> list[tuple[str, dict[str, Any]]]:
-    """Group UNDESIGNED LLR gaps by their owning MODULE, enriched with SUITE
-    and the CASEs already on parent HLRs so DESIGNs align with test intent.
+) -> tuple[list[tuple[str, dict[str, Any]]], list[str]]:
+    """Group UNREFINED_HLR gaps by the MODULE whose ``trace_to`` owns each HLR.
+
+    Supports the U8 fused implementable-spec pass: each group's context
+    carries the MODULE dict, its CONTRACT child (or None), its existing
+    DESIGN children, and the module's uncovered HLR ids. HLRs no MODULE
+    traces to cannot join a fused batch; they are returned separately so
+    the step routes them to per-gap dispatch instead of dropping them.
     """
     graph = flow.graph
     module_groups: dict[str, dict[str, Any]] = {}
-
-    suite = next(
-        (n for n in graph.all_nodes() if n.node_type == "SUITE" and n.content),
-        None,
-    )
-    suite_dict = _node_to_dict(suite) if suite else None
-
-    all_cases = [
-        n for n in graph.all_nodes()
-        if n.node_type in ("CASE_HLR", "CASE_LLR") and n.content
-    ]
+    ungrouped: list[str] = []
 
     for gap in gaps:
-        llr = graph.node_sync(gap.node_id)
-        if llr is None or not llr.parent_id:
+        hlr = graph.node_sync(gap.node_id)
+        if hlr is None:
             continue
-        module_ids = graph.nodes_tracing_to(llr.parent_id, source_type="MODULE")
+        module_ids = graph.nodes_tracing_to(gap.node_id, source_type="MODULE")
         if not module_ids:
+            ungrouped.append(gap.node_id)
             continue
         mod_id = module_ids[0]
         if mod_id not in module_groups:
             mod = graph.node_sync(mod_id)
             if mod is None:
+                ungrouped.append(gap.node_id)
                 continue
             children = graph.children_sync(mod_id)
             contract = next(
@@ -94,22 +92,9 @@ def _group_undesigned_by_module(
             module_groups[mod_id] = {
                 "module": _node_to_dict(mod),
                 "contract": _node_to_dict(contract) if contract else None,
-                "undesigned_llrs": [],
                 "designs": [_node_to_dict(d) for d in designs],
-                "suite": suite_dict,
-                "parent_hlr_cases": [],
-                "_parent_hlr_ids": set(),
+                "hlr_ids": [],
             }
-        module_groups[mod_id]["undesigned_llrs"].append(_node_to_dict(llr))
-        module_groups[mod_id]["_parent_hlr_ids"].add(llr.parent_id)
+        module_groups[mod_id]["hlr_ids"].append(gap.node_id)
 
-    # Populate parent_hlr_cases per module group.
-    for group in module_groups.values():
-        hlr_ids = group.pop("_parent_hlr_ids")
-        group["parent_hlr_cases"] = [
-            _node_to_dict(c)
-            for c in all_cases
-            if any(hid in (c.trace_to or []) for hid in hlr_ids)
-        ]
-
-    return list(module_groups.items())
+    return list(module_groups.items()), ungrouped

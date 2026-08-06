@@ -12,6 +12,7 @@ from typing import Any
 from backend.prompting.task_prompts_authoring import (
     CASE_CONTRACT_ENCODING,
     EARS_PATTERNS,
+    IMPLEMENTABLE_SPEC_LITMUS,
     NORMATIVE_MUST_CAPTURE,
     REQUIREMENT_PROVENANCE_FIELDS,
 )
@@ -98,133 +99,125 @@ def build_batch_phase3_prompt(
 
 def build_batch_phase7_prompt(
     unrefined_hlrs: list[dict[str, Any]],
+    module: dict[str, Any],
+    contract: dict[str, Any] | None,
     all_llrs: list[dict[str, Any]],
-    module_contracts: list[dict[str, Any]],
+    designs: list[dict[str, Any]],
 ) -> str:
-    """Phase 7: derive LLRs from HLRs.
+    """Phase 7 (U8): fused implementable-spec authoring for one MODULE.
 
-    Sends MODULE and CONTRACT content in FULL — signatures and invariants
-    are what LLRs must align to, so title-only would strand agents refining
-    blind. LLRs are grouped by parent HLR for contextual reading.
+    One batch pass emits, for each uncovered HLR, its LLR(s) AND each LLR's
+    DESIGN coverage in the same response — both trace edges written at
+    creation (LLR→HLR, DESIGN→LLR with parent MODULE). HLR→LLR→DESIGN is a
+    single refinement level (CAST-15), so splitting LLR derivation and
+    DESIGN creation into two passes produced an artificial second
+    refinement over the same material; phase 8 now only verifies.
+
+    Sends the MODULE's CONTRACT in full — prose plus the structured
+    ``public_api`` record (obligation fields included) — because the litmus
+    for a valid LLR is direct implementability from its text + CONTRACT
+    alone. Existing DESIGNs are sent with full content so reuse decisions
+    are grounded in actual method signatures, not titles.
     """
-    # Group LLRs by parent_id for nested presentation.
-    by_parent: dict[str, list[dict[str, Any]]] = {}
-    for llr in all_llrs:
-        by_parent.setdefault(llr.get("parent_id", ""), []).append(llr)
-
-    hlr_lines = _format_node_list(
-        unrefined_hlrs, ["node_id", "title", "content"],
+    module_id = module["node_id"]
+    hlr_lines = _format_node_list(unrefined_hlrs, ["node_id", "title", "content"])
+    grouped_llrs = _group_llrs_by_parent(all_llrs)
+    design_lines = _format_node_list(
+        designs, ["node_id", "title", "trace_to", "content"],
     )
+    contract_block = _contract_record_block(contract)
 
-    grouped_llr_blocks: list[str] = []
-    for pid in sorted(by_parent):
-        children = by_parent[pid]
-        header = f"  LLRs under HLR {pid}:" if pid else "  LLRs with no parent:"
-        block = _format_node_list(
-            children, ["node_id", "title", "content"],
-        )
-        grouped_llr_blocks.append(f"{header}\n{block}")
-
-    grouped_llrs = "\n\n".join(grouped_llr_blocks) if grouped_llr_blocks else "  (none)"
-
-    mc_lines = _format_node_list(
-        module_contracts,
-        ["node_id", "node_type", "parent_id", "title", "trace_to", "content"],
-    )
-
-    return (
-        "You are deriving LLRs from HLRs.\n\n"
-        f"HLRs NEEDING LLRs ({len(unrefined_hlrs)}):\n"
-        f"{hlr_lines}\n\n"
+    # ── Static prefix (cacheable across chunk retries) ──────────────────────
+    static = (
+        f"You are authoring the implementable specification for MODULE "
+        f"[{module_id}]: for each uncovered HLR you write its LLR(s) AND "
+        f"each LLR's DESIGN coverage in this same response.\n\n"
+        f"MODULE [{module_id}] — {module.get('title', '')}:\n"
+        f"{module.get('content', '')}\n"
+        f"{contract_block}"
         f"EXISTING LLRs grouped by parent HLR ({len(all_llrs)} total — "
         f"available to re-parent):\n"
         f"{grouped_llrs}\n\n"
-        f"MODULE + CONTRACT CONTEXT (full content — your LLRs must align with\n"
-        f"each CONTRACT's public signatures and invariants):\n{mc_lines}\n\n"
-        "FOR EACH HLR above, do ONE of:\n"
+        f"EXISTING DESIGNs with full content ({len(designs)}):\n"
+        f"{design_lines}\n\n"
+    )
+
+    # ── Dynamic suffix (changes each attempt) ───────────────────────────────
+    dynamic = (
+        f"HLRs NEEDING REFINEMENT ({len(unrefined_hlrs)}):\n"
+        f"{hlr_lines}\n\n"
+        "FOR EACH HLR above, author BOTH artifact levels:\n"
+        "STEP 1 — LLR(s). Do ONE of:\n"
         "  A) Reparent existing LLR(s) that refine it:\n"
         "       graph_reparent_node(node_id=<llr_id>, parent_id=<hlr_id>)\n"
-        "  B) Create new LLR(s) for uncovered aspects:\n"
-        "       graph_add_node(node_type=LLR, parent_id=<hlr_id>,\n"
-        "         content='The system shall ...', title='3-5 words')\n\n"
+        "  B) Create new LLR(s), one per distinct obligation:\n"
+        '       graph_add_node(node_type=LLR, parent_id=<hlr_id>,\n'
+        '         trace_to=["<hlr_id>"], content=\'The system shall ...\',\n'
+        "         title='3-5 words', properties=<provenance, below>)\n"
+        "STEP 2 — DESIGN coverage for EVERY LLR from step 1 (new or\n"
+        "reparented), in this same response:\n"
+        "  PREFERRED: an existing DESIGN above implements the class this LLR\n"
+        "    maps to — append to its trace_to:\n"
+        "    graph_add_traces(node_id=<design_id>, trace_to=[<llr_id>])\n"
+        "  ONLY when the MODULE's class plan names a class with no matching\n"
+        "  DESIGN yet:\n"
+        f"    graph_add_node(node_type=DESIGN, parent_id={module_id},\n"
+        "      trace_to=[<llr_id>, ...], title='3-5 words',\n"
+        "      content=<class name + method signatures + responsibilities>)\n"
+        "  Use the node_id RETURNED by each LLR graph_add_node call in the\n"
+        "  DESIGN's trace_to — never invent LLR ids.\n\n"
         "RULES:\n"
+        f"{IMPLEMENTABLE_SPEC_LITMUS}"
         "- Do NOT move an LLR if it is the ONLY child of its current parent.\n"
         "- Each LLR must be ATOMIC — ONE obligation in one EARS pattern.\n"
         f"{EARS_PATTERNS}"
         f"{REQUIREMENT_PROVENANCE_FIELDS}"
         "- Create one LLR per distinct obligation. Do NOT under-decompose.\n"
-        "- Align LLRs to CONTRACT signatures where they exist.\n"
-        "- Work through ALL HLRs before stopping."
-    )
-
-
-def build_batch_phase8_prompt(
-    module: dict[str, Any],
-    contract: dict[str, Any] | None,
-    undesigned_llrs: list[dict[str, Any]],
-    designs: list[dict[str, Any]],
-    suite: dict[str, Any] | None = None,
-    parent_hlr_cases: list[dict[str, Any]] | None = None,
-) -> str:
-    """Phase 8: assign LLRs to DESIGNs within one MODULE.
-
-    Sends full content for existing DESIGNs so reuse decisions are grounded
-    in actual method signatures, not titles. Also includes SUITE strategy
-    and any CASEs already on the parent HLRs so DESIGNs align with test
-    coverage intent.
-    """
-    parent_hlr_cases = parent_hlr_cases or []
-    llr_lines = _format_node_list(
-        undesigned_llrs, ["node_id", "title", "content"],
-    )
-    # FULL content for existing DESIGNs — reuse decisions need method signatures,
-    # not just titles. This is the single biggest quality lever in Phase 8.
-    design_lines = _format_node_list(
-        designs, ["node_id", "title", "trace_to", "content"],
-    )
-    suite_block = ""
-    if suite and suite.get("content"):
-        suite_block = (
-            f"\nSUITE [{suite.get('node_id', '')}] — test strategy:\n"
-            f"{suite['content']}\n"
-        )
-    cases_block = ""
-    if parent_hlr_cases:
-        cases_block = "\nCASES ALREADY ON PARENT HLRs (align DESIGNs to their coverage):\n"
-        cases_block += _format_node_list(
-            parent_hlr_cases, ["node_id", "node_type", "trace_to", "content"],
-        )
-        cases_block += "\n"
-    contract_block = ""
-    if contract:
-        contract_block = (
-            f"\nCONTRACT [{contract['node_id']}]:\n"
-            f"{contract.get('content', '')}\n"
-        )
-
-    return (
-        f"You are assigning LLRs to DESIGNs within MODULE [{module['node_id']}].\n\n"
-        f"MODULE [{module['node_id']}] — {module.get('title', '')}:\n"
-        f"{module.get('content', '')}\n"
-        f"{contract_block}"
-        f"{suite_block}"
-        f"{cases_block}\n"
-        f"UNDESIGNED LLRs ({len(undesigned_llrs)} — need a DESIGN):\n"
-        f"{llr_lines}\n\n"
-        f"EXISTING DESIGNs with full content ({len(designs)}):\n"
-        f"{design_lines}\n\n"
-        "FOR EACH LLR above:\n"
-        "  PREFERRED: if an existing DESIGN above implements the class this LLR\n"
-        "    maps to, add to its trace_to:\n"
-        "    graph_add_traces(node_id=<design_id>, trace_to=[<llr_id>])\n"
-        "  ONLY when the class plan names a class with no matching DESIGN:\n"
-        "    graph_add_node(node_type=DESIGN, parent_id=<module_id>, ...)\n\n"
-        "RULES:\n"
-        "- Number of DESIGNs must NOT exceed classes in the MODULE's class plan.\n"
-        "- Align method signatures with the CONTRACT and test steps in CASES.\n"
+        "- Align LLRs and DESIGN method signatures to the CONTRACT's\n"
+        "  public_api entries where they exist.\n"
+        "- The number of DESIGNs must NOT exceed the classes in the MODULE's\n"
+        "  class plan. Default is ONE class per MODULE — one DESIGN covering\n"
+        "  all its LLRs. Creating a new DESIGN when a matching one exists is\n"
+        "  WRONG.\n"
         "- Do NOT call graph_read. All context is above.\n"
-        "- Work through ALL LLRs before stopping."
+        "- Work through ALL HLRs before stopping; leave NO step-1 LLR\n"
+        "  without DESIGN coverage."
     )
+
+    return static + dynamic
+
+
+def _group_llrs_by_parent(all_llrs: list[dict[str, Any]]) -> str:
+    """Render LLRs nested under their parent HLR for contextual reading."""
+    by_parent: dict[str, list[dict[str, Any]]] = {}
+    for llr in all_llrs:
+        by_parent.setdefault(llr.get("parent_id", ""), []).append(llr)
+    blocks: list[str] = []
+    for pid in sorted(by_parent):
+        header = f"  LLRs under HLR {pid}:" if pid else "  LLRs with no parent:"
+        block = _format_node_list(by_parent[pid], ["node_id", "title", "content"])
+        blocks.append(f"{header}\n{block}")
+    return "\n\n".join(blocks) if blocks else "  (none)"
+
+
+def _contract_record_block(contract: dict[str, Any] | None) -> str:
+    """Render the CONTRACT prose plus its structured public_api record."""
+    if not contract:
+        return "\n"
+    block = (
+        f"\nCONTRACT [{contract['node_id']}]:\n"
+        f"{contract.get('content', '')}\n"
+    )
+    public_api = (contract.get("properties") or {}).get("public_api")
+    if public_api:
+        block += (
+            "\nCONTRACT RECORD — structured public_api (obligation fields\n"
+            "included; every LLR must be implementable against these\n"
+            "signatures, and every raises/postcondition obligation must be\n"
+            "carried by an LLR, never buried in a DESIGN):\n"
+            f"{json.dumps(public_api, indent=2)}\n"
+        )
+    return block + "\n"
 
 
 def build_batch_phase10_prompt(

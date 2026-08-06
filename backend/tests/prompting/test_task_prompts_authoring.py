@@ -54,13 +54,63 @@ def test_batch_phase3_prompt_includes_ears_patterns() -> None:
         assert template in prompt, template
 
 
+_MODULE = {
+    "node_id": "MODULE-0001",
+    "title": "Sorting engine",
+    "content": "Responsibilities: sorting. Class plan: Sorter.",
+}
+
+
 def test_batch_phase7_prompt_includes_ears_patterns() -> None:
     prompt = build_batch_phase7_prompt(
         [{"node_id": "HLR-0001", "title": "Sort", "content": "The system shall sort."}],
-        [], [],
+        _MODULE, None, [], [],
     )
     for template in _TEMPLATES:
         assert template in prompt, template
+
+
+def test_batch_phase7_prompt_carries_implementable_spec_litmus() -> None:
+    """U8: the fused authoring prompt embeds the DO-178C litmus — LLR is
+    directly implementable from its text + CONTRACT alone; DESIGN is private
+    structure and algorithm choice only (the U2 dividing rule)."""
+    from backend.prompting.task_prompts_authoring import IMPLEMENTABLE_SPEC_LITMUS
+
+    prompt = build_batch_phase7_prompt(
+        [{"node_id": "HLR-0001", "title": "Sort", "content": "The system shall sort."}],
+        _MODULE, None, [], [],
+    )
+    assert IMPLEMENTABLE_SPEC_LITMUS in prompt
+    assert "CONTRACT alone" in IMPLEMENTABLE_SPEC_LITMUS
+    assert "private structure" in IMPLEMENTABLE_SPEC_LITMUS
+    assert "algorithm choice" in IMPLEMENTABLE_SPEC_LITMUS
+
+
+def test_batch_phase7_prompt_renders_contract_record_obligations() -> None:
+    """U8: the module's structured CONTRACT record (public_api incl.
+    obligation fields) is rendered so LLRs align to real signatures."""
+    contract = {
+        "node_id": "CONTRACT-0001",
+        "content": "Interface prose.",
+        "properties": {
+            "public_api": [
+                {
+                    "module": "sorter", "symbol": "sort", "kind": "function",
+                    "signature": "def sort(items: list[int]) -> list[int]",
+                    "raises": [{"cls": "SortError", "base": "ValueError",
+                                "when": "items is not comparable"}],
+                    "postconditions": ["output is a permutation of input"],
+                }
+            ]
+        },
+    }
+    prompt = build_batch_phase7_prompt(
+        [{"node_id": "HLR-0001", "title": "Sort", "content": "The system shall sort."}],
+        _MODULE, contract, [], [],
+    )
+    assert "def sort(items: list[int]) -> list[int]" in prompt
+    assert "SortError" in prompt
+    assert "output is a permutation of input" in prompt
 
 
 def test_non_ears_repair_prompt_teaches_real_patterns() -> None:
@@ -124,7 +174,7 @@ def test_batch_phase3_prompt_instructs_provenance_properties() -> None:
 def test_batch_phase7_prompt_instructs_provenance_properties() -> None:
     prompt = build_batch_phase7_prompt(
         [{"node_id": "HLR-0001", "title": "Sort", "content": "The system shall sort."}],
-        [], [],
+        _MODULE, None, [], [],
     )
     _assert_provenance_instructions(prompt)
 
