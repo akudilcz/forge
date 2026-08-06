@@ -112,12 +112,18 @@ class LLMTraceWriter:
         tool_calls: list[Any],
         prompt_tokens: int,
         completion_tokens: int,
+        tokens_estimated: bool,
         duration_ms: int,
         streamed: bool,
         error: str | None,
         context: dict[str, Any],
     ) -> None:
-        """Append one complete call record to the trace file."""
+        """Append one complete call record to the trace file.
+
+        ``tokens_estimated`` marks records whose token counts were
+        tiktoken-estimated locally because the provider emitted no usage —
+        analysis must never mistake an estimate for provider-reported truth.
+        """
         payload = {
             "ts_ms": int(time.time() * 1000),
             "call_id": call_id,
@@ -127,6 +133,7 @@ class LLMTraceWriter:
             "duration_ms": duration_ms,
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
+            "tokens_estimated": tokens_estimated,
             "error": error,
             "request": {"messages": serialize_messages(messages), "tools": tools},
             "response": {"text": response_text, "tool_calls": tool_calls},

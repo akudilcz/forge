@@ -156,6 +156,11 @@ def scripted_seams(agent: Any) -> Iterator[Any]:
     async def _no_consolidation(**kwargs: Any) -> int:
         return 0
 
+    async def _no_batch_repair(flow: Any, gaps: Any) -> Any:
+        # Micro-repair is unit-tested in test_micro_repair.py; here every
+        # gap goes to the scripted per-gap dispatch path deterministically.
+        return gaps
+
     with (
         patch("backend.pipeline.dispatch.run_agent_task", new=agent),
         patch(
@@ -174,6 +179,9 @@ def scripted_seams(agent: Any) -> Iterator[Any]:
             "backend.quality.design_consolidation.create_design_consolidator",
             return_value=_no_consolidation,
         ),
+        patch("backend.pipeline.quality_loop.apply_micro_repair_batches", _no_batch_repair),
+        patch("backend.pipeline.structural_loop.apply_micro_repair_batches", _no_batch_repair),
+        patch("backend.pipeline.steps.apply_micro_repair_batches", _no_batch_repair),
     ):
         yield agent
 

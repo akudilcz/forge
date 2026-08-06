@@ -39,6 +39,7 @@ from backend.codegen.mission_context import (
 from backend.codegen.mission_context import (
     build_mission_context as build_mission_context,
 )
+from backend.codegen.mission_history import make_mission_trim_hook
 from backend.core.work_queue import work_queue
 from backend.server.forge_logger import forge_logger
 from backend.workspace.result_recorder import is_passed
@@ -241,11 +242,16 @@ def create_mission_agent(
         )
     llm = build_llm(config, model=config.llm.model_for_phase(12), cacheable=True)
 
+    # History compaction: the mission thread runs 100+ sequential LLM
+    # calls, so an unbounded conversation dominates build cost (measured
+    # 52k→250k-token prompts). The hook enforces llm.mission_token_budget
+    # with the preservation rule in design/22 §History Compaction.
     return create_react_agent(
         model=llm,
         tools=tools,
         prompt=_SYSTEM_PROMPT,
         checkpointer=MemorySaver(),
+        pre_model_hook=make_mission_trim_hook(config.llm.mission_token_budget),
     )
 
 

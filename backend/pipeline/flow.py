@@ -137,6 +137,28 @@ class ForgeFlow(SpecialPhaseHandlers):
                 forge_logger.loop_error(str(exc))
                 self._broadcast_loop_status("error")
                 self._reset_active_phase()
+            finally:
+                # End-of-run hook — completion, single-step, cancel, and
+                # error all pass here, so the run's logs DB + llm_trace are
+                # persisted into <workspace>/.forge even for halted builds.
+                self._persist_run_artifacts()
+
+    def _persist_run_artifacts(self) -> None:
+        """Copy this run's logs DB + llm_trace next to the workspace forge.db.
+
+        Never raises: a persistence failure at teardown must not mask the
+        run's own outcome — it is logged loudly instead.
+        """
+        from backend.observability.run_artifacts import persist_run_artifacts
+
+        trace_dir = self.config.llm.trace_dir if self.config is not None else None
+        try:
+            persist_run_artifacts(self._workspace, trace_dir)
+        except Exception as exc:  # noqa: BLE001 — teardown must stay loud, not fatal
+            forge_logger.emit(
+                "ERROR", "SYS",
+                f"Run artifact persistence failed: {type(exc).__name__}: {exc}",
+            )
 
     def approve_phase(self, phase_number: int) -> None:
         """Unblock a phase waiting for human approval."""

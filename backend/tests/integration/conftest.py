@@ -46,6 +46,25 @@ HAS_BAZEL = _has_bazel()
 
 
 @pytest.fixture(autouse=True)
+def _allow_real_llm_endpoints() -> Iterator[None]:
+    """Clear the unit-test network guard for integration tests.
+
+    Integration tests intentionally dial real providers (configured via
+    FORGE_TEST_* env vars); the root conftest's sentinel must not apply
+    here. Restored after each test so unit tests in the same session stay
+    guarded.
+    """
+    from backend.agents.factory import UNIT_LLM_GUARD_ENV
+
+    previous = os.environ.pop(UNIT_LLM_GUARD_ENV, None)
+    try:
+        yield
+    finally:
+        if previous is not None:
+            os.environ[UNIT_LLM_GUARD_ENV] = previous
+
+
+@pytest.fixture(autouse=True)
 def _enable_forge_logging() -> Iterator[None]:
     """Route forge_logger output to stdout so pytest -s captures it with test output."""
     forge_logger.enable_stdout()

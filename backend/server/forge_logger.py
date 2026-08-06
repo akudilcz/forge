@@ -95,6 +95,18 @@ class ForgeLogger(EventEmitters):
         """Register an additional sink. Useful for tests."""
         self._sinks.append(sink)
 
+    def sqlite_db_paths(self) -> list[str]:
+        """DB paths of every attached SQLite sink.
+
+        Used by run-artifact persistence
+        (``backend/observability/run_artifacts.py``) to locate this
+        process's logs DB regardless of whether it was wired at server
+        startup or by a test conftest via :meth:`add_sink`.
+        """
+        return [
+            sink.db_path for sink in self._sinks if isinstance(sink, SQLiteLogSink)
+        ]
+
     def enable_stderr(self) -> None:
         if self._stderr_sink is None:
             self._stderr_sink = StderrLogSink()

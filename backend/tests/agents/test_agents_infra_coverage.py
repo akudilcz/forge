@@ -318,6 +318,17 @@ class TestBuildLLM:
                 assert kw["api_key"] == "test-key"
                 assert kw["temperature"] == 0.7
 
+    def test_build_llm_enables_stream_usage(self) -> None:
+        """Streamed calls must request the final usage chunk — without
+        stream_options.include_usage every streamed call records 0 tokens."""
+        config = _llm_config(
+            keyless=True, api_key_env="", cache_enabled=False, cache_dir=".cache"
+        )
+
+        with patch("backend.agents.factory.ThrottledChatOpenAI") as mock_llm:
+            build_llm(config, cacheable=True)
+            assert mock_llm.call_args[1]["stream_usage"] is True
+
     def test_build_llm_retries_transient_failures(self) -> None:
         """One transient network error must not kill a check outright."""
         config = _llm_config(

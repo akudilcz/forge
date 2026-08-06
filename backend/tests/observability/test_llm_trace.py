@@ -92,6 +92,7 @@ def test_writer_appends_one_json_line_per_record(tmp_path: Path) -> None:
             tool_calls=[],
             prompt_tokens=1,
             completion_tokens=2,
+            tokens_estimated=False,
             duration_ms=5,
             streamed=False,
             error=None,
@@ -147,6 +148,7 @@ async def test_agenerate_writes_complete_trace_record(
     assert record["error"] is None
     assert record["prompt_tokens"] == 3
     assert record["completion_tokens"] == 2
+    assert record["tokens_estimated"] is False
     assert record["duration_ms"] >= 0
     assert record["request"]["messages"] == [{"role": "human", "content": "go"}]
     assert record["request"]["tools"] == [{"type": "function", "function": {"name": "f"}}]
@@ -224,6 +226,38 @@ async def test_astream_writes_assembled_text_record(
     assert record["response"]["tool_calls"] == [{"name": "file_read"}]
     assert record["prompt_tokens"] == 10
     assert record["completion_tokens"] == 7
+    assert record["tokens_estimated"] is False
+
+
+async def test_astream_without_provider_usage_traces_estimated_tokens(
+    tmp_path: Path, _llm_counters: None
+) -> None:
+    """No usage anywhere in the stream: the trace record carries non-zero
+    tiktoken-estimated counts, flagged so analysis never mistakes them for
+    provider-reported truth."""
+    chunk = SimpleNamespace(
+        usage_metadata=None,
+        content="hello streamed world",
+        tool_calls=[],
+        response_metadata={},
+    )
+
+    async def fake_stream(self: Any, *args: Any, **kwargs: Any) -> Any:
+        yield chunk
+
+    trace_file = tmp_path / "trace.jsonl"
+    with (
+        patch("backend.agents.factory.forge_logger"),
+        patch("langchain_openai.ChatOpenAI._astream", fake_stream),
+        patch.object(llm_throttle, "wait", AsyncMock()),
+    ):
+        llm = _make_llm(LLMTraceWriter(trace_file))
+        _ = [c async for c in llm._astream([_human_message("count these tokens")])]
+
+    (record,) = _read_records(trace_file)
+    assert record["tokens_estimated"] is True
+    assert record["prompt_tokens"] > 0
+    assert record["completion_tokens"] > 0
 
 
 async def test_astream_error_writes_error_record(

@@ -14,13 +14,18 @@ from starlette.websockets import WebSocketDisconnect
 from backend.server.websocket.manager import WebSocketManager
 
 
-def _make_app() -> FastAPI:
+def _make_app(dist_path: Path | None) -> FastAPI:
     os.environ.pop("FORGE_AUTH_USER", None)
     os.environ.pop("FORGE_AUTH_PASS", None)
 
+    import backend.server.app as app_module
     from backend.server.app import create_app
 
-    app = create_app()
+    # A real frontend/dist in the repo would mount the SPA catch-all and
+    # swallow the 404/500 routes these tests assert on — pin it absent.
+    resolved = dist_path if dist_path is not None else Path("/nonexistent/frontend/dist")
+    with patch.object(app_module, "_FRONTEND_DIST", resolved):
+        app = create_app()
     app.state.ws_manager = WebSocketManager()
 
     session = MagicMock()
@@ -42,13 +47,13 @@ def _make_app() -> FastAPI:
 
 class TestHttpMiddleware:
     def test_health_ok(self) -> None:
-        app = _make_app()
+        app = _make_app(None)
         resp = TestClient(app).get("/health")
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
 
     def test_unhandled_exception_logged_and_returns_500(self) -> None:
-        app = _make_app()
+        app = _make_app(None)
 
         @app.get("/boom")
         async def boom() -> None:
@@ -59,7 +64,7 @@ class TestHttpMiddleware:
         assert resp.status_code == 500
 
     def test_error_status_logged_as_warn(self) -> None:
-        app = _make_app()
+        app = _make_app(None)
         resp = TestClient(app).get("/api/v1/nope-not-a-route")
         assert resp.status_code == 404
 
@@ -69,7 +74,7 @@ class TestHttpMiddleware:
 
 class TestWebSocketEndpoint:
     def test_snapshot_sent_on_connect(self) -> None:
-        app = _make_app()
+        app = _make_app(None)
         client = TestClient(app)
         with client.websocket_connect("/ws") as ws:
             data = ws.receive_json()
@@ -81,7 +86,7 @@ class TestWebSocketEndpoint:
         assert data["payload"]["loop_status"] == "idle"
 
     def test_snapshot_without_pool_or_store(self) -> None:
-        app = _make_app()
+        app = _make_app(None)
         app.state.agent_pool = None
         app.state.phase_store = None
         flow = MagicMock()
@@ -95,7 +100,7 @@ class TestWebSocketEndpoint:
         assert data["payload"]["loop_status"] == "running"
 
     def test_snapshot_failure_closes_connection(self) -> None:
-        app = _make_app()
+        app = _make_app(None)
         app.state.session = MagicMock()
         app.state.session.model_dump.side_effect = RuntimeError("dead")
         client = TestClient(app)
@@ -105,7 +110,7 @@ class TestWebSocketEndpoint:
                 ws.receive_json()
 
     def test_disconnect_unregisters(self) -> None:
-        app = _make_app()
+        app = _make_app(None)
         manager: WebSocketManager = app.state.ws_manager
         client = TestClient(app)
         with client.websocket_connect("/ws") as ws:
@@ -121,27 +126,39 @@ class TestFrontendServing:
     def test_find_frontend_dist_from_cwd(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        import backend.server.app as app_module
         from backend.server.app import _find_frontend_dist
 
         dist = tmp_path / "frontend" / "dist"
         dist.mkdir(parents=True)
         monkeypatch.chdir(tmp_path)
+        # Anchor the module-relative walk inside tmp_path so a real repo
+        # frontend/dist can never win regardless of environment.
+        monkeypatch.setattr(
+            app_module, "__file__", str(tmp_path / "backend" / "server" / "app.py")
+        )
         assert _find_frontend_dist() == dist
 
     def test_find_frontend_dist_fallback(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        import backend.server.app as app_module
         from backend.server.app import _find_frontend_dist
 
         monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(
+            app_module, "__file__", str(tmp_path / "backend" / "server" / "app.py")
+        )
         assert _find_frontend_dist() == tmp_path / "frontend" / "dist"
 
     def test_spa_catch_all_serves_index(self, tmp_path: Path) -> None:
         dist = tmp_path / "dist"
         (dist / "assets").mkdir(parents=True)
         (dist / "index.html").write_text("<html>SPA SHELL</html>")
+        # The catch-all reads _FRONTEND_DIST at request time, so the patch
+        # must span the request as well as app creation.
         with patch("backend.server.app._FRONTEND_DIST", dist):
-            app = _make_app()
+            app = _make_app(dist)
             resp = TestClient(app).get("/some/client/route")
         assert resp.status_code == 200
         assert "SPA SHELL" in resp.text

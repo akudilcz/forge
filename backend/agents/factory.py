@@ -52,6 +52,7 @@ class ThrottledChatOpenAI(ChatOpenAI):  # type: ignore[misc]
         tool_calls: list[Any],
         prompt_tokens: int,
         completion_tokens: int,
+        tokens_estimated: bool,
         duration_ms: int,
         streamed: bool,
         error: str | None,
@@ -71,6 +72,7 @@ class ThrottledChatOpenAI(ChatOpenAI):  # type: ignore[misc]
             tool_calls=tool_calls,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            tokens_estimated=tokens_estimated,
             duration_ms=duration_ms,
             streamed=streamed,
             error=error,
@@ -187,17 +189,31 @@ class ThrottledChatOpenAI(ChatOpenAI):  # type: ignore[misc]
                     completion_tokens = completion_tokens or int(
                         usage.get("completion_tokens") or usage.get("output_tokens") or 0
                     )
+            # Loud last resort: the provider emitted no usage anywhere in the
+            # stream (despite stream_options.include_usage). Estimate with
+            # tiktoken over the request messages / assembled response text and
+            # flag the record as estimated — never record silent zeros.
+            tokens_estimated = False
+            if error_text is None and (prompt_tokens == 0 or completion_tokens == 0):
+                prompt_tokens, completion_tokens, tokens_estimated = _estimate_stream_tokens(
+                    args[0] if args else [],
+                    "".join(text_parts),
+                    prompt_tokens,
+                    completion_tokens,
+                )
+            estimated_note = " (estimated)" if tokens_estimated else ""
             forge_logger.emit(
                 "INFO", "LLM  ",
                 f"stream-end {self.model_name} {dur}ms "
                 f"tool_calls={tool_call_count} "
-                f"in={prompt_tokens}t out={completion_tokens}t",
+                f"in={prompt_tokens}t out={completion_tokens}t{estimated_note}",
                 model=self.model_name or None,
                 call_id=call_id,
                 duration_ms=dur,
                 tool_call_count=tool_call_count,
                 prompt_tokens=prompt_tokens or None,
                 completion_tokens=completion_tokens or None,
+                tokens_estimated=tokens_estimated or None,
                 thinking=thinking_snippet,
             )
             self._trace(
@@ -208,6 +224,7 @@ class ThrottledChatOpenAI(ChatOpenAI):  # type: ignore[misc]
                 tool_calls=getattr(last_chunk, "tool_calls", None) or [],
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
+                tokens_estimated=tokens_estimated,
                 duration_ms=dur,
                 streamed=True,
                 error=error_text,
@@ -279,6 +296,7 @@ class ThrottledChatOpenAI(ChatOpenAI):  # type: ignore[misc]
                 tool_calls=tool_calls,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
+                tokens_estimated=False,
                 duration_ms=dur,
                 streamed=False,
                 error=None,
@@ -295,11 +313,39 @@ class ThrottledChatOpenAI(ChatOpenAI):  # type: ignore[misc]
                 tool_calls=[],
                 prompt_tokens=0,
                 completion_tokens=0,
+                tokens_estimated=False,
                 duration_ms=int((time.monotonic() - t0) * 1000),
                 streamed=False,
                 error=error_text,
             )
             raise
+
+
+def _estimate_stream_tokens(
+    messages: list[Any],
+    response_text: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+) -> tuple[int, int, bool]:
+    """Fill missing streamed token counts with a tiktoken estimate.
+
+    Returns ``(prompt_tokens, completion_tokens, estimated)`` where
+    *estimated* is True when either side had to be counted locally because
+    the provider never emitted usage. Real values are kept as-is.
+    """
+    from backend.prompting.context_budget import count_tokens  # noqa: PLC0415
+
+    estimated = False
+    if prompt_tokens == 0 and messages:
+        prompt_text = "\n".join(
+            str(getattr(m, "content", "") or "") for m in messages
+        )
+        prompt_tokens = count_tokens(prompt_text)
+        estimated = True
+    if completion_tokens == 0 and response_text:
+        completion_tokens = count_tokens(response_text)
+        estimated = True
+    return prompt_tokens, completion_tokens, estimated
 
 
 async def _prepend(first: Any, rest: Any) -> Any:
@@ -450,7 +496,12 @@ def build_llm(
             ``llm.api_key_env`` is unset or empty. A missing key must fail
             loudly at construction — never fall back to a placeholder that
             surfaces as swallowed mid-run 401s.
+        RuntimeError: when the unit-test network guard
+            (``FORGE_UNIT_LLM_GUARD``) is active and the config still points
+            at a default routable provider endpoint — a unit test forgot to
+            stub the LLM seam and would really dial out.
     """
+    _check_unit_test_network_guard(config)
     api_key = _resolve_api_key(config)
     model_name = model or config.llm.agents[AgentRole.QUALITY_AUDITOR.value]
     temp = temperature if temperature is not None else config.llm.options.temperature
@@ -486,9 +537,50 @@ def build_llm(
         # no retry loop of their own — one transient 429/5xx must not kill a
         # check, so the client retries transient transport failures itself.
         max_retries=2,
+        # OpenAI-compatible streams only emit a final usage chunk when
+        # stream_options={"include_usage": true}; langchain-openai wires that
+        # from stream_usage. Without it every streamed call records 0 tokens.
+        stream_usage=True,
         cache=cache,
         trace_writer=trace_writer,
     )
+
+
+#: Environment variable set by the unit-test conftest
+#: (backend/tests/conftest.py). When set to "1", build_llm refuses to
+#: construct a client aimed at a default routable provider endpoint —
+#: defence in depth against unit tests that forgot to stub the LLM seam
+#: and would really dial out (observed: ~430 real 401 calls per suite run).
+#: Integration tests clear it via their own conftest.
+UNIT_LLM_GUARD_ENV = "FORGE_UNIT_LLM_GUARD"
+
+#: Default provider endpoints that are really routable. A unit test whose
+#: config still carries one of these never intends a real network call.
+_ROUTABLE_DEFAULT_BASE_URLS = frozenset(
+    {"https://api.poe.com/v1", "https://openrouter.ai/api/v1"}
+)
+
+
+def _check_unit_test_network_guard(config: ForgeConfig) -> None:
+    """Raise loudly when a unit test builds a real network LLM client.
+
+    Active only when :data:`UNIT_LLM_GUARD_ENV` is set to "1" (done by the
+    unit-test conftest; integration tests remove it). Triggers on the
+    default routable base URLs — a unit test with default config never
+    means to dial api.poe.com; it forgot to stub the LLM seam.
+    """
+    if os.environ.get(UNIT_LLM_GUARD_ENV) != "1":
+        return
+    if config.llm.base_url in _ROUTABLE_DEFAULT_BASE_URLS:
+        raise RuntimeError(
+            f"Unit-test network guard: build_llm was asked to construct a "
+            f"real network client for default endpoint "
+            f"{config.llm.base_url!r}. Unit tests must stub the LLM seam "
+            f"(e.g. patch the *_build_* checker seam or "
+            f"backend.agents.factory.build_llm) or point llm.base_url at a "
+            f"non-routable address. Integration tests are exempt via their "
+            f"own conftest, which clears {UNIT_LLM_GUARD_ENV}."
+        )
 
 
 def _resolve_api_key(config: ForgeConfig) -> str:

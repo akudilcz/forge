@@ -31,6 +31,7 @@ from backend.analysis.node_invariants import (
     check_sibling_content_unique,
     check_sibling_title_unique,
     check_title,
+    check_title_distinct_from_parent,
 )
 from backend.prompting.repair_batch import (
     MIN_BATCH_SIZE,
@@ -102,12 +103,18 @@ def _entries_for(
         if node is None:
             continue  # node gone — the gap is moot and drops out downstream
         sibling_titles: tuple[str, ...] = ()
+        parent_title = ""
         if is_title and node.parent_id:
             sibling_titles = tuple(
                 (s.title or "").strip()
                 for s in flow.graph.children_sync(node.parent_id)
                 if s.node_id != node_id and (s.title or "").strip()
             )
+            # The prompt must carry the parent title so a rewrite cannot
+            # re-trigger TITLE_COLLIDES_WITH_PARENT.
+            parent = flow.graph.node_sync(node.parent_id)
+            if parent is not None:
+                parent_title = (parent.title or "").strip()
         entries.append(
             RepairEntry(
                 node_id=node_id,
@@ -116,6 +123,7 @@ def _entries_for(
                 content=node.content or "",
                 violation="; ".join(g.description for g in node_gaps),
                 sibling_titles=sibling_titles,
+                parent_title=parent_title,
             )
         )
         live[node_id] = node_gaps
@@ -188,8 +196,11 @@ async def _apply_fix(flow: Any, node_id: str, value: str, is_title: bool) -> boo
         flow.graph.children_sync(node.parent_id) if node.parent_id else []
     )
     if is_title:
-        error = check_title(node.node_type, value) or check_sibling_title_unique(
-            node.node_type, value, node_id, siblings
+        parent = flow.graph.node_sync(node.parent_id) if node.parent_id else None
+        error = (
+            check_title(node.node_type, value)
+            or check_sibling_title_unique(node.node_type, value, node_id, siblings)
+            or check_title_distinct_from_parent(node.node_type, value, parent)
         )
     else:
         error = check_requirement_wording(

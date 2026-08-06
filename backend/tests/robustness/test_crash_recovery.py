@@ -64,7 +64,10 @@ async def _build_flow(workspace: Path, db_path: Path) -> ForgeFlow:
             name="crash-recovery", forgemd="forge.md", workspace_dir=str(workspace)
         )
     )
+    # Keyless and non-routable: the unit-test network guard permits
+    # construction; any leaked call fails fast locally.
     config.llm.keyless = True
+    config.llm.base_url = "http://localhost:1/v1"
     builder = ForgeBuilder(config=config, workspace=workspace, db_path=db_path)
     return await builder.build()
 

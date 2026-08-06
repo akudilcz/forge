@@ -231,6 +231,42 @@ async def test_astream_yields_chunks_and_logs_stream_end(_llm_counters: None) ->
     assert stream_end[1]["completion_tokens"] == 7
     assert stream_end[1]["tool_call_count"] == 1
     assert stream_end[1]["thinking"] == "pondering"
+    # Provider-reported usage is never flagged as estimated.
+    assert stream_end[1]["tokens_estimated"] is None
+    assert "(estimated)" not in stream_end[0][2]
+
+
+async def test_astream_estimates_tokens_loudly_when_provider_omits_usage(
+    _llm_counters: None,
+) -> None:
+    """A stream with no usage anywhere records tiktoken-estimated non-zero
+    counts, and the stream-end log says so ('estimated' — never silent 0s)."""
+    factory_mod.llm_call_limit = None
+    chunk = SimpleNamespace(
+        usage_metadata=None,
+        content="some streamed answer text",
+        tool_calls=[],
+        response_metadata={},
+    )
+
+    async def fake_stream(self: Any, *args: Any, **kwargs: Any) -> Any:
+        yield chunk
+
+    with (
+        patch("backend.agents.factory.forge_logger") as mock_log,
+        patch("langchain_openai.ChatOpenAI._astream", fake_stream),
+        patch.object(llm_throttle, "wait", AsyncMock()),
+    ):
+        llm = _make_llm()
+        _ = [c async for c in llm._astream([_human_message("estimate my tokens")])]
+
+    stream_end = next(
+        c for c in mock_log.emit.call_args_list if "stream-end" in c[0][2]
+    )
+    assert stream_end[1]["prompt_tokens"] > 0
+    assert stream_end[1]["completion_tokens"] > 0
+    assert stream_end[1]["tokens_estimated"] is True
+    assert "(estimated)" in stream_end[0][2]
 
 
 async def test_astream_falls_back_to_response_metadata_usage(

@@ -134,6 +134,86 @@ class TestBatchedRepairHappyPath:
 
 
 @pytest.mark.asyncio
+class TestParentCollisionBatching:
+    """TITLE_COLLIDES_WITH_PARENT joins the title batch family."""
+
+    def _fixture(self) -> tuple[list[Gap], MagicMock]:
+        gaps = [_gap(GapType.TITLE_COLLIDES_WITH_PARENT, f"HLR-000{i}") for i in (1, 2, 3)]
+        parent = _node("MOD-0001", "MODULE", "Sorting Module", "Module content.")
+        parent.parent_id = None
+        nodes = {
+            f"HLR-000{i}": _node(
+                f"HLR-000{i}", "HLR", "Sorting Module", "The system shall sort."
+            )
+            for i in (1, 2, 3)
+        }
+        children = list(nodes.values())
+        nodes["MOD-0001"] = parent
+        flow = MagicMock()
+        flow.graph.node_sync = MagicMock(side_effect=lambda nid: nodes.get(nid))
+        flow.graph.children_sync = MagicMock(return_value=children)
+        flow.graph.update_node = AsyncMock()
+        flow._analyser.analyse = MagicMock(return_value=[])
+        return gaps, flow
+
+    async def test_three_parent_collision_gaps_use_one_llm_call(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        gaps, flow = self._fixture()
+        llm = _llm(
+            "HLR-0001: Sort Input Ascending\n"
+            "HLR-0002: Sort Stability Guarantee\n"
+            "HLR-0003: Sort Error Handling\n"
+        )
+        monkeypatch.setattr(micro_repair, "_build_repair_llm", lambda f: llm)
+
+        remaining = await apply_micro_repair_batches(flow, gaps)
+
+        assert remaining == []
+        assert llm.ainvoke.await_count == 1
+        assert flow.graph.update_node.await_count == 3
+
+    async def test_batch_prompt_carries_parent_title(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The payload names the parent title so a rewrite cannot re-collide."""
+        gaps, flow = self._fixture()
+        llm = _llm(
+            "HLR-0001: Sort Input Ascending\n"
+            "HLR-0002: Sort Stability Guarantee\n"
+            "HLR-0003: Sort Error Handling\n"
+        )
+        monkeypatch.setattr(micro_repair, "_build_repair_llm", lambda f: llm)
+
+        await apply_micro_repair_batches(flow, gaps)
+
+        messages = llm.ainvoke.await_args.args[0]
+        payload = messages[1].content
+        assert "Sorting Module" in payload
+        assert "parent_title (must stay distinct from)" in payload
+
+    async def test_fix_that_still_collides_with_parent_is_rejected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A returned title equal to the parent's fails the write-time
+        invariant — the gap stays open for per-gap dispatch."""
+        gaps, flow = self._fixture()
+        llm = _llm(
+            "HLR-0001: Sorting Module\n"  # re-collides with parent title
+            "HLR-0002: Sort Stability Guarantee\n"
+            "HLR-0003: Sort Error Handling\n"
+        )
+        monkeypatch.setattr(micro_repair, "_build_repair_llm", lambda f: llm)
+
+        remaining = await apply_micro_repair_batches(flow, gaps)
+
+        assert remaining == [gaps[0]]
+        titles = [c.kwargs["title"] for c in flow.graph.update_node.await_args_list]
+        assert "Sorting Module" not in titles
+        assert flow.graph.update_node.await_count == 2
+
+
+@pytest.mark.asyncio
 class TestThresholdAndScope:
     async def test_below_threshold_makes_no_llm_call(
         self, monkeypatch: pytest.MonkeyPatch

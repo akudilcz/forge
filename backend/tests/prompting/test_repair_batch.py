@@ -33,6 +33,7 @@ def _entry(node_id: str, content: str, violation: str) -> RepairEntry:
         content=content,
         violation=violation,
         sibling_titles=("Sort Input List", "Reject Boolean Values"),
+        parent_title="List Processing Module",
     )
 
 
@@ -46,8 +47,14 @@ class TestFamilyPins:
                 GapType.VAGUE_TITLE,
                 GapType.STALE_TITLE,
                 GapType.SIBLING_TITLE_DUPLICATE,
+                GapType.TITLE_COLLIDES_WITH_PARENT,
             }
         )
+
+    def test_title_collides_with_parent_is_batchable(self) -> None:
+        """1,684 per-gap calls across builds were pure title rewrites already
+        gated by write-time invariants — they join the batch family."""
+        assert GapType.TITLE_COLLIDES_WITH_PARENT in BATCHABLE_REPAIR_TYPES
 
     def test_wording_family_members(self) -> None:
         assert WORDING_FAMILY == frozenset(
@@ -75,6 +82,31 @@ class TestTitlePayload:
         assert "title is vague" in payload
         assert "Handle Cases" in payload  # current title
         assert "Sort Input List" in payload  # sibling titles to stay distinct from
+
+    def test_payload_carries_parent_title_to_avoid_recollision(self) -> None:
+        """The rewrite must know the parent title — otherwise a 'fix' can
+        re-trigger TITLE_COLLIDES_WITH_PARENT."""
+        payload = build_title_repair_payload(
+            [_entry("HLR-0001", "The system shall sort the list.", "title duplicates parent")]
+        )
+        assert "List Processing Module" in payload
+        assert "parent_title (must stay distinct from)" in payload
+
+    def test_payload_without_parent_says_none(self) -> None:
+        entry = RepairEntry(
+            node_id="PROJ-0001",
+            node_type="PROJECT",
+            title="Root",
+            content="c",
+            violation="v",
+            sibling_titles=(),
+            parent_title="",
+        )
+        payload = build_title_repair_payload([entry])
+        assert "parent_title (must stay distinct from): (none)" in payload
+
+    def test_system_prompt_demands_distinct_from_parent(self) -> None:
+        assert "parent title" in TITLE_REPAIR_SYSTEM_PROMPT
 
     def test_one_block_per_entry(self) -> None:
         payload = build_title_repair_payload(

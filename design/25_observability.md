@@ -105,7 +105,8 @@ recorded with its **complete request and response bodies** by
   throwaway workspaces still write to the repo-level directory.
 - **Record fields** — `ts_ms`, `call_id` (same correlation id as the
   logs DB `call_id` column), `model`, `temperature`, `streamed`,
-  `duration_ms`, `prompt_tokens`, `completion_tokens`, `error`
+  `duration_ms`, `prompt_tokens`, `completion_tokens`,
+  `tokens_estimated` (see "Streamed token usage" below), `error`
   (`None` on success; `"Type: message"` on failure — failures are traced
   too), `request` (`messages` with role/content/tool_calls plus the bound
   `tools` definitions when present in the call kwargs), `response`
@@ -127,6 +128,55 @@ recorded with its **complete request and response bodies** by
   that linkage.
 - **Retention** — unbounded JSONL, one file per process. Follow-up:
   add pruning of old trace files alongside `prune_old_logs`.
+
+## Streamed token usage
+
+OpenAI-compatible streaming responses only emit a final usage chunk when
+the request carries `stream_options={"include_usage": true}`; without it
+every streamed call records 0 prompt/completion tokens (measured: 5,800+
+of ~10,000 records in one build trace). `build_llm` therefore constructs
+`ThrottledChatOpenAI` with `stream_usage=True` (the langchain-openai seam
+for that option). `_astream` reads usage from chunk `usage_metadata`,
+falls back to `response_metadata.token_usage`, and as a loud last resort
+tiktoken-estimates the counts from the request messages and assembled
+response text (`_estimate_stream_tokens`). Estimated records are flagged:
+the stream-end log says `(estimated)` and carries
+`tokens_estimated=True`, and the trace record sets `tokens_estimated` so
+analysis never mistakes a local estimate for provider-reported truth.
+Non-streaming calls always set `tokens_estimated=False`.
+
+## Run artifact persistence
+
+Cross-run analysis needs each build's logs DB and LLM trace *after* the
+run, but both are per-process files under the repo `.forge/` directory
+and are pruned by later pytest sessions (12 of 14 analysed builds had
+their `forge.test.logs.<pid>.db` deleted before analysis). At end of run
+— `ForgeFlow.kickoff_async`'s `finally`, which covers completion,
+single-step, cancellation, and error — the flow calls
+`backend/observability/run_artifacts.py::persist_run_artifacts` to copy:
+
+- every attached SQLite logs DB (via `forge_logger.sqlite_db_paths()`,
+  snapshotted with the SQLite backup API so a live WAL DB copies
+  consistently), and
+- this process's `trace.<pid>.jsonl` (from `llm.trace_dir`),
+
+into `<workspace>/.forge/` next to `forge.db`, keeping the source
+basenames so records still join by PID/`call_id`. A missing source (no
+sink attached, missing file, no config) is a loud WARN — never a silent
+skip — and a persistence failure logs ERROR without masking the run's
+own outcome.
+
+## Unit-test network guard
+
+Unit suites must never dial real providers (measured: ~430 real 401 HTTP
+calls per suite run from tests that carried default config into
+`build_llm` without stubbing the LLM seam). `backend/tests/conftest.py`
+sets `FORGE_UNIT_LLM_GUARD=1` for the session; with it set,
+`build_llm` raises `RuntimeError` when `llm.base_url` is one of the
+default routable provider endpoints (api.poe.com / openrouter.ai) —
+defence in depth behind the first-line fix of stubbing the LLM seam in
+tests. Integration tests are exempt: their conftest clears the sentinel
+(they configure real endpoints explicitly via `FORGE_TEST_*`).
 
 ## Extension points
 

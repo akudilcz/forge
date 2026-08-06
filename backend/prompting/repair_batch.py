@@ -25,6 +25,7 @@ TITLE_FAMILY: frozenset[GapType] = frozenset(
         GapType.VAGUE_TITLE,
         GapType.STALE_TITLE,
         GapType.SIBLING_TITLE_DUPLICATE,
+        GapType.TITLE_COLLIDES_WITH_PARENT,
     }
 )
 
@@ -58,6 +59,11 @@ class RepairEntry:
     content: str
     violation: str
     sibling_titles: tuple[str, ...]
+    #: Parent node's title; empty when the node has no parent (or for
+    #: wording repairs, where it is irrelevant). Title repairs must stay
+    #: distinct from it — otherwise a rewrite can re-trigger
+    #: TITLE_COLLIDES_WITH_PARENT.
+    parent_title: str
 
 
 TITLE_REPAIR_SYSTEM_PROMPT = """\
@@ -68,7 +74,9 @@ replacement title:
 - a concrete 3-5 word noun phrase naming ONLY that node's current content
   scope (good: 'Return Empty List', 'Reject Boolean Values';
   bad: 'Handle Cases', 'Misc Rules', 'General Behavior');
-- distinct from every listed sibling title (case-insensitive).
+- distinct from every listed sibling title (case-insensitive);
+- distinct from the listed parent title (case-insensitive) — the child
+  must name a NARROWER scope than its parent.
 
 OUTPUT FORMAT — one line per node, in the INPUT order, exactly:
 
@@ -109,10 +117,12 @@ def build_title_repair_payload(entries: list[RepairEntry]) -> str:
     blocks: list[str] = []
     for e in entries:
         siblings = " | ".join(repr(t) for t in e.sibling_titles) or "(none)"
+        parent = repr(e.parent_title) if e.parent_title else "(none)"
         blocks.append(
             f"[{e.node_id}] type={e.node_type}\n"
             f"  current_title: {e.title!r}\n"
             f"  violation: {e.violation}\n"
+            f"  parent_title (must stay distinct from): {parent}\n"
             f"  sibling_titles (must stay distinct from): {siblings}\n"
             f"  content: {_capped(e.content)!r}"
         )

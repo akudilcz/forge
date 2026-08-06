@@ -109,14 +109,21 @@ class TestBuildMissionContext:
 
 
 class TestIncludeRenderedDocs:
-    def test_reads_useful_docs(self, tmp_path: Path) -> None:
+    def test_lists_doc_names_without_bodies(self, tmp_path: Path) -> None:
+        """Slim context (design/22): doc bodies are re-readable via
+        read_docs, so only the name + size is inlined."""
         docs_dir = tmp_path / "docs"
         docs_dir.mkdir()
         (docs_dir / "07-LLR.md").write_text("llr content")
+        (docs_dir / "08-Design.md").write_text("design body text")
         sections: list[str] = []
         _include_rendered_docs(tmp_path, sections)
         assert len(sections) == 1
-        assert "llr content" in sections[0]
+        assert "07-LLR.md" in sections[0]
+        assert "08-Design.md" in sections[0]
+        assert "llr content" not in sections[0]
+        assert "design body text" not in sections[0]
+        assert "read_docs" in sections[0]
 
     def test_missing_docs_dir_is_no_op(self, tmp_path: Path) -> None:
         sections: list[str] = []
@@ -147,21 +154,34 @@ class TestIncludeTracingSource:
 
 
 class TestIncludeExistingFiles:
-    def test_reads_src_and_tests(self, tmp_path: Path) -> None:
+    def test_lists_files_without_bodies(self, tmp_path: Path) -> None:
+        """Slim context (design/22): file contents are re-readable via
+        file_read, so only path + line/char counts are inlined."""
         (tmp_path / "src").mkdir()
         (tmp_path / "src" / "core.py").write_text("class Core: pass")
         (tmp_path / "tests").mkdir()
         (tmp_path / "tests" / "test_core.py").write_text("def test(): pass")
         sections: list[str] = []
         _include_existing_files(tmp_path, sections)
-        assert len(sections) == 2
+        assert len(sections) == 1
+        assert "src/core.py" in sections[0]
+        assert "tests/test_core.py" in sections[0]
+        assert "class Core" not in sections[0]
+        assert "def test()" not in sections[0]
+        assert "file_read" in sections[0]
 
-    def test_truncates_large_files(self, tmp_path: Path) -> None:
+    def test_listing_includes_line_and_char_counts(self, tmp_path: Path) -> None:
         (tmp_path / "src").mkdir()
-        (tmp_path / "src" / "big.py").write_text("x" * 25_000)
+        (tmp_path / "src" / "a.py").write_text("x = 1\ny = 2\n")
         sections: list[str] = []
         _include_existing_files(tmp_path, sections)
-        assert "truncated" in sections[0]
+        assert "2 lines" in sections[0]
+        assert "12 chars" in sections[0]
+
+    def test_missing_dirs_are_no_op(self, tmp_path: Path) -> None:
+        sections: list[str] = []
+        _include_existing_files(tmp_path, sections)
+        assert sections == []
 
 
 # ── compute_value ───────────────────────────────────────────────────────────
@@ -514,12 +534,19 @@ class TestContextSections:
 
 
 class TestOsErrorHandling:
-    def test_rendered_doc_read_error_is_skipped(self, tmp_path: Path) -> None:
+    def test_rendered_doc_stat_error_is_skipped(self, tmp_path: Path) -> None:
         docs = tmp_path / "docs"
         docs.mkdir()
         (docs / "07-LLR.md").write_text("llr text", encoding="utf-8")
         sections: list[str] = []
-        with patch.object(Path, "read_text", side_effect=OSError("io")):
+        real_stat = Path.stat
+
+        def _flaky_stat(self: Path, **kwargs: Any) -> Any:
+            if self.suffix == ".md":
+                raise OSError("io")
+            return real_stat(self, **kwargs)
+
+        with patch.object(Path, "stat", _flaky_stat):
             _include_rendered_docs(tmp_path, sections)
         assert sections == []
 
@@ -675,3 +702,71 @@ class TestSystemPromptApiSurfacePins:
         assert "prohibited_constructs" in _SYSTEM_PROMPT
         assert "hard ban" in _SYSTEM_PROMPT.lower()
         assert "tests may use anything" in _SYSTEM_PROMPT.lower()
+
+
+class TestMissionHistoryBudgetWiring:
+    """The mission agent must enforce llm.mission_token_budget via its
+    own pre_model_hook (design/22 §History Compaction). Pre-fix the
+    agent bypassed all trimming and prompts grew 52k→250k tokens."""
+
+    def test_pre_model_hook_is_wired_with_mission_budget(self) -> None:
+        config = MagicMock()
+        config.llm.model_for_phase.return_value = "gpt-4"
+        config.llm.mission_token_budget = 60_000
+        sentinel_hook = MagicMock()
+
+        with (
+            patch("backend.codegen.mission_agent.build_llm"),
+            patch("backend.codegen.mission_agent.create_react_agent") as mock_create,
+            patch(
+                "backend.codegen.mission_agent.make_mission_trim_hook",
+                return_value=sentinel_hook,
+            ) as mock_make,
+        ):
+            create_mission_agent(config, _required_tools())
+        mock_make.assert_called_once_with(60_000)
+        _, kwargs = mock_create.call_args
+        assert kwargs["pre_model_hook"] is sentinel_hook
+
+    def test_llm_config_default_mission_budget(self) -> None:
+        from backend.config.models import LLMConfig
+
+        assert LLMConfig().mission_token_budget == 60000
+
+
+class TestSlimContext:
+    """Slim up-front context (design/22 §Context Pre-Loading): graph
+    node content stays inline; file bodies and rendered-doc bodies are
+    listed only, and the assembled token count is logged loudly."""
+
+    def test_context_excludes_file_bodies_but_keeps_graph_content(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "core.py").write_text("class Core: pass")
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "07-LLR.md").write_text("rendered llr body")
+        design = _node("DESIGN-1", "DESIGN", "D1", "class Foo spec", trace_to=["LLR-1"])
+        graph = MagicMock()
+        graph.all_nodes.return_value = [design]
+        graph.children_sync.return_value = []
+
+        result = build_mission_context(graph, tmp_path)
+        assert "class Foo spec" in result  # DESIGN content stays inline
+        assert "src/core.py" in result  # file listed...
+        assert "class Core" not in result  # ...body excluded
+        assert "07-LLR.md" in result  # doc listed...
+        assert "rendered llr body" not in result  # ...body excluded
+
+    def test_token_count_log_is_emitted(self, tmp_path: Path) -> None:
+        graph = MagicMock()
+        graph.all_nodes.return_value = [_node("LLR-1", "LLR", "Speed", "100ms")]
+        graph.children_sync.return_value = []
+
+        with patch("backend.codegen.mission_context.forge_logger") as mock_log:
+            build_mission_context(graph, tmp_path)
+        assert mock_log.emit.called
+        message = mock_log.emit.call_args.args[2]
+        assert "tokens" in message
+        assert any(ch.isdigit() for ch in message)

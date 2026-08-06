@@ -115,6 +115,14 @@ class LLMConfig(BaseModel):
     # model window of history. Enforced by the pre_model_hook built in
     # backend/pipeline/phase_context.py::make_trim_hook.
     dispatch_token_budget: int = 24000
+    # Hard cap (tokens, exact tiktoken count) on the Phase 12 mission
+    # thread's conversation per LLM call. The mission agent needs more
+    # context than a single-gap dispatch (full graph context + a long
+    # working session) but must be bounded: measured live, the unbounded
+    # thread grew 52k→250k tokens over 140-250 calls. Enforced by the
+    # pre_model_hook built in backend/codegen/mission_history.py::
+    # make_mission_trim_hook — see design/22 §History Compaction.
+    mission_token_budget: int = 60000
     # Maximum nodes judged per combined-quality LLM call. The judge's verdict
     # block scales with node count, and one call over the whole phase truncates
     # at the provider output-token limit on large phases (live evidence:

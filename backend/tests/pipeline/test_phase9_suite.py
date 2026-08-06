@@ -244,8 +244,11 @@ def flow(graph: ProjectGraph, workspace: Path, tmp_path: Path) -> ForgeFlow:
         )
     )
     # Offline scripted test: every real checker seam is mocked, but build_llm
-    # still constructs a client — declare the endpoint keyless explicitly.
+    # still constructs a client — keyless, and pointed at a non-routable
+    # address so the unit-test network guard permits construction and any
+    # leaked call fails fast locally instead of dialing a real provider.
     config.llm.keyless = True
+    config.llm.base_url = "http://localhost:1/v1"
     pool = MagicMock()
     pool.get_agent_for_gap.return_value = MagicMock()
     return ForgeFlow(
@@ -281,6 +284,11 @@ def scripted(graph: ProjectGraph, flow: ForgeFlow) -> Iterator[ScriptedAgent]:
     async def _no_consolidation(**kwargs: Any) -> int:
         return 0
 
+    async def _no_batch_repair(flow: Any, gaps: Any) -> Any:
+        # Micro-repair is unit-tested in test_micro_repair.py; here every
+        # gap goes to the scripted per-gap dispatch path deterministically.
+        return gaps
+
     with (
         patch("backend.pipeline.dispatch.run_agent_task", new=agent),
         patch(
@@ -299,6 +307,9 @@ def scripted(graph: ProjectGraph, flow: ForgeFlow) -> Iterator[ScriptedAgent]:
             "backend.quality.design_consolidation.create_design_consolidator",
             return_value=_no_consolidation,
         ),
+        patch("backend.pipeline.quality_loop.apply_micro_repair_batches", _no_batch_repair),
+        patch("backend.pipeline.structural_loop.apply_micro_repair_batches", _no_batch_repair),
+        patch("backend.pipeline.steps.apply_micro_repair_batches", _no_batch_repair),
     ):
         yield agent
 

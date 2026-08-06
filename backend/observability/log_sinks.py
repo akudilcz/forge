@@ -96,6 +96,11 @@ class SQLiteLogSink:
     def dropped_count(self) -> int:
         return self._dropped_count
 
+    @property
+    def db_path(self) -> str:
+        """Filesystem path of the SQLite database this sink writes to."""
+        return self._db_path
+
     # ---- internals -----------------------------------------------------
 
     def _ensure_schema(self) -> None:

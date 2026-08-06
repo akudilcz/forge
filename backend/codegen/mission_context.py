@@ -1,16 +1,25 @@
-"""Mission context assembly — full-graph prompt context for the mission agent.
+"""Mission context assembly — slim up-front prompt for the mission agent.
 
 Builds the single prompt string that gives the Phase 12 mission agent
-complete visibility: graph nodes (architecture, modules, contracts,
-designs, requirements, test strategy, cases), rendered docs, the tracing
-decorator source, and any existing workspace files.
+its working context. Authoritative graph content (architecture, modules,
+contracts, designs, requirements, test strategy, cases) and the tracing
+decorator source are inlined; anything the agent can cheaply re-fetch
+with its own tools is only *listed*: rendered docs (name + size, read
+via ``read_docs``) and existing workspace files (path + line/char
+counts, read via ``file_read``). Measured live, the old
+everything-inline context was 52-179k tokens re-sent on every one of
+140-250 LLM calls; the slim context targets ≤30k on a merge_sort-sized
+build. The assembled token count is logged loudly.
 
-Design reference: design/22_phase_12_generate_code.md
+Design reference: design/22_phase_12_generate_code.md §Context Pre-Loading
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+
+from backend.prompting.context_budget import count_tokens
+from backend.server.forge_logger import forge_logger
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -19,7 +28,7 @@ if TYPE_CHECKING:
 
 
 def build_mission_context(graph: ProjectGraph, workspace: Path) -> str:
-    """Assemble all graph context the agent needs into one prompt string."""
+    """Assemble the mission agent's initial context into one prompt string."""
     nodes = graph.all_nodes()
     sections: list[str] = []
 
@@ -32,7 +41,14 @@ def build_mission_context(graph: ProjectGraph, workspace: Path) -> str:
     _include_tracing_source(workspace, sections)
     _include_existing_files(workspace, sections)
 
-    return "\n\n---\n\n".join(sections)
+    context = "\n\n---\n\n".join(sections)
+    forge_logger.emit(
+        "INFO",
+        "CGEN ",
+        f"Mission context assembled: {count_tokens(context)} tokens "
+        f"across {len(sections)} section(s)",
+    )
+    return context
 
 
 def _format_graph_nodes(
@@ -67,9 +83,7 @@ def _format_graph_nodes(
     # Grounds the agent's test-writing in the documented strategy rather
     # than making them invent categories on the fly.
     for suite in node_groups.get("SUITE", []):
-        sections.append(
-            f"## TEST STRATEGY (SUITE {suite.node_id}): {suite.title}\n{suite.content}"
-        )
+        sections.append(f"## TEST STRATEGY (SUITE {suite.node_id}): {suite.title}\n{suite.content}")
 
     cases = [n for n in nodes if n.node_type in ("CASE_HLR", "CASE_LLR")]
     if cases:
@@ -81,19 +95,26 @@ def _format_graph_nodes(
 
 
 def _include_rendered_docs(workspace: Path, sections: list[str]) -> None:
-    """Include key rendered docs (LLR, Design) inline."""
+    """List rendered docs (name + size); bodies are read via read_docs.
+
+    Doc bodies duplicate the graph nodes already inlined above, so
+    inlining them doubled the up-front context for no new information.
+    """
     docs_dir = workspace / "docs"
     if not docs_dir.is_dir():
         return
-    useful_docs = ["07-LLR.md", "08-Design.md", "06-Contracts.md", "09-Test-Suite.md"]
-    for name in useful_docs:
-        doc = docs_dir / name
-        if doc.is_file():
-            try:
-                content = doc.read_text(encoding="utf-8")
-                sections.append(f"## RENDERED DOC: {name}\n{content}")
-            except OSError:
-                pass
+    lines: list[str] = []
+    for doc in sorted(docs_dir.glob("*.md")):
+        try:
+            size = doc.stat().st_size
+        except OSError:
+            continue
+        lines.append(f"- {doc.name} ({size} chars)")
+    if lines:
+        sections.append(
+            "## RENDERED DOCS (bodies not inlined — use read_docs if you "
+            "need one; the graph sections above are authoritative)\n" + "\n".join(lines)
+        )
 
 
 def _include_tracing_source(workspace: Path, sections: list[str]) -> None:
@@ -110,18 +131,26 @@ def _include_tracing_source(workspace: Path, sections: list[str]) -> None:
 
 
 def _include_existing_files(workspace: Path, sections: list[str]) -> None:
-    """Include contents of existing src/ and tests/ files."""
+    """List existing src/ and tests/ files; bodies are read via file_read.
+
+    On re-runs the agent reads only the files it actually needs to
+    touch, instead of every body being re-sent on every LLM call.
+    """
+    lines: list[str] = []
     for subdir in ("src", "tests"):
         target = workspace / subdir
         if not target.is_dir():
             continue
         for f in sorted(target.glob("*.py")):
-            if f.name == "__pycache__":
-                continue
             try:
                 content = f.read_text(encoding="utf-8")
-                if len(content) > 20_000:
-                    content = content[:20_000] + f"\n... (truncated, {len(content)} chars total)"
-                sections.append(f"## EXISTING FILE: {subdir}/{f.name}\n```python\n{content}\n```")
             except OSError:
-                pass
+                continue
+            lines.append(
+                f"- {subdir}/{f.name} ({len(content.splitlines())} lines, {len(content)} chars)"
+            )
+    if lines:
+        sections.append(
+            "## EXISTING FILES (contents not inlined — use file_read "
+            "before modifying any of them)\n" + "\n".join(lines)
+        )

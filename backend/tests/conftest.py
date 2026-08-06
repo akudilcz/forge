@@ -81,6 +81,29 @@ def _prune_dead_session_dbs() -> None:
 
 
 @pytest.fixture(scope="session", autouse=True)
+def _unit_llm_network_guard() -> Iterator[None]:
+    """Make build_llm refuse default routable endpoints during unit tests.
+
+    Defence in depth against unit tests that forgot to stub the LLM seam:
+    with this sentinel set, ``backend.agents.factory.build_llm`` raises
+    loudly when the config still points at a default provider endpoint
+    (api.poe.com / openrouter.ai) instead of really dialing out.
+    Integration tests are exempt — their conftest clears the sentinel.
+    """
+    from backend.agents.factory import UNIT_LLM_GUARD_ENV
+
+    previous = os.environ.get(UNIT_LLM_GUARD_ENV)
+    os.environ[UNIT_LLM_GUARD_ENV] = "1"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(UNIT_LLM_GUARD_ENV, None)
+        else:
+            os.environ[UNIT_LLM_GUARD_ENV] = previous
+
+
+@pytest.fixture(scope="session", autouse=True)
 def _wire_sqlite_log_sink() -> Iterator[SQLiteLogSink]:
     """Attach a SQLiteLogSink to forge_logger for the full test session."""
     TEST_LOGS_DB.parent.mkdir(parents=True, exist_ok=True)

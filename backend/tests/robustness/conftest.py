@@ -36,8 +36,11 @@ def flow(graph: ProjectGraph, workspace: Path, tmp_path: Path) -> ForgeFlow:
         )
     )
     # Offline scripted test: every real checker seam is patched, but build_llm
-    # still constructs a client — declare the endpoint keyless explicitly.
+    # still constructs a client — keyless, and pointed at a non-routable
+    # address so the unit-test network guard permits construction and any
+    # leaked call fails fast locally instead of dialing a real provider.
     config.llm.keyless = True
+    config.llm.base_url = "http://localhost:1/v1"
     pool = MagicMock()
     pool.get_agent_for_gap.return_value = MagicMock()
     return ForgeFlow(
