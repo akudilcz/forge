@@ -60,9 +60,10 @@ modules. Every HLR is included so the architecture can account for all of them.
 
 | Order | Step           | Purpose                                         |
 |-------|----------------|--------------------------------------------------|
-| 1     | structural     | Detect UNARCHITECTED gap                         |
-| 2     | quality_gaps   | Check ARCHITECTURE for content quality           |
-| 3     | semantic        | Embed ARCHITECTURE node for similarity search   |
+| 1     | structural       | Detect and dispatch the UNARCHITECTED gap        |
+| 2     | quality_gaps     | Check ARCHITECTURE for content quality           |
+| 3     | combined_quality | Batched LLM judging of authored nodes (title axes) |
+| 4     | semantic         | Detect and remove semantic duplicate nodes       |
 
 ## Quality Checks
 

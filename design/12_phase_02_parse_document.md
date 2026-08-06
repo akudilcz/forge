@@ -100,9 +100,10 @@ tie-breaker callable arity — 7 oracle failures.)
 |------|----------|-------------|
 | 1 | `structural` | Dispatch agent to close `UNCHUNKED_DOCUMENT` gaps |
 | 2 | `quality_gaps` | Detect and dispatch quality gaps on PARA nodes |
-| 3 | `semantic` | Detect and remove semantic duplicate PARAs |
+| 3 | `combined_quality` | Batched LLM judging of authored nodes (title axes for PARAs) |
+| 4 | `semantic` | Detect and remove semantic duplicate PARAs |
 
-Default pipeline: `[structural, quality_gaps, semantic]`.
+Default pipeline: `[structural, quality_gaps, combined_quality, semantic]`.
 
 After all steps complete, if any step deleted nodes the pipeline cycles --
 re-runs all steps -- because deletions can uncover new gaps. Stable when no
@@ -141,8 +142,8 @@ phases 0-2 must be absent.
 
 Standard **PhaseDashboard** layout:
 
-- **PhaseLifecyclePanel** (left): Shows the 3 pipeline steps (structural,
-  quality_gaps, semantic) with status indicators (pending / running / done).
+- **PhaseLifecyclePanel** (left): Shows the 4 pipeline steps (structural,
+  quality_gaps, combined_quality, semantic) with status indicators (pending / running / done).
   Cycle indicator shows re-run count if deletions triggered cycling.
 
 - **NodeTablePanel** (right): Shows all PARA nodes produced by this phase.

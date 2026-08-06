@@ -55,8 +55,8 @@ Three concepts govern the design: **gaps**, **phases**, and **context**.
   what order, with what agent. Phases are strictly ordered: a phase cannot begin
   until every gap from all prior phases is closed.
 
-- **Context** is what makes agents effective — curated per gap, accumulated per
-  phase, trimmed when the window fills. Agents never search the graph; every
+- **Context** is what makes agents effective — curated per gap, threaded per
+  gap, trimmed against an explicit token budget. Agents never search the graph; every
   piece of information they see is explicitly assembled before dispatch.
 
 These three concepts give rise to six reinforcing principles:

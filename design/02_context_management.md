@@ -119,7 +119,7 @@ The following items are tracked but depend on schema or orchestration changes ou
 
 ## Fail-loud on unresolved references
 
-`build_trace_to_context` raises `RuntimeError` when `trace_to` references cannot be resolved, instead of silently substituting an ancestor walk. `case_trace_check` no longer assumes coverage on LLM failures — the exception propagates. Both changes align with the project "no fallbacks" rule: mis-wired state surfaces as a real error, not a quiet degradation.
+`build_trace_to_context` raises `RuntimeError` when `trace_to` references cannot be resolved, instead of silently substituting an ancestor walk. `case_trace_check` never assumes coverage on LLM failures: transport exceptions propagate, and a response with missing verdicts (empty/truncated body) is retried exactly once — any verdict still missing after the retry leaves its trace **kept and marked unverified** with an ERROR log (absent evidence never justifies destructive trace removal). Both changes align with the project "no fallbacks" rule: mis-wired state surfaces loudly, not as a quiet degradation.
 
 ## STALE_NODE repair context
 

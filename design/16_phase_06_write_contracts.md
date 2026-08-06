@@ -140,9 +140,10 @@ cross-module interface alignment, and the specific HLRs the module must satisfy.
 
 | Order | Step           | Purpose                                         |
 |-------|----------------|--------------------------------------------------|
-| 1     | structural     | Detect UNCONTRACTED gaps                         |
-| 2     | quality_gaps   | Check CONTRACT nodes for content quality         |
-| 3     | semantic        | Embed CONTRACT nodes for similarity search      |
+| 1     | structural       | Detect and dispatch UNCONTRACTED gaps            |
+| 2     | quality_gaps     | Check CONTRACT nodes for content quality         |
+| 3     | combined_quality | Batched LLM judging of authored nodes (title axes) |
+| 4     | semantic         | Detect and remove semantic duplicate CONTRACTs   |
 
 ## Quality Checks
 

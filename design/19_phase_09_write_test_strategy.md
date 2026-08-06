@@ -76,7 +76,8 @@ No `graph_add_traces` — SUITE does not trace to individual requirements.
 |------|---------|
 | `structural` | Detects the single UNSUITED gap (missing or stale SUITE). |
 | `quality_gaps` | Raises quality gaps on the SUITE node (see below). |
-| `semantic` | Validates the strategy is consistent with ARCHITECTURE and covers all MODULEs. |
+| `combined_quality` | Batched LLM judging of authored nodes (title axes). |
+| `semantic` | Detects and removes semantic duplicate nodes (double-confirmed deletion). |
 
 ## Quality Gaps
 

@@ -66,6 +66,9 @@ Each event is tagged with exactly one `LogCategory`:
 | `QUAL` / `SEMA` | Quality + semantic-dedup orchestration. |
 | `RQUAL` | Requirement atomicity + EARS check. |
 | `TQUAL` | Title quality: title↔content match + specificity. |
+| `XQUAL` | Combined batched quality check (requirement + title axes in one call). |
+| `COV` | Coverage calculations. |
+| `EVAL` | Evaluate-progress tool. |
 | `CONS` / `CONSIST` / `CONFORM` | Consolidation / consistency / conformance checks. |
 | `DECOMP` | Incomplete-decomposition check. |
 | `CTRC` | Case-trace check. |
@@ -76,7 +79,7 @@ Each event is tagged with exactly one `LogCategory`:
 | `QUEUE` / `POOL` / `THROT` | Work queue / agent pool / LLM throttle. |
 | `HTTP` / `WS` | HTTP request lifecycle + WebSocket sessions. |
 | `USER` / `AUTH` / `SYS` / `STORE` | User actions / auth / system / store events. |
-| `DASH` / `FLOW` / `SCAN` / `SEMA` / `CTX` | Dashboard / flow control / scanning. |
+| `DASH` / `FLOW` / `SCAN` / `CTX` / `AGNT` | Dashboard / flow control / scanning / context budget / agents infra. |
 
 ## Non-goals
 

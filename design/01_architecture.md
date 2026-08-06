@@ -53,7 +53,7 @@ An agent's effectiveness depends entirely on the context it receives. FORGE mana
 
 Per-gap context is curated, not discovered. Agents never search the graph. Every piece of information an agent sees is explicitly assembled before dispatch based on the gap type. The principle: give the agent exactly what it needs to make a good decision, and nothing else.
 
-Within a phase, agents accumulate conversation history across gap dispatches. At phase boundaries, history is discarded entirely. Within a phase, when accumulated conversation exceeds 70% of the context window, the oldest message pairs are trimmed -- deterministic, fast, no summarisation. Full context tables appear in section 5.
+Conversation threads are scoped **per gap**: each dispatched gap gets its own thread (retries of the same gap reuse it), and batch steps keep one thread per (phase, gap type). At phase boundaries, all threads are invalidated. When a thread's accumulated conversation exceeds the configured dispatch budget (`llm.dispatch_token_budget`, default 24 000 tokens, exact tiktoken count), the oldest messages are trimmed -- deterministic, fast, no summarisation. Full context tables appear in section 5.
 
 ---
 
@@ -205,6 +205,14 @@ Quality gaps represent integrity violations and content problems. They surface *
 | `CIRCULAR_TRACE` | trace_to chain forms a cycle | Deterministic |
 | `DUPLICATE_NODE` | Exact-hash or semantic duplicate. PARA nodes are exempt from the exact-hash check: they mirror document structure, whose identity is position + title, not body — a whitepaper may legitimately repeat a sentence in two sections, and heading PARAs are empty by design | Deterministic + LLM |
 | `UNTITLED_NODE` | Missing or too-long title | Deterministic |
+| `TITLE_COLLIDES_WITH_PARENT` | Child title duplicates its parent's — scope not narrowed | Deterministic |
+| `SIBLING_TITLE_DUPLICATE` | Two siblings under the same parent share identical titles | Deterministic |
+| `STALE_TITLE` | Title no longer accurately summarises the content scope | LLM |
+| `VAGUE_TITLE` | Title is a generic label rather than a concrete noun phrase | LLM |
+| `STALE_ARCHITECTURE` | >20% of current HLRs were added after the ARCHITECTURE's creation — re-derive | Deterministic |
+| `STALE_SUITE` | >20% of current HLRs+LLRs were added after the SUITE's creation — re-derive | Deterministic |
+| `STALE_CODE` | Code gen failed (`properties.codegen_error`) or workspace file diverges from DESIGN inputs | Deterministic |
+| `MISSING_CODE` | DESIGN `file_path` is set but the workspace file is missing/unreadable | Deterministic |
 
 **Requirement quality** -- the foundation of everything downstream. If an HLR is vague, every LLR, DESIGN, and test case derived from it will be wrong.
 
@@ -259,14 +267,17 @@ Phase 12 has its own gap taxonomy detected by workspace scanning.
 | 1 | `SYNTAX_ERROR` | File has a Python syntax error |
 | 2 | `MISSING_SOURCE` | DESIGN node has no generated source file |
 | 3 | `MISSING_TEST` | CASE node has no generated test file |
-| 4 | `FAILING_TESTS` | One or more tests fail |
-| 5 | `INVALID_TRACES` | Annotations reference non-existent LLR IDs |
-| 6 | `UNTRACED_FUNCTIONS` | Functions missing `@traces` decorator |
-| 7 | `LOW_STRUCTURAL_COVERAGE` | Statement coverage below 100% |
-| 8 | `LOW_BRANCH_COVERAGE` | MC/DC branch coverage below 100% |
-| 9 | `UNCOVERED_REQUIREMENT` | LLR has no passing test evidence |
-| 10 | `WEAK_TRACE` | Function traces to LLR but doesn't implement it |
-| 11 | `SCOPE_CREEP` | Function not backed by any requirement |
+| 4 | `API_SURFACE_MISMATCH` | CONTRACT `public_api` entry not exposed by the workspace |
+| 5 | `PROHIBITED_CONSTRUCT` | CONTRACT-banned construct used in `src/` |
+| 6 | `FAILING_TESTS` | One or more tests fail |
+| 7 | `INVALID_TRACES` | Annotations reference non-existent LLR IDs |
+| 8 | `UNTRACED_FUNCTIONS` | Functions missing `@traces` decorator |
+| 9 | `LOW_STRUCTURAL_COVERAGE` | Statement coverage below 100% |
+| 10 | `LOW_BRANCH_COVERAGE` | MC/DC branch coverage below 100% |
+| 11 | `UNIMPLEMENTED_REQUIREMENT` | LLR absent from all source-file `@traces` |
+| 12 | `UNCOVERED_REQUIREMENT` | LLR has no passing test evidence |
+| 13 | `WEAK_TRACE` | Function traces to LLR but doesn't implement it |
+| 14 | `SCOPE_CREEP` | Function not backed by any requirement |
 
 ### 3.5 Detection Algorithm
 
@@ -305,8 +316,8 @@ The agent is not a persistent actor tied to a role. At each phase boundary, `Age
 Each agent is configured by:
 1. **System prompt** -- loaded from gap-type Jinja templates
 2. **Tool whitelist** -- controlled by gap type (see section 6)
-3. **Checkpointer** -- a shared `MemorySaver` for conversation accumulation within a phase
-4. **Pre-model hook** -- trims oldest messages when conversation exceeds the context window budget
+3. **Checkpointer** -- a shared `MemorySaver`; threads are scoped per gap (see section 5.6)
+4. **Pre-model hook** -- trims oldest messages when conversation exceeds `llm.dispatch_token_budget`
 
 The agent is a two-node `StateGraph` (llm_node + tool_node) backed by JSON function calling. The model emits structured `tool_call` objects -- no text parsing.
 
@@ -422,15 +433,15 @@ Three principles govern context assembly across all phases:
 | `CONTRACT_VIOLATION` | DESIGN content + MODULE's CONTRACT content | Compare against interface |
 | `CROSS_MODULE_COUPLING` | DESIGN content + all MODULE/CONTRACT nodes | Spot cross-references into other modules |
 
-### 5.5 Per-Phase Accumulation
+### 5.5 Conversation Accumulation and Trimming
 
-Within a phase, agents accumulate conversation history across gap dispatches. At phase boundaries, history is discarded entirely via `PhaseContext.reset_phase()` which increments a nonce, changing the thread ID passed to LangGraph's `MemorySaver`.
+Conversation history accumulates **per gap**, not per phase: each dispatched gap gets its own thread containing only its own task, and retries of the same gap reuse that thread (a measured audit found the former per-`(phase, gap_type)` threads re-sent 90-98% dead history -- see design/02 §"Agent conversation threads"). Batch steps keep one thread per (phase, gap type). At phase boundaries, all threads are discarded via `PhaseContext.reset_phase()` which increments a nonce, changing the thread IDs passed to LangGraph's `MemorySaver`.
 
-**Trimming**: FORGE reserves 30% of the context window for the system prompt, tools, and working space. The remaining 70% is the budget. A `pre_model_hook` (`make_trim_hook`) runs before every LLM call and applies `trim_messages` with `strategy="last"`, `include_system=True`, and `start_on="human"`. No summarisation. Trimming is deterministic and fast.
+**Trimming**: the budget is the explicit `llm.dispatch_token_budget` (default 24 000 tokens) -- task-scaled, not a fraction of the model window; a per-gap repair never legitimately needs a full model window of history. A `pre_model_hook` (`make_trim_hook`, `pipeline/phase_context.py`) runs before every LLM call, counts tokens exactly with tiktoken `cl100k_base`, and applies `trim_messages` with `strategy="last"`, `include_system=True`, and `start_on="human"`. No summarisation. Trimming is deterministic and fast.
 
 ### 5.6 Thread ID Scheme
 
-Each thread ID encodes `phase-{N}-{gap_type}-{nonce}`. Same phase + same gap type + same nonce = same thread. Phase boundary = new nonce = fresh thread. Trimming does not change the thread.
+Each thread ID encodes `phase-{N}-{gap_type}-{scope}-{nonce}`, where `scope` is the gap's `node_id` for per-gap dispatch and the fixed string `"batch"` for batch steps. Retries of the same gap reuse the same thread. Phase boundary = new nonce = fresh threads. Trimming does not change the thread.
 
 ### 5.7 CONTRACT as Coordination Mechanism
 
@@ -593,11 +604,11 @@ RULES:
 
 Quality checks (judge and planner templates) are invoked directly via plain LLM calls, not through the phase agent. **Judges** evaluate and do not act (no tools). **Planners** produce structured plans (no tools, no mutations).
 
-All plain LLM calls are constructed through the single `build_llm` factory, which retries transient transport failures at the client level (`max_retries=2`). `build_llm` fails **at construction** with a loud error when the environment variable named by `llm.api_key_env` is unset or empty — unless the endpoint is explicitly declared keyless via `llm.keyless = true` (a local endpoint such as Ollama that requires no API key). There is no implicit fallback key: a misconfigured key surfaces immediately, not as swallowed mid-run 401s.
+All plain LLM calls are constructed through the single `build_llm` factory, which retries transient transport failures at the client level (`max_retries=2`). In addition, `ThrottledChatOpenAI` (`agents/factory.py`) retries **once** at the transport seam when the provider returns a 200 with a body the HTTP client cannot parse as JSON (raw `json.JSONDecodeError`): `_agenerate` retries the whole call; `_astream` retries only when the failure occurs before any chunk arrived (a mid-stream failure still propagates — a retry would duplicate output). This covers every call site in one place; the dedup judge's own bounded retry (below) remains as a second, per-candidate layer. `build_llm` fails **at construction** with a loud error when the environment variable named by `llm.api_key_env` is unset or empty — unless the endpoint is explicitly declared keyless via `llm.keyless = true` (a local endpoint such as Ollama that requires no API key). There is no implicit fallback key: a misconfigured key surfaces immediately, not as swallowed mid-run 401s.
 
 **Response cache.** `build_llm` requires an explicit `cacheable: bool` argument at every construction site — cache participation is never implicit. When `cacheable=True` and `llm.cache_enabled` is true (the default), the model is constructed with a local SQLite-backed LangChain response cache (`backend/agents/llm_cache.py::SQLiteLLMCache`, passed per-model via `cache=`, never via the global `set_llm_cache`) stored at `<llm.cache_dir>/llm_cache.db` (default `.cache/llm_cache.db`; the directory is created on first use). A relative `llm.cache_dir` resolves against the **repo root** (derived from the `backend/` package location), never the process cwd — the per-phase integration tests chdir into throwaway per-test workspaces and must still share the warm repo-level cache. An absolute `llm.cache_dir` is used as-is. When `cacheable=False` or `llm.cache_enabled` is false, the model is constructed with `cache=False`, which also opts the model out of any global LangChain cache.
 
-**Cache key composition.** Entries are keyed by `(prompt, llm_string)`. The `llm_string` comes from langchain-core's `_get_llm_string`, which serializes the model configuration — model name, temperature, `base_url`, and every other generation-affecting constructor parameter — so two calls with the same prompt but different model settings never share an entry (the API key is excluded as a secret and never lands in the DB). This is pinned empirically against `ThrottledChatOpenAI` in `backend/tests/test_llm_cache.py::TestCacheKeyIncludesModelParams`: same prompt at two temperatures produces two distinct cache rows and never cross-serves.
+**Cache key composition.** Entries are keyed by `(prompt, llm_string)`. The `llm_string` comes from langchain-core's `_get_llm_string`, which serializes the model configuration — model name, temperature, `base_url`, and every other generation-affecting constructor parameter — so two calls with the same prompt but different model settings never share an entry (the API key is excluded as a secret and never lands in the DB). This is pinned empirically against `ThrottledChatOpenAI` in `backend/tests/agents/test_llm_cache.py::TestCacheKeyIncludesModelParams`: same prompt at two temperatures produces two distinct cache rows and never cross-serves.
 
 What actually caches (verified against langchain-core 1.5.x): only non-streaming `.invoke`/`.ainvoke` calls go through `_generate_with_cache`/`_agenerate_with_cache` and hit the cache — i.e. the direct plain-LLM callers (quality checkers, trace auditor, consolidators) and repeated runs over unchanged inputs. Agent streaming paths (`astream_events`) bypass the LangChain cache entirely; this is accepted — the cache primarily serves the direct `.ainvoke` checkers.
 
@@ -664,7 +675,7 @@ The phase pipeline runs an ordered list of step functions per phase:
 | 7  | batch_phase7, quality_gaps, combined_quality, semantic |
 | 8  | batch_phase8, quality_gaps, combined_quality, semantic, design_consolidation |
 | 10 | batch_phase10, quality_gaps, combined_quality, semantic, case_trace_coverage |
-| 13 | workspace_sync |
+| 13 | workspace_sync, record_results_step |
 | Others | structural, quality_gaps, combined_quality, semantic |
 
 Step functions:
@@ -679,6 +690,7 @@ Step functions:
 | `design_consolidation` | Merge DESIGN sprawl within each MODULE (Phase 8) |
 | `case_trace_coverage` | Verify CASE nodes cover traced requirements (Phase 10) |
 | `workspace_sync` | Deterministic file scan to create CODE/TEST nodes (Phase 13) |
+| `record_results_step` | Runs after TEST sync (Phase 13): heals misparented RESULTs on resume, then runs the test suite via bazel and records one RESULT node per test function under its TEST parent (`workspace/result_recorder.py`; design/23) |
 
 ### 8.3 Convergence
 

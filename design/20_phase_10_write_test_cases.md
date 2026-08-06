@@ -87,10 +87,11 @@ exact contracted arity.
 
 | Step | Purpose |
 |------|---------|
-| `structural` | Detects UNTESTED_HLR and UNTESTED_LLR gaps from missing traces. |
+| `batch_phase10` | Chunked batch dispatch of UNTESTED_HLR/UNTESTED_LLR gaps; stragglers fall back to per-gap structural dispatch. |
 | `quality_gaps` | Raises quality gaps on CASE nodes (see below). |
-| `semantic` | Validates each CASE is consistent with its traced requirement. |
-| `case_trace_coverage` | LLM-checks each CASE covers its traced requirement. On cycle 2+ only checks *newly created* CASEs to avoid re-checking the entire population. |
+| `combined_quality` | Batched LLM judging of authored nodes (title axes). |
+| `semantic` | Detects and removes semantic duplicate CASEs (double-confirmed deletion). |
+| `case_trace_coverage` | One LLM call per CASE judges whether it covers each traced requirement. On cycle 2+ only checks *newly created* CASEs to avoid re-checking the entire population. Missing verdicts (empty/truncated provider body) are retried once; anything still unjudged after the retry keeps its trace **unverified** with an ERROR log — absent evidence never removes a trace. |
 
 ## Quality Gaps
 

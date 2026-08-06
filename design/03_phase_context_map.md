@@ -18,8 +18,8 @@ Cross-checked against source (`backend/pipeline/` + `backend/prompting/`, `backe
 | 9 | default |
 | 10 | `batch_phase10, quality_gaps, combined_quality, semantic, case_trace_coverage` |
 | 11 | Deterministic (`_run_dashboard_phase` in `special_phases.py`) |
-| 12 | LLM code gen (`code_gen.py`) — enforces coverage gate (stmt + branch + requirement + test-pass must all be 100%) |
-| 13 | `workspace_sync` only (deterministic CODE/TEST node creation) |
+| 12 | LLM code gen (mission agent — `codegen/slice_gen.py::run_code_gen`, dispatched by `_run_code_gen_phase` in `special_phases.py`) — enforces coverage gate (stmt + branch + requirement + test-pass must all be 100%) |
+| 13 | `workspace_sync` (deterministic CODE/TEST node creation) then `record_results_step` (heal misparented RESULTs, run tests, record RESULT nodes) |
 | 14 | Deterministic deliverables packaging |
 
 Both entry points — the full-run loop (`kickoff_async` → `_run_phase`) and the per-phase route (`run_phase`) — execute these step lists via `run_phase_pipeline`. Step failures propagate (the phase is marked `awaiting_approval` and the exception re-raises); `DispatchQuotaError` always propagates so quota exhaustion halts the run loudly.
@@ -31,14 +31,16 @@ The `structural` step's loop certifies each gap's resolution by re-running the g
 ## Context assembly machinery
 
 1. Per-gap context: `builder.py::build_context_for_gap()` — `structural` step path. Section builders live in `graph_context.py` (re-exported by `builder.py`).
-2. Batch prompts: `batch_prompts.py` — for Phases 3/5/7/8 only.
+2. Batch prompts: `batch_prompts.py` — for Phases 3/5/7/8/10.
 3. Per-gap task description: `task_prompts.py::build_descriptions()` (helper templates in `task_prompts_authoring.py` / `task_prompts_repair.py`, re-exported by `task_prompts.py`).
 4. Role prompts: `templates/roles/*.j2` via `agents/factory.py`.
 5. Tool allowlist per gap: `phase_constraints.py`.
 
-Hard cap: 40,000 chars (`builder.py:32`). DOCUMENT content skipped in ancestor walks (`graph_context.py::_SKIP_ANCESTOR_CONTENT`), included only as title breadcrumb. `_CHARS_PER_TOKEN=4` estimator exists in `batch_steps.py:40` but is never actually used to enforce a token budget.
+Budget: `context_budget.pack()` (tiktoken-counted, default 120k tokens) drops whole lowest-priority sections — the former 40,000-char tail-chop in `builder.py` is gone. DOCUMENT content skipped in ancestor walks (`graph_context.py::_SKIP_ANCESTOR_CONTENT`), included only as title breadcrumb. A `_CHARS_PER_TOKEN=4` estimator exists in `batch_steps.py` for prompt-size logging only.
 
-## Truncation / cap inventory (ground truth)
+## Truncation / cap inventory (historical — pre-refactor audit)
+
+All `[:N]` content caps below were subsequently **removed** (see "Content-truncation policy" under Cross-cutting mechanisms — full content everywhere, priority budget absorbs scale). The table records the state that motivated the refactor.
 
 | Builder | Cap | Used by |
 |---|---|---|
@@ -206,8 +208,8 @@ Hard cap: 40,000 chars (`builder.py:32`). DOCUMENT content skipped in ancestor w
 
 ## Phase 8 — LLR → DESIGN (batch with fast-path)
 
-- **Pipeline**: `batch_phase8, quality_gaps, semantic, design_consolidation` · **Agent**: Software Engineer · **Gap**: `UNDESIGNED`
-- **Fast path** (`batch_steps.py:327, try_fast_trace`): deterministic trace linking for LLRs that map unambiguously to an existing DESIGN. Runs *before* any LLM call.
+- **Pipeline**: `batch_phase8, quality_gaps, combined_quality, semantic, design_consolidation` · **Agent**: Software Engineer · **Gap**: `UNDESIGNED`
+- **Fast path** (`pipeline/dispatch.py::try_fast_trace`, invoked from the batch step): deterministic trace linking for LLRs that map unambiguously to an existing DESIGN. Runs *before* any LLM call.
 - **Batch context** (`batch_prompts.py:111, grouped per MODULE`): MODULE content capped 2000; CONTRACT content capped 2000; undesigned LLRs (content 120); existing DESIGNs (fields = `node_id, title, trace_to`, no content).
 - **Per-gap fallback** (`build_module_design_context`, `graph_context.py`): MODULE full content + CONTRACT full content + *all* existing DESIGNs with full content.
 - **Prompt** (`_design`, `task_prompts_authoring.py`): match LLR to class plan; reuse existing DESIGN via `graph_add_traces`; consolidation rule `#DESIGNs ≤ #classes in class plan`.
@@ -283,22 +285,15 @@ Hard cap: 40,000 chars (`builder.py:32`). DOCUMENT content skipped in ancestor w
 
 ---
 
-## Phase 11 — (default pipeline, no custom steps registered)
+## Phase 11 — Render Documentation (deterministic)
 
-- **Pipeline**: default (`structural, quality_gaps, semantic`) · **Role**: unclear; no gap type is unique to phase 11.
-- **Context**: whatever the default gaps surface at this phase.
-
-### Issues found
-1. **Phase number unused/undocumented**: `PHASE_STEPS` has no entry; no gap type is clearly scoped to phase 11. This is either an unused slot or an implicit "catch-up" phase. Needs either documentation or removal.
-
-### Potential solutions
-1. Audit which `Gap.phase` values map here and document, or collapse phase 11 into 10/12 if redundant. Code-health cleanup; has no direct quality impact but reduces confusion in the pipeline.
+- **Pipeline**: dedicated handler `_run_dashboard_phase` (`pipeline/special_phases.py`) — renders the graph as Markdown docs into the workspace `docs/` directory. No agent, no gap type, no context assembly. See `design/21_phase_11_render_documentation.md`.
 
 ---
 
 ## Phase 12 — Code generation (LLM)
 
-- **Pipeline**: default · **Driver**: `backend/codegen/slice_gen.py` (LLM-based, per design doc `design/22_phase_12_generate_code.md` referenced in code_gen.py:13).
+- **Pipeline**: dedicated handler `_run_code_gen_phase` (`pipeline/special_phases.py`) · **Driver**: `backend/codegen/slice_gen.py::run_code_gen` (mission agent — see `design/22_phase_12_generate_code.md`).
 - **Context**: DESIGN node content + CONTRACT + any existing workspace file. Stores `file_path` on DESIGN / CASE `properties`.
 
 ### Issues found
@@ -313,7 +308,7 @@ Hard cap: 40,000 chars (`builder.py:32`). DOCUMENT content skipped in ancestor w
 
 ## Phase 13 — Workspace sync (deterministic, no LLM)
 
-- **Pipeline**: `workspace_sync` only.
+- **Pipeline**: `workspace_sync`, then `record_results_step` (heals misparented RESULTs and records fresh RESULT nodes after TEST sync — design/23).
 - **Behaviour** (`workspace_sync.py`): for every DESIGN with `properties.file_path`, read the file, create a CODE child node linking to it. Same for CASEs → TEST nodes.
 - **No context assembly** — pure filesystem→graph sync.
 
@@ -351,7 +346,7 @@ _(Structural prep done: batch prompts split into static + dynamic sections. Prov
 `build_peer_contracts_context`, `build_design_for_llr`, `build_cases_for_requirement`, `build_document_digest`, `build_sibling_paras_context`, `build_all_llrs_context` added and wired across phases 3, 6, 7, 8, 9, 10.
 
 ### [FIXED — alternative] No embedding infrastructure for shortlisting
-`context_selection.select_relevant` added using `rank_bm25.BM25Okapi` — pure-Python, no model dependency. Full content preserved on selected candidates. Available as an explicit builder tool; not auto-wired because the priority budget currently keeps full landscape views under budget at current graph sizes.
+A BM25 shortlist helper (`context_selection.select_relevant`, `rank_bm25.BM25Okapi`) was prototyped and later **removed as unused** — the priority budget keeps full landscape views under budget at current graph sizes. Its intended shape is recorded in design/02 §"Relevance-based selection" should it become necessary.
 
 ---
 

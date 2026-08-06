@@ -66,9 +66,10 @@ preserving the module inventory from the architecture document.
 
 | Order | Step           | Purpose                                          |
 |-------|----------------|--------------------------------------------------|
-| 1     | batch_phase5   | Collect UNMODULARISED gaps, dispatch batch agent  |
-| 2     | quality_gaps   | Check MODULE nodes for content and trace quality  |
-| 3     | semantic        | Embed MODULE nodes for similarity search         |
+| 1     | batch_phase5     | Collect UNMODULARISED gaps, dispatch batch agent  |
+| 2     | quality_gaps     | Check MODULE nodes for content and trace quality  |
+| 3     | combined_quality | Batched LLM judging of authored nodes (title axes) |
+| 4     | semantic         | Detect and remove semantic duplicate MODULEs      |
 
 ## Quality Checks
 

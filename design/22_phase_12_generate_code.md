@@ -195,8 +195,42 @@ uses `evaluate_progress` to check its own score whenever it wants.
 
 The agent uses `MemorySaver` checkpointing with a unique `thread_id`.
 This means the agent retains full history of what it wrote, what failed,
-and why. With a large context window, the agent maintains understanding
-across the entire session without context resets.
+and why.
+
+### History Compaction (mission token budget)
+
+Cross-run measurement of four full builds showed the mission thread's
+prompts growing monotonically from ~52k to ~250k tokens over 140-250
+sequential LLM calls — 15-30M tokens and the dominant share of build
+wall time — because the thread bypassed the per-gap dispatch trim hook
+and never shed old tool results.
+
+The mission agent therefore has its own budget,
+`llm.mission_token_budget` (`LLMConfig`, default **60 000** tokens,
+exact tiktoken count — mission work needs more context than a
+single-gap dispatch's 24k, but must be bounded). It is enforced by a
+`pre_model_hook` (`backend/codegen/mission_history.py::
+make_mission_trim_hook`) that runs before every LLM call and prunes
+**deterministically, oldest tool result first**: eligible `ToolMessage`
+contents are replaced with a short stub (the agent can re-run the tool
+if it still needs the output), preserving the AI-call/tool-result
+pairing so providers never see orphaned tool calls. The pruned list is
+passed as `llm_input_messages` — checkpointed state is never mutated.
+
+**Preservation rule** — pruning ALWAYS preserves, verbatim:
+
+1. The system prompt.
+2. The initial mission context (the first `HumanMessage` of the
+   thread — graph context + initial gaps).
+3. The result of the **latest** `evaluate_progress` call (the agent's
+   current scoreboard).
+4. The last `PRESERVED_RECENT_TURNS` (= 4) complete turns — an
+   `AIMessage` plus its following `ToolMessage`s — so in-flight work is
+   never disturbed.
+
+If the preserved set alone exceeds the budget, the hook logs a loud
+warning and sends the preserved set unpruned — it never violates the
+preservation rule to hit the number.
 
 ### Termination
 
@@ -213,22 +247,33 @@ continuously until it finishes or hits the recursion limit.
 
 ## Context Pre-Loading
 
-The initial message pre-loads everything the agent needs to avoid
-wasting tool calls discovering what to build:
+The initial message pre-loads what the agent needs to avoid wasting
+tool calls discovering what to build — but only content it **cannot**
+cheaply re-fetch with its own tools. Measured live, the old
+everything-inline context alone was 52-179k tokens and was re-sent on
+every one of 140-250 LLM calls; the slim context targets **≤30k tokens
+on a merge_sort-sized build**.
+
+Inline (authoritative, gap-relevant, not tool-fetchable as such):
 
 - **All DESIGN specs** with LLR traces — what to implement.
 - **All MODULE nodes** with CONTRACT children — public API interfaces.
 - **All HLR and LLR nodes** — the full requirement hierarchy.
 - **All CASE_HLR/CASE_LLR nodes** — test acceptance criteria.
-- **Rendered docs** from Phase 11 (07-LLR.md, 08-Design.md,
-  06-Contracts.md) — structured context.
+- **Test strategy (SUITE nodes)**.
 - **Tracing decorator source** — so the agent knows the `@traces` API.
-- **Contents of any existing workspace files** — for re-run scenarios
-  where partial work already exists.
 
-Context assembly is in `build_mission_context()`
-(`backend/codegen/mission_context.py`, re-exported by
-`mission_agent.py`).
+Listed only (re-readable on demand — bodies are deliberately excluded):
+
+- **Rendered docs** from Phase 11: name + size per doc, with a pointer
+  to `read_docs`. Their bodies duplicate the graph nodes above.
+- **Existing workspace files** (`src/`, `tests/`): path + line/char
+  counts per file, with a pointer to `file_read`. For re-run scenarios
+  the agent reads only the files it actually needs to touch.
+
+`build_mission_context()` (`backend/codegen/mission_context.py`,
+re-exported by `mission_agent.py`) assembles this and emits a loud log
+line with the exact tiktoken count of the assembled context.
 
 ---
 
@@ -331,7 +376,7 @@ reports) and fed back to the mission agent.
 | 5 | `PROHIBITED_CONSTRUCT` | CONTRACT `prohibited_constructs` entry used in `src/` | Implementation uses a forbidden technique |
 | 6 | `FAILING_TESTS` | `bazel test` reports failure | Tests do not pass |
 | 7 | `INVALID_TRACES` | `@traces` references non-existent LLR ID | Trace annotation is wrong |
-| 8 | `UNTRACED_FUNCTIONS` | Public function without `@traces` | Function coverage gap |
+| 8 | `UNTRACED_FUNCTIONS` | Function without `@traces` (no public/private exemption) | Function coverage gap |
 | 9 | `LOW_STRUCTURAL_COVERAGE` | `bazel coverage` < 100% for a file | Statement coverage gap |
 | 10 | `LOW_BRANCH_COVERAGE` | MC/DC branch coverage < 100% | DO-178C certification blocker |
 | 11 | `UNIMPLEMENTED_REQUIREMENT` | LLR absent from all source-file `@traces` | No implementing code exists |
@@ -390,10 +435,12 @@ every functional check while implementing nothing.)
 The ordering reflects dependency: higher-priority gaps block meaningful
 verification of lower-priority ones. Environment and syntax issues (0-1)
 must be fixed before tests can run. Files must exist (2-3) before they
-can be tested. Tests must pass (4) before coverage is meaningful. Trace
-validity (5-6) must be correct before coverage metrics are trustworthy.
-Coverage dimensions (7-10) are measured per file and per requirement.
-Semantic quality checks (11-12) only run once all structural gaps close.
+can be tested. The contract gates (4-5) pin the required surface before
+behaviour is judged. Tests must pass (6) before coverage is meaningful.
+Trace validity (7-8) must be correct before coverage metrics are
+trustworthy. Coverage dimensions (9-12) are measured per file and per
+requirement. Semantic quality checks (13-14) only run once all
+structural gaps close.
 
 ### Quality Gate Sequencing
 

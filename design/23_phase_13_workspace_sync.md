@@ -8,7 +8,7 @@ every file in the workspace, matches each to its source graph node, parses
 project graph. This closes the full traceability chain from requirements
 through to test evidence.
 
-**Pipeline step:** `workspace_sync`
+**Pipeline steps:** `workspace_sync`, then `record_results_step`
 
 ---
 
