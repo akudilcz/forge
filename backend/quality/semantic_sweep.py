@@ -15,6 +15,7 @@ from typing import Any
 from backend.analysis.gaps import Gap, GapPriority, GapType
 from backend.prompting.builder import build_all_peers_context
 from backend.quality.phase_map import NODE_TYPE_TO_PHASE, PHASE_TO_NODE_TYPES
+from backend.quality.semantic_duplicate_check import UnjudgedDedupError
 from backend.server.forge_logger import forge_logger
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,7 @@ async def run_semantic_check(
 
     evaluated = 0
     skipped = 0
+    unjudged: list[str] = []
     for gap in planned:
         node = flow.graph.node_sync(gap.node_id)
         if node is None:
@@ -172,7 +174,23 @@ async def run_semantic_check(
         content = node.content or "(no content)"
         if node_traces:
             content = f"trace_to={list(node_traces)}\n{content}"
-        await checker(gap.node_id, content, peers_text)
+        # Bounded resilience (design/01 §7.4): after the checker's single
+        # retry, an unparseable judge response leaves this candidate UNJUDGED.
+        # The node is KEPT — never deleted on unparseable evidence — and the
+        # sweep continues; one bad provider body must not halt the phase.
+        try:
+            await checker(gap.node_id, content, peers_text)
+        except UnjudgedDedupError as exc:
+            unjudged.append(gap.node_id)
+            forge_logger.emit(
+                "ERROR",
+                "SEMA ",
+                f"UNJUDGED {gap.node_id} — judge response unparseable after "
+                f"retry; keeping node and continuing sweep",
+                f"raw={exc.raw_snippet!r}",
+                node_id=gap.node_id,
+            )
+            continue
         evaluated += 1
 
     count_after = sum(1 for n in flow.graph.all_nodes() if n.node_type in type_set)
@@ -181,8 +199,18 @@ async def run_semantic_check(
         "INFO",
         "QUAL ",
         f"Phase {phase} semantic check complete — {evaluated} evaluated, "
-        f"{skipped} skipped, {deleted} deleted",
+        f"{skipped} skipped, {len(unjudged)} unjudged, {deleted} deleted",
     )
+    if unjudged:
+        # Loud, but not fatal: an unjudged dedup verdict means "no deletion",
+        # the safe outcome — unlike quality verdicts, which gate completion.
+        forge_logger.emit(
+            "ERROR",
+            "QUAL ",
+            f"Phase {phase} semantic check — {len(unjudged)} candidate(s) "
+            f"unjudged (judge unparseable after retry); nodes kept: "
+            f"{sorted(unjudged)}",
+        )
     if deleted > 0:
         # Reset only the phases that AUTHOR the deleted node types — not the
         # whole downstream chain. Downstream phases have their own gap

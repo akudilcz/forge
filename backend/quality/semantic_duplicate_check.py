@@ -17,6 +17,7 @@ that cannot be auto-recovered — live-trace proven on PARA-0242):
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import time
 from typing import Any
@@ -24,6 +25,24 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from backend.server.forge_logger import forge_logger
+
+
+class UnjudgedDedupError(RuntimeError):
+    """A dedup judge call returned an unparseable provider body twice.
+
+    Raised after the single bounded retry (design/01 §7.4). The candidate's
+    verdict is UNJUDGED: the node must be KEPT — never deleted on unparseable
+    evidence — and the sweep continues past it instead of crashing the phase.
+    Carries the raw body snippet so the sweep can log it at ERROR.
+    """
+
+    def __init__(self, node_id: str, raw_snippet: str) -> None:
+        self.node_id = node_id
+        self.raw_snippet = raw_snippet
+        super().__init__(
+            f"Dedup judge response unparseable after retry for {node_id} "
+            f"— verdict UNJUDGED, node kept. raw={raw_snippet!r}"
+        )
 
 _SYSTEM_PROMPT = """\
 You are a deduplication judge. Given the SIBLINGS context followed by a
@@ -145,13 +164,35 @@ def create_semantic_checker(
         # the byte-identical double-confirmation call — and the TARGET is the
         # dynamic suffix. Provider-side KV/prompt caching reuses the prefix
         # only; sampling of the two verdicts remains independent.
-        response = await llm.ainvoke([
+        messages = [
             SystemMessage(content=_SYSTEM_PROMPT),
             HumanMessage(content=(
                 f"SIBLINGS:\n{siblings_text}\n\n"
                 f"TARGET REQUIREMENT ({node_id}):\n{node_content}"
             )),
-        ])
+        ]
+        # Bounded resilience (design/01 §7.4): a provider body the HTTP client
+        # cannot parse surfaces as a raw json.JSONDecodeError from llm.ainvoke
+        # (live: "Expecting value: line 157 column 1 (char 858)" halted a whole
+        # build at phase 8). Retry the call exactly once; a second parse
+        # failure raises UnjudgedDedupError so the sweep keeps the node and
+        # continues instead of crashing the phase. Any other exception still
+        # propagates immediately — this is not a generic retry loop.
+        try:
+            response = await llm.ainvoke(messages)
+        except json.JSONDecodeError as first_exc:
+            forge_logger.emit(
+                "WARN", "SEMA ",
+                f"Unparseable judge response for {node_id} — "
+                f"{type(first_exc).__name__}: {first_exc}; retrying once",
+                node_id=node_id,
+            )
+            try:
+                response = await llm.ainvoke(messages)
+            except json.JSONDecodeError as second_exc:
+                raise UnjudgedDedupError(
+                    node_id, (second_exc.doc or "")[:200]
+                ) from second_exc
         duration_ms = int((time.monotonic() - t0) * 1000)
 
         text = (response.content if hasattr(response, "content") else str(response)).strip()
