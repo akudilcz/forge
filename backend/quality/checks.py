@@ -83,7 +83,6 @@ async def run_combined_quality_check(flow: Any, phase: int) -> list[Gap]:
 
     from backend.agents.factory import build_llm
     from backend.quality.combined_check import (
-        UnjudgedQualityError,
         create_combined_quality_checker,
         quality_pass_key,
     )
@@ -112,38 +111,22 @@ async def run_combined_quality_check(flow: Any, phase: int) -> list[Gap]:
     if not items:
         return []
 
+    # Chunked judging (design/01 §7.4): one call over a whole large phase
+    # truncates at the provider output-token limit (live evidence: 81 HLRs →
+    # 62 unjudged after retry), so candidates are judged in chunks. Sets of
+    # at most one chunk keep the original single-call behaviour.
+    batch_size: int = flow.config.llm.quality_judge_batch_size
     checker = create_combined_quality_checker(build_llm(flow.config, cacheable=True))
     forge_logger.emit(
         "INFO",
         "XQUAL",
-        f"Phase {phase} combined quality check — {len(items)} node(s)",
+        f"Phase {phase} combined quality check — {len(items)} node(s) in "
+        f"chunk(s) of ≤{batch_size}",
     )
-    try:
-        gaps: list[Gap] = await checker(items)
-    except UnjudgedQualityError:
-        # Unjudged nodes after the checker's single retry are a loud failure
-        # — swallowing this into an empty gap list would score the silence
-        # as a clean quality sweep.
-        raise
-    except Exception as exc:
-        # One retry for transient failures. A second failure propagates —
-        # returning [] here would be indistinguishable from a clean sweep,
-        # silently disabling the quality gate for the phase.
-        forge_logger.emit(
-            "WARN",
-            "XQUAL",
-            f"Combined quality check failed for phase {phase}: "
-            f"{type(exc).__name__}: {exc} — retrying once",
-        )
-        gaps = await checker(items)
-
-    # A returned result means every judged node received a verdict on every
-    # applicable axis (unjudged raises). Stamp PASS for nodes with no gaps;
-    # nodes that failed any axis are deliberately NOT cached.
-    failed_ids = {g.node_id for g in gaps}
-    for node_id, _ntype, title, content in items:
-        if node_id not in failed_ids:
-            verdict_cache[quality_pass_key(node_id, title, content)] = "PASS"
+    gaps: list[Gap] = []
+    for start in range(0, len(items), batch_size):
+        chunk = items[start : start + batch_size]
+        gaps.extend(await _judge_chunk(checker, phase, chunk, verdict_cache))
 
     forge_logger.emit(
         "INFO",
@@ -151,6 +134,47 @@ async def run_combined_quality_check(flow: Any, phase: int) -> list[Gap]:
         f"Phase {phase} combined quality check complete — "
         f"{len(gaps)} issue(s) found across {len(items)} node(s)",
     )
+    return gaps
+
+
+async def _judge_chunk(
+    checker: Any,
+    phase: int,
+    chunk: list[tuple[str, str, str, str]],
+    verdict_cache: dict[tuple[str, str], str],
+) -> list[Gap]:
+    """Judge one chunk through the checker and stamp its sticky PASSes.
+
+    The checker itself performs one partial-rejudge retry for unjudged
+    nodes/axes; anything still unjudged raises UnjudgedQualityError, which
+    propagates — swallowing it into an empty gap list would score the
+    silence as a clean quality sweep. Transient (non-verdict) failures get
+    exactly one retry of the chunk; a second failure propagates.
+    """
+    from backend.quality.combined_check import UnjudgedQualityError, quality_pass_key
+
+    try:
+        gaps: list[Gap] = await checker(chunk)
+    except UnjudgedQualityError:
+        raise
+    except Exception as exc:
+        forge_logger.emit(
+            "WARN",
+            "XQUAL",
+            f"Combined quality chunk failed for phase {phase}: "
+            f"{type(exc).__name__}: {exc} — retrying once",
+        )
+        gaps = await checker(chunk)
+
+    # A returned result means every node in the chunk received a verdict on
+    # every applicable axis (unjudged raises). Stamp PASS for nodes with no
+    # gaps; nodes that failed any axis are deliberately NOT cached. Stamping
+    # per chunk means a later chunk's failure never discards evidence
+    # already paid for in earlier chunks.
+    failed_ids = {g.node_id for g in gaps}
+    for node_id, _ntype, title, content in chunk:
+        if node_id not in failed_ids:
+            verdict_cache[quality_pass_key(node_id, title, content)] = "PASS"
     return gaps
 
 

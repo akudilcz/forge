@@ -115,6 +115,12 @@ class LLMConfig(BaseModel):
     # model window of history. Enforced by the pre_model_hook built in
     # backend/pipeline/phase_context.py::make_trim_hook.
     dispatch_token_budget: int = 24000
+    # Maximum nodes judged per combined-quality LLM call. The judge's verdict
+    # block scales with node count, and one call over the whole phase truncates
+    # at the provider output-token limit on large phases (live evidence:
+    # 81 HLRs → 62 unjudged after retry). run_combined_quality_check chunks
+    # candidates to this size — see design/01_architecture.md §7.4.
+    quality_judge_batch_size: int = 25
     options: LLMOptionsConfig = Field(default_factory=LLMOptionsConfig)
     # Per-agent model overrides; key = AgentRole.value, value = model name
     agents: dict[str, str] = Field(

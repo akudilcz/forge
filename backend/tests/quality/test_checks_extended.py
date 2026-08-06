@@ -37,6 +37,9 @@ def _flow(nodes: list[SimpleNamespace]) -> MagicMock:
     flow.graph.children_sync = MagicMock(side_effect=lambda pid: [n for n in nodes if n.parent_id == pid])
     flow._batch_new_node_ids = None
     flow.config = MagicMock()
+    # Chunking arithmetic needs a real int (a MagicMock attribute would break
+    # range()); all nodes in these tests fit one chunk.
+    flow.config.llm.quality_judge_batch_size = 25
     flow._analyser = MagicMock()
     flow._analyser.analyse = MagicMock(return_value=[])
     flow._broadcast_gap_list = MagicMock()
