@@ -20,6 +20,11 @@ from typing import Any
 import aiosqlite
 import networkx as nx
 
+from backend.analysis.node_invariants import (
+    EARS_PATTERN_KEY,
+    REQUIREMENT_TYPES,
+    classify_ears,
+)
 from backend.graph._algorithms import AlgorithmMixin
 from backend.graph._queries import QueryMixin
 from backend.graph.models import (
@@ -142,6 +147,20 @@ class ProjectGraph(QueryMixin, AlgorithmMixin):
                 persist_props[DERIVED_FROM_HASH] = stamp
                 node.properties[DERIVED_FROM_HASH] = stamp
 
+        # EARS classification stamp (specs/13): the deterministic classifier's
+        # verdict is persisted on requirement nodes at write time — stamped
+        # here, never by agents, like derived_from_hash. Unclassifiable
+        # legacy content gets no stamp rather than a wrong one (the wording
+        # invariant / Gap Analyser own that failure).
+        if node.node_type in REQUIREMENT_TYPES:
+            ears = classify_ears(node.content or "")
+            if ears is not None:
+                persist_props[EARS_PATTERN_KEY] = ears
+                node.properties[EARS_PATTERN_KEY] = ears
+            else:
+                persist_props.pop(EARS_PATTERN_KEY, None)
+                node.properties.pop(EARS_PATTERN_KEY, None)
+
         now = datetime.now(UTC).isoformat()
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(
@@ -233,6 +252,27 @@ class ProjectGraph(QueryMixin, AlgorithmMixin):
             ):
                 merged_props = dict(merged_props)
                 merged_props[DERIVED_FROM_HASH] = node.properties[DERIVED_FROM_HASH]
+
+        # EARS stamp maintenance (specs/13), mirroring derived_from_hash:
+        # * content change → re-classify and re-stamp (or drop the stamp
+        #   when the new content is unclassifiable).
+        # * metadata-only update → carry the existing stamp over even when
+        #   the caller supplied a replacement properties bag omitting it.
+        if node.node_type in REQUIREMENT_TYPES:
+            if new_content != node.content:
+                merged_props = dict(merged_props or {})
+                ears = classify_ears(new_content)
+                if ears is not None:
+                    merged_props[EARS_PATTERN_KEY] = ears
+                else:
+                    merged_props.pop(EARS_PATTERN_KEY, None)
+            elif (
+                merged_props is not None
+                and EARS_PATTERN_KEY not in merged_props
+                and EARS_PATTERN_KEY in node.properties
+            ):
+                merged_props = dict(merged_props)
+                merged_props[EARS_PATTERN_KEY] = node.properties[EARS_PATTERN_KEY]
 
         async with aiosqlite.connect(self._db_path) as db:
             await db.execute(

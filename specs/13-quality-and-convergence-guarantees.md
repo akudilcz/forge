@@ -18,23 +18,42 @@ disagree. Enforced on every add/update:
 | Title present, at most 7 words | All authored types |
 | Title unique among siblings (case/whitespace-insensitive) | All authored types |
 | Title distinct from the parent's title | All authored types |
-| Content starts with "The system shall …"; no raw `PARA-nnnn` placeholders | HLR, LLR |
+| Content matches one of the five EARS patterns (Mavin et al.) — Ubiquitous "The \<system\> shall …", State-driven "While \<state\>, the \<system\> shall …", Event-driven "When \<trigger\>, the \<system\> shall …", Optional-feature "Where \<feature\>, the \<system\> shall …", Unwanted-behaviour "If \<condition\>, then the \<system\> shall …" — or a Complex combination (optional While-clause first, then When/Where/If…then clauses, always ending in the shall-clause). Classified deterministically by `classify_ears`; the detected pattern is stamped as `properties.ears_pattern` by the engine (agents never supply it). A rejection names the nearest pattern template. No raw `PARA-nnnn` placeholders. *(Historical note: this invariant previously forced a "The system shall" prefix, which forbade four of the five real EARS patterns and conflicted with the EARS quality axis — wording-repair churn measured ~919 calls per build family.)* | HLR, LLR |
 | Non-empty content at least 50 characters | ARCHITECTURE, MODULE, CONTRACT, DESIGN, SUITE, CASE nodes |
 | Content not identical to a same-type sibling's | All types except PARA (document mirrors) |
 | `trace_to` non-empty and correctly typed (CASE_HLR→HLR, CASE_LLR→LLR) | Test cases |
+| `properties.non_normative` marking well-formed: allowed on PARA nodes only; `non_normative: true` requires a `non_normative_rationale` naming a documented reason kind (`background/context`, `duplicate-of-<PARA-id>`, `example/illustration`, `meta/document-structure`) | PARA |
 | Structured `properties.public_api` present and well-formed (module, symbol, kind, signature per entry; optional per-entry `raises` / `preconditions` / `postconditions` / `invariants` shape-checked when present); `prohibited_constructs` well-formed when present | CONTRACT |
 
 Batched writes are validated as a whole and rejected atomically — a bad
 operation never leaves a batch half-applied.
+
+## Paragraph coverage — cover or classify
+
+Phase 3's coverage certificate is `UNCOVERED_PARA`-free, and the gap has
+"covered or explicitly non-normative" semantics: it fires for a body PARA
+that neither carries an HLR child nor a valid `non_normative` marking.
+A valid marking (flag plus documented rationale, table above) exempts the
+paragraph; a marking whose rationale is missing or invalid is reported
+loudly as `INADEQUATE_CONTENT` with the exact shape-check message — an
+invalid classification is never a silent exemption and never a plain
+coverage gap. Heading and empty PARAs remain exempt as before. This
+replaces the old one-HLR-per-paragraph quota, which manufactured
+near-duplicate requirements (a recognised requirements defect class) that
+the duplicate-removal machinery then had to delete.
 
 ## LLM quality judging
 
 Semantic quality (things static checks cannot see) is judged by batched LLM
 calls, one verdict per node per axis:
 
-- **Axes**: ATOMIC (one obligation), EARS (template conformance), MATCH
-  (title reflects content), SPECIFIC (title is concrete). Requirement nodes
-  get all four; other authored nodes get the title axes.
+- **Axes**: ATOMIC (one obligation), EARS (pattern *choice* only — is the
+  requirement using the right EARS pattern for its semantics: unwanted/error
+  behaviour must be "If …, then …", triggered behaviour "When …", stateful
+  behaviour "While …"; surface syntax is the write-time classifier's job,
+  and an EARS FAIL names the expected pattern), MATCH (title reflects
+  content), SPECIFIC (title is concrete). Requirement nodes get all four;
+  other authored nodes get the title axes.
 - **A missing verdict is never a pass.** Nodes the judge failed to score are
   re-asked exactly once; anything still unjudged fails the step loudly
   (`UnjudgedQualityError`) rather than being scored clean. Verdicts naming

@@ -537,3 +537,26 @@ class TestContractRecordPromptPins:
         # The encoding rules always mention the block by name; the block
         # itself (with its header) must be absent when no records exist.
         assert "CONTRACT RECORDS — for the requirement's module" not in prompt
+
+
+# ── U6: _para_hlr becomes cover-or-classify ──────────────────────────────────
+
+
+def test_para_hlr_offers_classify_route_with_reason_kinds() -> None:
+    description, _ = _entry(_gap(GapType.UNCOVERED_PARA, node_id="PARA-0027"))
+    assert "CLASSIFY" in description
+    assert "graph_update_node" in description
+    assert '"non_normative": true' in description
+    assert "non_normative_rationale" in description
+    for kind in (
+        "background/context", "duplicate-of-", "example/illustration",
+        "meta/document-structure",
+    ):
+        assert kind in description, kind
+
+
+def test_para_hlr_warns_against_near_duplicate_hlrs() -> None:
+    description, _ = _entry(_gap(GapType.UNCOVERED_PARA, node_id="PARA-0027"))
+    assert "near-duplicate" in description
+    assert "defect" in description.lower()
+    assert "duplicate-of-<PARA-id>" in description

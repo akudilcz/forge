@@ -297,3 +297,39 @@ async def test_unjudged_error_names_only_real_candidates() -> None:
     retry_payload = llm.ainvoke.await_args_list[1].args[0][1].content
     assert "[HLR-0002]" in retry_payload
     assert "HLR-9999" not in retry_payload
+
+
+# ── U3: EARS axis judges pattern CHOICE only (specs/13) ──────────────────────
+
+
+def test_system_prompt_scopes_ears_axis_to_pattern_choice() -> None:
+    from backend.quality.combined_check import _SYSTEM_PROMPT
+
+    # The judge owns semantics-vs-pattern fit; surface syntax belongs to the
+    # deterministic write-time classifier.
+    assert "right EARS pattern" in _SYSTEM_PROMPT
+    assert "If <condition>, then" in _SYSTEM_PROMPT
+    assert "When <trigger>" in _SYSTEM_PROMPT
+    assert "While <state>" in _SYSTEM_PROMPT
+    assert "Where <feature>" in _SYSTEM_PROMPT
+    assert "syntax" in _SYSTEM_PROMPT.lower()
+    # The caricature is gone: the judge no longer polices the old prefix rule.
+    assert '"The system shall <action>"' not in _SYSTEM_PROMPT
+
+
+def test_ears_fail_description_names_expected_pattern() -> None:
+    items = [
+        ("HLR-0001", "HLR", "Malformed Input Error",
+         "When the input is malformed, the system shall raise ValueError."),
+    ]
+    text = (
+        "HLR-0001: ATOMIC=PASS "
+        "EARS=FAIL(expected Unwanted-behaviour: If <condition>, then ...) "
+        "MATCH=PASS SPECIFIC=PASS"
+    )
+    gaps, missing = _parse_verdicts(items, text)
+    assert missing == {}
+    [gap] = gaps
+    assert gap.type == GapType.NON_EARS_REQUIREMENT
+    # The FAIL description must surface the judge's expected pattern.
+    assert "expected Unwanted-behaviour" in gap.description

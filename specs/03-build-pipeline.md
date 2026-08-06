@@ -12,7 +12,7 @@ dedicated dashboard per phase via `/phase/:phaseNum`.
 | 0 | Create Project        | Human + backend | PROJECT node                               | PROJECT exists |
 | 1 | Ingest Document       | Deterministic   | DOCUMENT node from `forge.md`              | DOCUMENT exists |
 | 2 | Parse Document        | Deterministic (markdown) / Agent (exception) | PARA tree (paragraph/section nodes) | No `UNCHUNKED_DOCUMENT` |
-| 3 | Derive HLRs           | Agent (batch)   | High-level requirements                    | No `UNCOVERED_PARA` |
+| 3 | Derive HLRs           | Agent (batch)   | High-level requirements + non-normative PARA classifications | No `UNCOVERED_PARA` |
 | 4 | Create Architecture   | Agent           | ARCHITECTURE node                          | No `UNARCHITECTED` |
 | 5 | Assign Modules        | Agent (batch)   | MODULE nodes owning HLRs                   | No `UNMODULARISED` |
 | 6 | Write Contracts       | Agent           | One CONTRACT per MODULE                    | No `UNCONTRACTED` |
@@ -75,13 +75,29 @@ split, not a fallback: the build log states which route ran and why.
 Completion criteria are identical on both routes, and all quality checks
 run on the resulting PARAs either way.
 
-**3 — Derive HLRs.** Every non-heading PARA with real body content receives
-at least one high-level requirement. HLRs are EARS-style "The system
-shall …" statements (enforced at write time) with a verification method
-(test, analysis, review, or demo); requirements inferred rather than stated
-are marked derived, with rationale. Normative details — exact exception
-types, return-value contracts, ordering and tie-break rules — must be
-captured, not paraphrased away.
+**3 — Derive HLRs (cover or classify).** Every non-heading PARA with real
+body content ends the phase either **covered** — carrying at least one
+high-level requirement — or **explicitly classified non-normative**. There
+is no one-HLR-per-paragraph quota: forcing an HLR onto a paragraph that
+merely restates a sibling manufactures duplicate requirements (a recognised
+requirements defect class) that the dedup machinery then has to pay to
+delete. Instead, the agent marks such paragraphs
+`properties.non_normative: true` with a `non_normative_rationale` naming
+one of the documented reason kinds — `background/context`,
+`duplicate-of-<PARA-id>`, `example/illustration`, or
+`meta/document-structure` — via the normal `graph_update_node` route. The
+marking is shape-checked at write time (PARA nodes only; a rationale is
+mandatory), and the Gap Analyser stops emitting `UNCOVERED_PARA` for a
+validly marked PARA — so a classification resolves the coverage item
+exactly like a new HLR does. A marking with a missing or invalid rationale
+is a loud `INADEQUATE_CONTENT` gap, never a silent exemption.
+
+HLRs are EARS-style "The system shall …" statements (enforced at write
+time) with a verification method (test, analysis, review, or demo);
+requirements inferred rather than stated are marked derived, with
+rationale. Normative details — exact exception types, return-value
+contracts, ordering and tie-break rules — must be captured, not
+paraphrased away.
 
 **4 — Create Architecture.** A single ARCHITECTURE node decomposing the
 system: module inventory, interfaces, cross-cutting concerns, rationale.

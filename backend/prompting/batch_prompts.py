@@ -11,6 +11,7 @@ from typing import Any
 
 from backend.prompting.task_prompts_authoring import (
     CASE_CONTRACT_ENCODING,
+    EARS_PATTERNS,
     NORMATIVE_MUST_CAPTURE,
 )
 
@@ -43,9 +44,10 @@ def build_batch_phase3_prompt(
 
     # ── Dynamic suffix (changes each attempt) ───────────────────────────────
     dynamic = (
-        f"UNCOVERED PARAGRAPHS ({len(uncovered_paras)} — each needs at least one HLR):\n"
+        f"UNCOVERED PARAGRAPHS ({len(uncovered_paras)} — each must end up "
+        f"COVERED by an HLR or CLASSIFIED non-normative):\n"
         f"{para_lines}\n\n"
-        "FOR EACH uncovered PARA above, do ONE of:\n"
+        "FOR EACH uncovered PARA above — COVER OR CLASSIFY. Do exactly ONE of:\n"
         "  A) Reparent an existing HLR that already captures the paragraph's\n"
         "     requirement:\n"
         "       graph_reparent_node(node_id=<hlr_id>, parent_id=<para_id>)\n"
@@ -53,12 +55,31 @@ def build_batch_phase3_prompt(
         "       derive_requirement(parent_content=<PARA content text>, level=hlr)\n"
         "     Then persist:\n"
         "       graph_add_node(node_type=HLR, parent_id=<para_id>,\n"
-        "         content=<derived text>, title='3-5 words')\n\n"
+        "         content=<derived text>, title='3-5 words')\n"
+        "  C) Classify a genuinely NON-NORMATIVE paragraph instead of forcing\n"
+        "     an HLR onto it:\n"
+        "       graph_update_node(node_id=<para_id>,\n"
+        "         properties='{\"non_normative\": true,\n"
+        "                      \"non_normative_rationale\": \"<reason>\"}')\n"
+        "     <reason> must be ONE of:\n"
+        "       background/context      — scene-setting prose, no obligation\n"
+        "       duplicate-of-<PARA-id>  — restates a sibling paragraph whose\n"
+        "                                 HLR already carries the obligation\n"
+        "       example/illustration    — worked example of an obligation\n"
+        "                                 stated elsewhere\n"
+        "       meta/document-structure — text about the document itself\n\n"
         "RULES:\n"
+        "- Duplicate requirements are a recognised requirements DEFECT class\n"
+        "  (EARS guidance). NEVER invent a near-duplicate HLR for a paragraph\n"
+        "  that merely restates a sibling — classify it duplicate-of-<PARA-id>\n"
+        "  instead, naming the sibling PARA that owns the obligation.\n"
+        "- Classify ONLY when the paragraph states no separately-testable\n"
+        "  obligation. If it adds even one new obligation, cover it (A or B).\n"
         "- An HLR can only have ONE parent. Do NOT move an HLR if it would\n"
         "  leave its current PARA with zero HLRs — create a new HLR instead.\n"
-        "- Each HLR content must be a single ATOMIC sentence starting with\n"
-        "  'The system shall '. One testable obligation per HLR.\n"
+        "- Each HLR content must be a single ATOMIC sentence in one of the\n"
+        "  EARS patterns. One testable obligation per HLR.\n"
+        f"{EARS_PATTERNS}"
         "- A PARA may contain SEVERAL obligations — create one HLR per\n"
         "  obligation, never a single summary HLR for the paragraph.\n"
         f"{NORMATIVE_MUST_CAPTURE}"
@@ -167,7 +188,8 @@ def build_batch_phase7_prompt(
         "         content='The system shall ...', title='3-5 words')\n\n"
         "RULES:\n"
         "- Do NOT move an LLR if it is the ONLY child of its current parent.\n"
-        "- Each LLR must be ATOMIC — one 'The system shall ...' sentence.\n"
+        "- Each LLR must be ATOMIC — ONE obligation in one EARS pattern.\n"
+        f"{EARS_PATTERNS}"
         "- Create one LLR per distinct obligation. Do NOT under-decompose.\n"
         "- Align LLRs to CONTRACT signatures where they exist.\n"
         "- Work through ALL HLRs before stopping."

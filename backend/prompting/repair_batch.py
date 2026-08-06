@@ -1,7 +1,7 @@
 """Batched micro-repair prompts — one structured call fixes N small gaps.
 
 Title-family gaps (vague/stale/sibling-duplicate titles) and wording-family
-gaps (non-shall requirement wording) each need one small per-node edit, yet
+gaps (non-EARS requirement wording) each need one small per-node edit, yet
 the per-gap dispatch path re-sends the full system prompt and context for
 every node. This module builds the single-call prompt (same
 single-call-judges-all pattern as ``backend/quality/combined_check.py``)
@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from backend.analysis.gaps import GapType
+from backend.prompting.task_prompts_authoring import EARS_PATTERNS
 
 #: Gap types repaired by replacing the node's TITLE.
 TITLE_FAMILY: frozenset[GapType] = frozenset(
@@ -91,11 +92,11 @@ You are a requirement-wording editor. Each requirement node below violates
 the mandatory wording format (stated per node). For EACH node, rewrite its
 content as a SINGLE atomic sentence that:
 
-- starts with 'The system shall ' (exactly one 'shall');
-- places any condition (when/if/while/where) AFTER the shall-clause;
+- matches ONE of the EARS patterns below (exactly one 'shall');
 - preserves the original requirement intent, testable and unambiguous;
 - contains no bullet points and no sub-clauses.
 
+""" + EARS_PATTERNS + """
 OUTPUT FORMAT — one line per node, in the INPUT order, exactly:
 
   <NODE_ID>: <rewritten requirement sentence>

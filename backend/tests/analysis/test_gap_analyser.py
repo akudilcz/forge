@@ -676,3 +676,98 @@ def test_identical_para_siblings_are_not_duplicates(analyser: GapAnalyser) -> No
     ]
     gaps = analyser._check_duplicate_siblings(nodes)
     assert [g for g in gaps if g.type == GapType.DUPLICATE_NODE] == []
+
+
+# ── U6: cover-or-classify — non_normative marking exempts a PARA ─────────────
+
+
+def test_uncovered_para_skipped_when_marked_non_normative(
+    analyser: GapAnalyser, mock_graph: MagicMock,
+) -> None:
+    """A PARA marked non_normative with a documented rationale needs no HLR."""
+    para_node = GraphNode(
+        node_id="PARA-0001",
+        node_type=NodeType.PARA.value,
+        title="Historic Background Story",
+        content="Sorting has a long history in computing.",
+        properties={
+            "non_normative": True,
+            "non_normative_rationale": "background/context",
+        },
+    )
+    mock_graph.all_nodes.return_value = [para_node]
+    mock_graph.children_sync.return_value = []
+
+    gaps = analyser.analyse(mock_graph)
+
+    assert [g for g in gaps if g.type == GapType.UNCOVERED_PARA] == []
+    assert [g for g in gaps if g.type == GapType.INADEQUATE_CONTENT] == []
+
+
+def test_uncovered_para_marked_without_rationale_is_loud_gap(
+    analyser: GapAnalyser, mock_graph: MagicMock,
+) -> None:
+    """non_normative without a valid rationale is a loud INADEQUATE_CONTENT
+    gap — never a silent exemption, never a plain UNCOVERED_PARA."""
+    para_node = GraphNode(
+        node_id="PARA-0001",
+        node_type=NodeType.PARA.value,
+        title="Historic Background Story",
+        content="Sorting has a long history in computing.",
+        properties={"non_normative": True},
+    )
+    mock_graph.all_nodes.return_value = [para_node]
+    mock_graph.children_sync.return_value = []
+
+    gaps = analyser.analyse(mock_graph)
+
+    assert [g for g in gaps if g.type == GapType.UNCOVERED_PARA] == []
+    loud = [g for g in gaps if g.type == GapType.INADEQUATE_CONTENT]
+    assert len(loud) == 1
+    assert loud[0].node_id == "PARA-0001"
+    assert "non_normative_rationale" in loud[0].description
+
+
+def test_uncovered_para_unmarked_functional_still_fires(
+    analyser: GapAnalyser, mock_graph: MagicMock,
+) -> None:
+    """Unmarked, uncovered functional PARAs keep firing — quota softened,
+    coverage obligation unchanged."""
+    para_node = GraphNode(
+        node_id="PARA-0001",
+        node_type=NodeType.PARA.value,
+        title="Sort Input Contract",
+        content="The system shall accept a list of integers.",
+        para_type="functional",
+    )
+    mock_graph.all_nodes.return_value = [para_node]
+    mock_graph.children_sync.return_value = []
+
+    gaps = analyser.analyse(mock_graph)
+
+    assert len([g for g in gaps if g.type == GapType.UNCOVERED_PARA]) == 1
+
+
+def test_uncovered_para_sub_type_handling_unchanged(
+    analyser: GapAnalyser, mock_graph: MagicMock,
+) -> None:
+    """heading PARAs stay exempt; unmarked rationale PARAs still fire (an
+    agent must explicitly classify them non_normative to exempt them)."""
+    heading = GraphNode(
+        node_id="PARA-0001", node_type=NodeType.PARA.value,
+        title="Section Heading Marker", content="## 2. Requirements",
+        para_type="heading",
+    )
+    rationale = GraphNode(
+        node_id="PARA-0002", node_type=NodeType.PARA.value,
+        title="Design Rationale Prose",
+        content="Chunking first keeps the LLM context small.",
+        para_type="rationale",
+    )
+    mock_graph.all_nodes.return_value = [heading, rationale]
+    mock_graph.children_sync.return_value = []
+
+    gaps = analyser.analyse(mock_graph)
+
+    uncovered = [g for g in gaps if g.type == GapType.UNCOVERED_PARA]
+    assert [g.node_id for g in uncovered] == ["PARA-0002"]

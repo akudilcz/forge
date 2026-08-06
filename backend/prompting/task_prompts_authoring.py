@@ -9,6 +9,27 @@ Each helper returns a ``(description, expected_output)`` tuple.
 
 from __future__ import annotations
 
+#: The five EARS requirement patterns (Mavin et al.), verbatim, plus the
+#: Complex combination rule. Embedded in every prompt that authors or
+#: repairs HLR/LLR wording (phase 3/7 derivation, wording repairs) and
+#: importable by the batch prompt builders. The write-time classifier
+#: (``backend.analysis.node_invariants.classify_ears``) accepts exactly
+#: these shapes and nothing else.
+EARS_PATTERNS = (
+    "EARS requirement patterns — every HLR/LLR MUST match exactly ONE:\n"
+    "  • Ubiquitous:         The <system> shall <response>.\n"
+    "  • State-driven:       While <state>, the <system> shall <response>.\n"
+    "  • Event-driven:       When <trigger>, the <system> shall <response>.\n"
+    "  • Optional-feature:   Where <feature>, the <system> shall <response>.\n"
+    "  • Unwanted-behaviour: If <condition>, then the <system> shall <response>.\n"
+    "Complex combinations put the While-clause first, then When/Where/If…then\n"
+    "clauses, always ending in the shall-clause. Choose by SEMANTICS:\n"
+    "error/unwanted behaviour → If…then; a triggering event → When; a system\n"
+    "state → While; an optional feature → Where; always-active → Ubiquitous.\n"
+    "Conditions go BEFORE the shall-clause, never after it. Exactly ONE\n"
+    "'shall' per requirement.\n"
+)
+
 #: Contract categories that live builds repeatedly dropped between whitepaper
 #: and graph (topological_sort e2e: CyclicGraphError's ValueError base class,
 #: `find_cycle -> ... | None`, and the tie_breaker key-function arity all
@@ -165,7 +186,8 @@ def _para_hlr(nid: str, ctx: str) -> tuple[str, str]:
     )
 
     return (
-        f"Paragraph '{nid}' has no HLR requirement derived from it.\n"
+        f"Paragraph '{nid}' is neither covered by an HLR nor classified\n"
+        f"non-normative. COVER it or CLASSIFY it.\n"
         f"{content_block}\n"
         f"PREFERRED ACTION — link an existing HLR:\n"
         f"  graph_read(operation=nodes, node_type=HLR) — list all existing HLRs.\n"
@@ -174,7 +196,24 @@ def _para_hlr(nid: str, ctx: str) -> tuple[str, str]:
         f"    graph_reparent_node(node_id=<hlr_id>, parent_id='{nid}')\n"
         f"  Then STOP.\n"
         f"  ONLY re-parent LLR nodes — never PARA, DOCUMENT, or other types.\n\n"
-        f"FALLBACK — only if no existing HLR covers this paragraph:\n"
+        f"CLASSIFY — if the paragraph is genuinely NON-NORMATIVE (it states no\n"
+        f"  separately-testable obligation), mark it instead of forcing an HLR:\n"
+        f"    graph_update_node(node_id='{nid}',\n"
+        f"      properties='{{\"non_normative\": true,\n"
+        f"                   \"non_normative_rationale\": \"<reason>\"}}')\n"
+        f"  <reason> must be ONE of:\n"
+        f"    background/context      — scene-setting prose, no obligation\n"
+        f"    duplicate-of-<PARA-id>  — restates a sibling paragraph whose HLR\n"
+        f"                              already carries the obligation\n"
+        f"    example/illustration    — worked example of an obligation stated\n"
+        f"                              elsewhere\n"
+        f"    meta/document-structure — text about the document itself\n"
+        f"  Duplicate requirements are a recognised requirements DEFECT class\n"
+        f"  (EARS guidance) — NEVER derive a near-duplicate HLR for a paragraph\n"
+        f"  that merely restates a sibling; classify it duplicate-of-<PARA-id>.\n"
+        f"  Then STOP.\n\n"
+        f"FALLBACK — only if the paragraph is normative and no existing HLR\n"
+        f"covers it:\n"
         f"  Step A — ENUMERATE distinct obligations in the PARAGRAPH CONTENT.\n"
         f"    An obligation is any separately-testable behaviour: a main\n"
         f"    behaviour, an edge-case rule, an error-handling rule. Count them.\n"
@@ -184,16 +223,19 @@ def _para_hlr(nid: str, ctx: str) -> tuple[str, str]:
         f"  Step B — CREATE ONE HLR PER OBLIGATION. If the paragraph contains N\n"
         f"    obligations, emit N graph_add_node calls, each a separate HLR\n"
         f"    under '{nid}'. Do not merge obligations into a compound HLR.\n"
-        f"  Step C — each HLR content MUST be a single ATOMIC 'The system shall '\n"
-        f"    sentence — ONE testable obligation, no 'and'/'while'/semicolons.\n"
+        f"  Step C — each HLR content MUST be a single ATOMIC sentence in one\n"
+        f"    of the EARS patterns below — ONE testable obligation, never two\n"
+        f"    obligations joined by 'and'/semicolons.\n"
         f"    Atomicity test: if the sentence contains 'and' linking two verbs\n"
         f"    or outcomes, split into separate HLRs.\n"
+        f"{EARS_PATTERNS}"
         f"  Leave node_id empty — auto-assigns a HLR-NNNN ID.\n"
         f"  NEVER create placeholder HLRs like 'Handle PARA-XXXX Content'.\n"
         f"  When calling derive_requirement (once per obligation), pass the\n"
         f"  specific obligation's text as parent_content, not the full paragraph."
         f"{ctx}",
-        f"Existing HLR re-parented under '{nid}', or new HLR node written to the graph.",
+        f"Existing HLR re-parented under '{nid}', new HLR node written to the "
+        f"graph, or '{nid}' marked non_normative with a documented rationale.",
     )
 
 
@@ -327,8 +369,10 @@ def _llr(nid: str, ctx: str) -> tuple[str, str]:
         f"  requires two LLRs. Do NOT duplicate existing LLRs.\n"
         f"  Each LLR as a child of '{nid}' via graph_add_node.\n"
         f"  Leave node_id empty — auto-assigns (e.g. LLR-0001).\n"
-        f"  Each LLR content MUST be a single ATOMIC sentence beginning with 'The system shall '.\n"
-        f"  ATOMIC means ONE testable obligation — never bundle with 'and'/'while'/semicolons.\n\n"
+        f"  Each LLR content MUST be a single ATOMIC sentence in one of the\n"
+        f"  EARS patterns below. ATOMIC means ONE testable obligation — never\n"
+        f"  bundle two obligations with 'and'/semicolons.\n"
+        f"{EARS_PATTERNS}\n"
         f"STRICT RULES: Do NOT call graph_read. Do NOT call derive_requirement.\n"
         f"Do NOT create MODULEs or CONTRACTs."
         f"{ctx}",

@@ -292,7 +292,7 @@ class GraphWriteTool(ForgeTool):
             existing = graph.node_sync(node_id)  # type: ignore[attr-defined]
         except (AttributeError, TypeError):
             existing = None
-        invariant_err = validate_update_node(graph, existing, title, content)
+        invariant_err = validate_update_node(graph, existing, title, content, props)
         if invariant_err:
             return invariant_err
 

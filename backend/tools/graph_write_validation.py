@@ -24,6 +24,7 @@ from backend.analysis.node_invariants import (
     check_contract_prohibited,
     check_contract_public_api,
     check_min_content_length,
+    check_non_normative_marking,
     check_requirement_wording,
     check_sibling_content_unique,
     check_sibling_title_unique,
@@ -81,6 +82,7 @@ def validate_add_node(
         check_case_trace_targets(node_type, trace_to, _resolver(graph)),
         check_contract_public_api(node_type, properties),
         check_contract_prohibited(node_type, properties),
+        check_non_normative_marking(node_type, properties),
     ):
         if msg is not None:
             return f"ERROR: {msg}"
@@ -107,11 +109,23 @@ def validate_update_node(
     existing: object,
     title: str | None,
     content: str | None,
+    properties: Mapping[str, object] | None,
 ) -> str | None:
-    """Invariants for the fields an update actually changes."""
+    """Invariants for the fields an update actually changes.
+
+    ``properties`` is the delta the update merges in (None when the update
+    does not touch properties). The non-normative-marking check runs on the
+    MERGED bag — a rationale supplied in a second call must satisfy the
+    invariant together with the already-stored flag.
+    """
     if not isinstance(existing, GraphNode):
         return None  # graph cannot answer (test double) — engine still guards
     node_type = existing.node_type
+    if properties is not None:
+        merged: dict[str, object] = {**existing.properties, **properties}
+        msg = check_non_normative_marking(node_type, merged)
+        if msg is not None:
+            return f"ERROR: {msg}"
     if title is not None:
         msg = check_title(node_type, title)
         if msg is not None:

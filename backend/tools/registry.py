@@ -118,6 +118,9 @@ class ToolRegistry:
                 "derive_requirement",
                 "graph_add_node",
                 "graph_reparent_node",
+                # Cover-or-classify (specs/03 Phase 3): marking a PARA
+                # non_normative happens via graph_update_node properties.
+                "graph_update_node",
                 "multi_graph_write",
             }
         ),

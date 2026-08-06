@@ -233,13 +233,13 @@ def test_unsuited(analyser: GapAnalyser, has_suite: bool, expect_gap: bool) -> N
 
 @pytest.mark.parametrize("content", [
     "The system shall accept a start pose.",
-    "The system shall return an error when a timeout expires.",
-    "The system shall reject writes while in safe mode.",
-    "The system shall expand obstacles where an inflation radius is configured.",
-    "The system shall return a failure indication if no path is found.",
+    "When a timeout expires, the system shall return an error.",
+    "While in safe mode, the system shall reject writes.",
+    "Where an inflation radius is configured, the system shall expand obstacles.",
+    "If no path is found, then the system shall return a failure indication.",
 ])
 def test_wording_check_accepts_valid_format(analyser: GapAnalyser, content: str) -> None:
-    """Requirements starting with 'The system shall' pass the wording check."""
+    """Requirements in any of the five EARS patterns pass the wording check."""
     hlr = GraphNode(
         node_id="HLR-0001", node_type=NodeType.HLR.value,
         title="Test HLR", content=content,
@@ -252,12 +252,12 @@ def test_wording_check_accepts_valid_format(analyser: GapAnalyser, content: str)
 
 @pytest.mark.parametrize("content", [
     "Accept a start pose and return a path.",
-    "When a timeout expires, the system shall return an error.",
-    "Where an inflation radius is configured, the system shall expand obstacles.",
+    "The system shall return an error when a timeout expires.",
+    "If no path is found, the system shall return a failure indication.",
     "The planner uses A* search.",
 ])
 def test_wording_check_flags_wrong_start(analyser: GapAnalyser, content: str) -> None:
-    """Content not starting with 'The system shall' is flagged — even with conditions first."""
+    """Non-EARS content is flagged — trailing conditions and missing 'then' included."""
     hlr = GraphNode(
         node_id="HLR-0001", node_type=NodeType.HLR.value,
         title="Test HLR", content=content,

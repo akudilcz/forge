@@ -61,7 +61,89 @@ CASE_TRACE_TARGET: dict[str, str] = {
 }
 
 _PARA_PLACEHOLDER = re.compile(r"\bPARA-\d{4}\b")
-_REQUIRED_PREFIX = "the system shall "
+
+# ── EARS classification (Mavin et al., "EARS" RE'09) ─────────────────────────
+
+#: Property key under which the engine stamps the classification on HLR/LLR.
+EARS_PATTERN_KEY = "ears_pattern"
+
+#: EARS pattern name → concrete rewrite template quoted in rejections.
+EARS_TEMPLATES: dict[str, str] = {
+    "ubiquitous": "The system shall <response>",
+    "state_driven": "While <state>, the system shall <response>",
+    "event_driven": "When <trigger>, the system shall <response>",
+    "optional_feature": "Where <feature>, the system shall <response>",
+    "unwanted_behaviour": "If <condition>, then the system shall <response>",
+}
+
+# Clause grammar, in Mavin's mandated order: an optional While-clause first,
+# then any When / Where / If…then clauses, then the mandatory shall-clause
+# ("the <system> shall <response>"). One leading clause names the simple
+# pattern; two or more make the requirement Complex.
+_WHILE_CLAUSE = re.compile(r"while\s+[^,]+,\s*", re.IGNORECASE)
+_KEYWORD_CLAUSES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("event_driven", re.compile(r"when\s+[^,]+,\s*", re.IGNORECASE)),
+    ("optional_feature", re.compile(r"where\s+[^,]+,\s*", re.IGNORECASE)),
+    ("unwanted_behaviour", re.compile(r"if\s+.+?,\s*then\s+", re.IGNORECASE)),
+)
+_SHALL_CLAUSE = re.compile(
+    r"the\s+(?P<system>\S.*?)\s+shall\s+(?P<response>\S.*)",
+    re.IGNORECASE,
+)
+# EARS keywords are structural: a condition trailing the shall-clause is a
+# clause-order violation, not a response.
+_KEYWORD_IN_RESPONSE = re.compile(r"\b(?:while|when|where|if)\b", re.IGNORECASE)
+
+
+def classify_ears(text: str) -> str | None:
+    """Classify requirement text into its EARS pattern, or ``None``.
+
+    Returns one of ``ubiquitous`` / ``state_driven`` / ``event_driven`` /
+    ``optional_feature`` / ``unwanted_behaviour`` / ``complex``. ``None``
+    means the text matches no pattern (e.g. missing 'shall', an If-clause
+    without 'then', or a condition placed after the shall-clause).
+    """
+    flat = " ".join(text.strip().split())
+    if not flat:
+        return None
+    clauses: list[str] = []
+    pos = 0
+    lead = _WHILE_CLAUSE.match(flat, pos)
+    if lead:
+        clauses.append("state_driven")
+        pos = lead.end()
+    progressed = True
+    while progressed:
+        progressed = False
+        for name, pattern in _KEYWORD_CLAUSES:
+            m = pattern.match(flat, pos)
+            if m:
+                clauses.append(name)
+                pos = m.end()
+                progressed = True
+                break
+    shall = _SHALL_CLAUSE.fullmatch(flat, pos)
+    if shall is None or _KEYWORD_IN_RESPONSE.search(shall.group("response")):
+        return None
+    if not clauses:
+        return "ubiquitous"
+    if len(clauses) == 1:
+        return clauses[0]
+    return "complex"
+
+
+def _nearest_ears_template(text: str) -> str:
+    """The template the mis-worded text is closest to, by leading keyword."""
+    lowered = text.lstrip().lower()
+    for keyword, pattern in (
+        ("if", "unwanted_behaviour"),
+        ("when", "event_driven"),
+        ("while", "state_driven"),
+        ("where", "optional_feature"),
+    ):
+        if lowered.startswith(keyword):
+            return EARS_TEMPLATES[pattern]
+    return EARS_TEMPLATES["ubiquitous"]
 
 
 # ── Normalisation shared by write tools and analyser ─────────────────────────
@@ -100,7 +182,7 @@ def check_title(node_type: str, title: str) -> str | None:
 
 
 def check_requirement_wording(node_type: str, content: str) -> str | None:
-    """HLR/LLR content must be a real 'The system shall …' statement."""
+    """HLR/LLR content must match one of the five EARS patterns (or Complex)."""
     if node_type not in REQUIREMENT_TYPES:
         return None
     stripped = content.strip()
@@ -113,10 +195,14 @@ def check_requirement_wording(node_type: str, content: str) -> str | None:
             f"({placeholder.group(0)}): {stripped[:80]!r}. Replace the "
             f"placeholder with the actual requirement text and retry."
         )
-    if not stripped.lower().startswith(_REQUIRED_PREFIX):
+    if classify_ears(stripped) is None:
         return (
-            f"{node_type} content must start with 'The system shall ': "
-            f"got {stripped[:80]!r}. Rewrite the requirement wording and retry."
+            f"{node_type} content must match an EARS pattern (Ubiquitous, "
+            f"State-driven, Event-driven, Optional-feature, "
+            f"Unwanted-behaviour, or a Complex combination — conditions "
+            f"BEFORE the shall-clause): got {stripped[:80]!r}. Nearest "
+            f"template: '{_nearest_ears_template(stripped)}'. Rewrite the "
+            f"requirement wording and retry."
         )
     return None
 
@@ -388,3 +474,85 @@ def check_case_trace_targets(
             f"{expected} node IDs."
         )
     return None
+
+
+# ── PARA non-normative marking (specs/03 Phase 3 cover-or-classify) ──────────
+
+#: Documented reason kinds for marking a PARA non-normative. The duplicate
+#: kind carries the restated sibling's id as a suffix (duplicate-of-PARA-0012).
+NON_NORMATIVE_REASON_KINDS: tuple[str, ...] = (
+    "background/context",
+    "duplicate-of-<PARA-id>",
+    "example/illustration",
+    "meta/document-structure",
+)
+
+_DUPLICATE_OF_PREFIX = "duplicate-of-"
+_EXACT_REASON_KINDS: frozenset[str] = frozenset(
+    kind for kind in NON_NORMATIVE_REASON_KINDS if kind != "duplicate-of-<PARA-id>"
+)
+
+
+def is_marked_non_normative(properties: Mapping[str, object]) -> bool:
+    """True when the node carries an explicit ``non_normative: true`` flag."""
+    return "non_normative" in properties and properties["non_normative"] is True
+
+
+def _check_non_normative_rationale(rationale: object) -> str | None:
+    """Rationale must name one of the documented reason kinds."""
+    kinds = ", ".join(NON_NORMATIVE_REASON_KINDS)
+    if not isinstance(rationale, str) or not rationale.strip():
+        return (
+            "non_normative: true requires a non-empty string "
+            f"properties.non_normative_rationale naming one of: {kinds}. "
+            "Supply the rationale and retry."
+        )
+    value = rationale.strip()
+    if value in _EXACT_REASON_KINDS:
+        return None
+    if value.startswith(_DUPLICATE_OF_PREFIX) and len(value) > len(_DUPLICATE_OF_PREFIX):
+        return None
+    return (
+        f"non_normative_rationale {value!r} is not a documented reason kind "
+        f"— use one of: {kinds}. Fix the rationale and retry."
+    )
+
+
+def check_non_normative_marking(
+    node_type: str,
+    properties: Mapping[str, object],
+) -> str | None:
+    """PARA-only non-normative marking must carry a documented rationale.
+
+    Phase 3 is 'cover or classify' (specs/03): a PARA that is not a
+    requirement source is exempted from HLR coverage only by an explicit
+    ``non_normative: true`` plus a rationale naming a documented reason
+    kind — never silently.
+    """
+    flagged = "non_normative" in properties
+    has_rationale = "non_normative_rationale" in properties
+    if not flagged and not has_rationale:
+        return None
+    if node_type != NodeType.PARA.value:
+        return (
+            f"non_normative marking applies only to PARA nodes, not "
+            f"{node_type}. Remove properties.non_normative / "
+            f"non_normative_rationale and retry."
+        )
+    if flagged and not isinstance(properties["non_normative"], bool):
+        return (
+            "properties.non_normative must be a JSON boolean (true). "
+            "Fix the value and retry."
+        )
+    if not is_marked_non_normative(properties):
+        if has_rationale:
+            return (
+                "properties.non_normative_rationale is set but "
+                "non_normative is not true. Set non_normative: true "
+                "alongside the rationale (or remove both) and retry."
+            )
+        return None
+    rationale = (
+        properties["non_normative_rationale"] if has_rationale else None
+    )
+    return _check_non_normative_rationale(rationale)

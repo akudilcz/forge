@@ -62,10 +62,17 @@ authored nodes, judge each node on the following axes.
 
 For HLR and LLR nodes, judge FOUR axes:
   ATOMIC   — exactly ONE "shall" obligation? Multiple outcomes or properties → FAIL.
-  EARS     — matches EARS pattern ("The system shall <action>",
-             "When X, the system shall ...", "If X, the system shall ...",
-             "While X, the system shall ...")? Negative phrasings
-             ("shall not raise any exception") → FAIL.
+  EARS     — does the requirement use the right EARS pattern for its
+             SEMANTICS? Surface syntax is validated deterministically at
+             write time — never judge grammar here, only pattern choice:
+               error/unwanted behaviour  → "If <condition>, then the <system> shall <response>"
+               triggered behaviour       → "When <trigger>, the <system> shall <response>"
+               state-dependent behaviour → "While <state>, the <system> shall <response>"
+               optional-feature scope    → "Where <feature>, the <system> shall <response>"
+               unconditional behaviour   → "The <system> shall <response>"
+             Wrong pattern for the semantics → FAIL(expected <pattern name>:
+             <template>). Negative phrasings ("shall not raise any
+             exception") → FAIL.
   MATCH    — does the title accurately summarise ONLY the current content's
              scope? Broader-scope title with narrower content → FAIL.
   SPECIFIC — is the title a concrete 3-5 word noun phrase, NOT a generic
@@ -277,7 +284,10 @@ def _axis_gap(
         description = f"{ntype} {nid} is non-atomic: {content[:120]!r}"
         context = {"reasoning": reason}
     elif axis == "EARS":
-        description = f"{ntype} {nid} not EARS-form: {content[:120]!r}"
+        description = (
+            f"{ntype} {nid} uses the wrong EARS pattern for its semantics "
+            f"({reason}): {content[:120]!r}"
+        )
         context = {"reasoning": reason}
     elif axis == "MATCH":
         description = (

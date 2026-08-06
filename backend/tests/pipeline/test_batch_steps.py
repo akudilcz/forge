@@ -910,3 +910,46 @@ def test_node_to_dict_extracts_fields() -> None:
     assert d["node_type"] == "HLR"
     assert d["title"] == "Test"
     assert d["trace_to"] == ["LLR-001"]
+
+
+# ── U6: cover-or-classify prompt + marking-based resolution accounting ───────
+
+
+def test_phase3_prompt_is_cover_or_classify() -> None:
+    paras = [{"node_id": "PARA-001", "content": "Some background story."}]
+    prompt = build_batch_phase3_prompt(paras, [], [])
+    assert "COVER OR CLASSIFY" in prompt
+    assert "graph_update_node" in prompt
+    assert '"non_normative": true' in prompt
+    assert "non_normative_rationale" in prompt
+    for kind in (
+        "background/context", "duplicate-of-<PARA-id>",
+        "example/illustration", "meta/document-structure",
+    ):
+        assert kind in prompt, kind
+    # Anti-duplication warning names the defect class.
+    assert "defect" in prompt.lower()
+    assert "near-duplicate" in prompt
+
+
+@pytest.mark.asyncio
+async def test_batch_phase3_marking_resolves_item_without_new_hlr() -> None:
+    """An agent that classifies the PARA non_normative (no HLR created)
+    resolves the coverage item: the analyser-backed collector no longer
+    reports the gap, so no straggler fallback dispatch runs."""
+    from backend.analysis.gaps import Gap, GapPriority, GapType
+
+    para1 = _mock_node("PARA-001", "PARA", content="Background story.")
+    gap = Gap(type=GapType.UNCOVERED_PARA, priority=GapPriority.REQUIREMENTS_HLR,
+              node_id="PARA-001", description="test")
+
+    flow = _make_flow(nodes=[para1], gaps=[gap])
+    # First collection sees the gap; after the batch agent marks the PARA
+    # non_normative the analyser emits nothing — certificate follows.
+    flow._collect_phase_gaps.side_effect = [[gap], [gap], []]
+
+    result = await batch_phase3(flow, 3)
+
+    assert result["step_name"] == "batch_phase3"
+    assert result["deletions"] == 0
+    flow._run_structural_loop.assert_not_called()

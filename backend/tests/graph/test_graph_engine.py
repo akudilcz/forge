@@ -511,3 +511,59 @@ async def test_context_bundle_no_duplication_across_tiers(graph: ProjectGraph) -
     assert "proj.q.hlr.1" in inner_ids
     assert "proj.q.hlr.1" not in middle_ids
     assert "proj.q.hlr.1" not in outer_ids
+
+
+# ── EARS pattern stamping (specs/13 write-time invariants) ───────────────────
+#
+# The engine stamps ``properties.ears_pattern`` on HLR/LLR nodes at write
+# time — same seam as ``derived_from_hash``: computed here, never supplied
+# by agents — so the persisted classification can never drift from content.
+
+
+@pytest.mark.asyncio
+async def test_add_node_stamps_ears_pattern_on_hlr(graph: ProjectGraph) -> None:
+    node = GraphNode(
+        node_id="HLR-0001", node_type=NodeType.HLR.value, title="Malformed Input Error",
+        content="If the input is malformed, then the system shall raise ValueError.",
+    )
+    saved = await graph.add_node(node)
+    assert saved.properties["ears_pattern"] == "unwanted_behaviour"
+    fetched = await graph.node("HLR-0001")
+    assert fetched is not None
+    assert fetched.properties["ears_pattern"] == "unwanted_behaviour"
+
+
+@pytest.mark.asyncio
+async def test_add_node_does_not_stamp_ears_on_non_requirement(graph: ProjectGraph) -> None:
+    node = GraphNode(
+        node_id="MODULE-0001", node_type=NodeType.MODULE.value, title="CSV Parser",
+        content="Responsibilities: the module shall never be stamped.",
+    )
+    saved = await graph.add_node(node)
+    assert "ears_pattern" not in saved.properties
+
+
+@pytest.mark.asyncio
+async def test_update_node_restamps_ears_pattern_on_content_change(graph: ProjectGraph) -> None:
+    node = GraphNode(
+        node_id="LLR-0001", node_type=NodeType.LLR.value, title="Queue Dispatch",
+        content="The system shall dispatch tasks.",
+    )
+    await graph.add_node(node)
+    updated, _ = await graph.update_node(
+        "LLR-0001",
+        "While the queue is non-empty, the system shall dispatch tasks.",
+        None, "agent", "rewording",
+    )
+    assert updated.properties["ears_pattern"] == "state_driven"
+
+
+@pytest.mark.asyncio
+async def test_add_node_with_unclassifiable_content_omits_stamp(graph: ProjectGraph) -> None:
+    # Legacy/pre-enforcement content: no stamp rather than a wrong stamp.
+    node = GraphNode(
+        node_id="HLR-0002", node_type=NodeType.HLR.value, title="Legacy Wording",
+        content="Parses CSV files without ceremony.",
+    )
+    saved = await graph.add_node(node)
+    assert "ears_pattern" not in saved.properties

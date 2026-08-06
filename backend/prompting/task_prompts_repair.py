@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+from backend.prompting.task_prompts_authoring import EARS_PATTERNS
+
 if TYPE_CHECKING:
     from backend.analysis.gaps import Gap
 
@@ -20,14 +22,14 @@ def _malformed_requirement(nid: str, ctx: str) -> tuple[str, str]:
     return (
         f"Requirement node '{nid}' does not follow the mandatory wording format.\n\n"
         f"STEP 1: graph_read(operation=node, node_id={nid}) — read the current content.\n"
-        f"STEP 2: rewrite the content as a single, atomic sentence that starts with "
-        f"'The system shall ' and captures the same requirement intent.\n"
-        f"  Place any conditions (when/while/if/where) AFTER the shall-clause.\n"
+        f"STEP 2: rewrite the content as a single, atomic sentence in ONE of\n"
+        f"the EARS patterns, preserving the same requirement intent:\n"
+        f"{EARS_PATTERNS}"
         f"  • One requirement per node — no bullet points, no sub-clauses.\n"
         f"  • Keep it testable and unambiguous.\n"
         f"STEP 3: graph_update_node(node_id={nid}, content=<corrected content>)."
         f"{ctx}",
-        f"Requirement '{nid}' rewritten to 'The system shall …' form.",
+        f"Requirement '{nid}' rewritten to EARS form.",
     )
 
 
@@ -62,19 +64,17 @@ def _non_ears_requirement(nid: str, ctx: str, gap: Gap | None = None) -> tuple[s
         reasoning = f"\n\nAudit note: {gap.context['reasoning']}"
     return (
         f"Requirement '{nid}' does not follow the required format.{reasoning}\n\n"
-        f"Required format — every requirement MUST start with 'The system shall'.\n"
-        f"Place any conditions AFTER the shall-clause:\n"
-        f"  The system shall <action>.\n"
-        f"  The system shall <action> when <condition>.\n"
-        f"  The system shall <action> if <condition>.\n"
-        f"  The system shall <action> while <state>.\n"
-        f"  The system shall <action> where <feature> is configured.\n\n"
+        f"Required format — every requirement MUST match ONE of the EARS\n"
+        f"patterns (conditions come BEFORE the shall-clause):\n"
+        f"{EARS_PATTERNS}\n"
         f"STEP 1: graph_read(operation=node, node_id={nid}) — read current content.\n"
-        f"STEP 2: Determine how to express the requirement starting with 'The system shall'.\n"
-        f"STEP 3: graph_update_node(node_id={nid}, content=<rewritten content>) — rewrite "
-        f"starting with 'The system shall'. Use exactly ONE 'shall'.\n"
+        f"STEP 2: pick the pattern matching the requirement's SEMANTICS\n"
+        f"(error handling → If…then; trigger → When; state → While;\n"
+        f"optional feature → Where; otherwise Ubiquitous).\n"
+        f"STEP 3: graph_update_node(node_id={nid}, content=<rewritten content>) — "
+        f"rewrite in that pattern. Use exactly ONE 'shall'.\n"
         f"{ctx}",
-        f"'{nid}' rewritten to start with 'The system shall'.",
+        f"'{nid}' rewritten into its EARS pattern.",
     )
 
 
@@ -320,7 +320,7 @@ def _incomplete_decomposition(nid: str, ctx: str) -> tuple[str, str]:
         f"STEP 1: graph_read(operation=node, node_id={nid}) — read the HLR.\n"
         f"STEP 2: Review existing LLR children and the MODULE/CONTRACT context below.\n"
         f"STEP 3: Create additional LLR nodes via graph_add_node to cover the missing "
-        f"aspects. Each LLR must be atomic ('The system shall …')."
+        f"aspects. Each LLR must be atomic, worded in an EARS pattern."
         f"{ctx}",
         f"HLR '{nid}' fully decomposed into LLRs covering all CONTRACT interfaces.",
     )

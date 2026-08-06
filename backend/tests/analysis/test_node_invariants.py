@@ -17,6 +17,7 @@ from backend.analysis.node_invariants import (
     check_sibling_title_unique,
     check_title,
     check_title_distinct_from_parent,
+    classify_ears,
     normalise_content,
     normalise_title,
 )
@@ -52,6 +53,87 @@ def test_title_exempt_types_skip() -> None:
         assert check_title(ntype, "") is None
 
 
+# ── classify_ears (Mavin et al. — five patterns + Complex) ───────────────────
+
+
+def test_classify_ubiquitous() -> None:
+    assert classify_ears("The system shall parse CSV.") == "ubiquitous"
+
+
+def test_classify_ubiquitous_with_named_system() -> None:
+    assert classify_ears("The parser shall tokenise the input.") == "ubiquitous"
+
+
+def test_classify_state_driven() -> None:
+    assert (
+        classify_ears("While the queue is non-empty, the system shall dispatch tasks.")
+        == "state_driven"
+    )
+
+
+def test_classify_event_driven() -> None:
+    assert (
+        classify_ears("When the user submits a file, the system shall validate it.")
+        == "event_driven"
+    )
+
+
+def test_classify_optional_feature() -> None:
+    assert (
+        classify_ears("Where logging is enabled, the system shall record each request.")
+        == "optional_feature"
+    )
+
+
+def test_classify_unwanted_behaviour() -> None:
+    assert (
+        classify_ears("If the input is malformed, then the system shall raise ValueError.")
+        == "unwanted_behaviour"
+    )
+
+
+def test_classify_complex_while_when() -> None:
+    assert (
+        classify_ears(
+            "While the build is running, when a phase fails, "
+            "the system shall halt the pipeline."
+        )
+        == "complex"
+    )
+
+
+def test_classify_complex_when_if_then() -> None:
+    assert (
+        classify_ears(
+            "When a file is uploaded, if the checksum mismatches, "
+            "then the system shall reject the upload."
+        )
+        == "complex"
+    )
+
+
+def test_classify_if_without_then_is_rejected() -> None:
+    # Near-miss: Unwanted-behaviour requires the explicit 'then'.
+    assert classify_ears("If the input is malformed, the system shall raise ValueError.") is None
+
+
+def test_classify_missing_shall_is_rejected() -> None:
+    assert classify_ears("When the user clicks, the system validates the input.") is None
+
+
+def test_classify_prose_is_rejected() -> None:
+    assert classify_ears("Parses CSV files.") is None
+
+
+def test_classify_while_after_shall_is_rejected() -> None:
+    # Clause ORDER matters: conditions come BEFORE the shall-clause.
+    assert classify_ears("The system shall dispatch tasks while the queue is non-empty.") is None
+
+
+def test_classify_empty_is_rejected() -> None:
+    assert classify_ears("   ") is None
+
+
 # ── check_requirement_wording ────────────────────────────────────────────────
 
 
@@ -59,10 +141,40 @@ def test_wording_ok() -> None:
     assert check_requirement_wording("HLR", "The system shall parse CSV.") is None
 
 
+def test_wording_accepts_every_ears_pattern() -> None:
+    # Regression: the old invariant forced a 'The system shall' prefix,
+    # forbidding four of the five real EARS patterns.
+    for text in (
+        "The system shall parse CSV.",
+        "While the queue is non-empty, the system shall dispatch tasks.",
+        "When the user submits a file, the system shall validate it.",
+        "Where logging is enabled, the system shall record each request.",
+        "If the input is malformed, then the system shall raise ValueError.",
+        "While the build is running, when a phase fails, the system shall halt.",
+    ):
+        assert check_requirement_wording("HLR", text) is None, text
+
+
 def test_wording_bad_prefix_rejected() -> None:
     msg = check_requirement_wording("LLR", "Parses CSV files.")
     assert msg is not None
     assert "The system shall" in msg
+
+
+def test_wording_if_without_then_rejected_names_nearest_template() -> None:
+    msg = check_requirement_wording(
+        "HLR", "If the input is malformed, the system shall raise ValueError."
+    )
+    assert msg is not None
+    assert "If <condition>, then the system shall <response>" in msg
+
+
+def test_wording_missing_shall_rejected_with_template() -> None:
+    msg = check_requirement_wording(
+        "HLR", "When the user clicks, the system validates the input."
+    )
+    assert msg is not None
+    assert "When <trigger>, the system shall <response>" in msg
 
 
 def test_wording_para_placeholder_rejected() -> None:
@@ -475,3 +587,100 @@ def test_contract_entry_without_obligation_fields_still_passes() -> None:
     from backend.analysis.node_invariants import check_contract_public_api
 
     assert check_contract_public_api("CONTRACT", {"public_api": [_api_entry()]}) is None
+
+
+# ── check_non_normative_marking (U6 — cover or classify) ─────────────────────
+
+
+def test_non_normative_marking_absent_passes() -> None:
+    from backend.analysis.node_invariants import check_non_normative_marking
+
+    assert check_non_normative_marking("PARA", {}) is None
+    assert check_non_normative_marking("HLR", {"other": 1}) is None
+
+
+def test_non_normative_valid_reason_kinds_pass() -> None:
+    from backend.analysis.node_invariants import check_non_normative_marking
+
+    for reason in (
+        "background/context",
+        "duplicate-of-PARA-0012",
+        "example/illustration",
+        "meta/document-structure",
+    ):
+        props = {"non_normative": True, "non_normative_rationale": reason}
+        assert check_non_normative_marking("PARA", props) is None, reason
+
+
+def test_non_normative_missing_rationale_rejected_names_kinds() -> None:
+    from backend.analysis.node_invariants import check_non_normative_marking
+
+    msg = check_non_normative_marking("PARA", {"non_normative": True})
+    assert msg is not None
+    assert "non_normative_rationale" in msg
+    assert "background/context" in msg
+    assert "duplicate-of-" in msg
+    assert "example/illustration" in msg
+    assert "meta/document-structure" in msg
+
+
+def test_non_normative_empty_rationale_rejected() -> None:
+    from backend.analysis.node_invariants import check_non_normative_marking
+
+    props = {"non_normative": True, "non_normative_rationale": "   "}
+    assert check_non_normative_marking("PARA", props) is not None
+
+
+def test_non_normative_unknown_reason_kind_rejected() -> None:
+    from backend.analysis.node_invariants import check_non_normative_marking
+
+    props = {"non_normative": True, "non_normative_rationale": "seems boring"}
+    msg = check_non_normative_marking("PARA", props)
+    assert msg is not None
+    assert "background/context" in msg
+
+
+def test_non_normative_duplicate_kind_requires_para_id_suffix() -> None:
+    from backend.analysis.node_invariants import check_non_normative_marking
+
+    props = {"non_normative": True, "non_normative_rationale": "duplicate-of-"}
+    assert check_non_normative_marking("PARA", props) is not None
+
+
+def test_non_normative_on_non_para_rejected() -> None:
+    from backend.analysis.node_invariants import check_non_normative_marking
+
+    props = {"non_normative": True, "non_normative_rationale": "background/context"}
+    msg = check_non_normative_marking("HLR", props)
+    assert msg is not None
+    assert "PARA" in msg
+
+
+def test_non_normative_flag_must_be_boolean() -> None:
+    from backend.analysis.node_invariants import check_non_normative_marking
+
+    props = {"non_normative": "yes", "non_normative_rationale": "background/context"}
+    assert check_non_normative_marking("PARA", props) is not None
+
+
+def test_non_normative_rationale_without_flag_rejected() -> None:
+    from backend.analysis.node_invariants import check_non_normative_marking
+
+    props = {"non_normative_rationale": "background/context"}
+    msg = check_non_normative_marking("PARA", props)
+    assert msg is not None
+    assert "non_normative" in msg
+
+
+def test_non_normative_false_without_rationale_passes() -> None:
+    from backend.analysis.node_invariants import check_non_normative_marking
+
+    assert check_non_normative_marking("PARA", {"non_normative": False}) is None
+
+
+def test_is_marked_non_normative_true_only_for_boolean_true() -> None:
+    from backend.analysis.node_invariants import is_marked_non_normative
+
+    assert is_marked_non_normative({"non_normative": True}) is True
+    assert is_marked_non_normative({"non_normative": False}) is False
+    assert is_marked_non_normative({}) is False

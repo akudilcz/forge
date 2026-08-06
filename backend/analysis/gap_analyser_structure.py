@@ -11,6 +11,10 @@ from __future__ import annotations
 from typing import Any
 
 from backend.analysis.gaps import Gap, GapPriority, GapType
+from backend.analysis.node_invariants import (
+    check_non_normative_marking,
+    is_marked_non_normative,
+)
 from backend.graph.models import GraphNode, NodeType
 
 
@@ -83,14 +87,35 @@ class StructuralCompletenessChecks:
         ]
 
     def _check_uncovered_para(self, children: list[GraphNode], node: GraphNode) -> list[Gap]:
-        """P2: Body PARA nodes must have at least one HLR child.
+        """P2: Body PARA nodes must be covered OR explicitly non-normative.
 
         Skips paragraphs that are not requirement sources:
         - para_type == "heading" (from document parser)
         - Empty or whitespace-only content
         - Content that is a markdown heading (starts with #)
         - Content that is only a section number/title (e.g. "## 2.1 Path Planning")
+        - Marked ``non_normative: true`` with a valid documented rationale
+          (specs/03 Phase 3 cover-or-classify)
+
+        A marking whose rationale is missing/invalid is a LOUD gap
+        (INADEQUATE_CONTENT with the shared shape-check message), never a
+        silent coverage exemption.
         """
+        marking_err = check_non_normative_marking(NodeType.PARA.value, node.properties)
+        if marking_err is not None:
+            return [
+                Gap(
+                    type=GapType.INADEQUATE_CONTENT,
+                    priority=GapPriority.MAINTENANCE,
+                    node_id=node.node_id,
+                    description=(
+                        f"Paragraph {node.node_id} has an invalid "
+                        f"non-normative marking: {marking_err}"
+                    ),
+                )
+            ]
+        if is_marked_non_normative(node.properties):
+            return []
         para_type = node.para_type or "paragraph"
         content = node.content.strip()
         if para_type == "heading" or not content:

@@ -120,6 +120,27 @@ def test_add_node_duplicate_sibling_title_rejected() -> None:
 # ── add_node: requirement wording ────────────────────────────────────────────
 
 
+def test_add_node_accepts_every_ears_pattern() -> None:
+    # Regression: the old prefix rule rejected While/When/Where/If-then
+    # requirements — four of the five real EARS patterns.
+    patterns = [
+        ("Ubiquitous Parse", "The system shall parse CSV rows."),
+        ("Queue Dispatch State", "While the queue is non-empty, the system shall dispatch tasks."),
+        ("Upload Validation Trigger", "When a file is uploaded, the system shall validate it."),
+        ("Optional Request Logging", "Where logging is enabled, the system shall record each request."),
+        ("Malformed Input Error", "If the input is malformed, then the system shall raise ValueError."),
+    ]
+    graph = _para_graph()
+    tool = GraphWriteTool(graph=graph)
+    for title, content in patterns:
+        result = tool._execute(
+            operation="add_node", node_type="HLR", parent_id="PARA-0001",
+            title=title, content=content,
+        )
+        assert result.startswith("OK"), f"{content!r} rejected: {result}"
+    assert len(graph.added) == len(patterns)
+
+
 def test_add_node_bad_requirement_wording_rejected() -> None:
     graph = _para_graph()
     tool = GraphWriteTool(graph=graph)
@@ -545,3 +566,77 @@ def test_add_para_with_identical_sibling_content_accepted() -> None:
     )
     assert result.startswith("OK")
     assert len(graph.added) == 1
+
+
+# ── non_normative marking route (U6 — graph_update_node) ─────────────────────
+
+
+def test_update_para_marking_without_rationale_rejected() -> None:
+    graph = _para_graph()
+    tool = GraphWriteTool(graph=graph)
+    result = tool._execute(
+        operation="update_node", node_id="PARA-0001",
+        properties='{"non_normative": true}',
+    )
+    assert result.startswith("ERROR")
+    assert "non_normative_rationale" in result
+    assert graph.updated == []
+
+
+def test_update_para_marking_with_valid_rationale_accepted() -> None:
+    graph = _para_graph()
+    tool = GraphWriteTool(graph=graph)
+    result = tool._execute(
+        operation="update_node", node_id="PARA-0001",
+        properties='{"non_normative": true, '
+                   '"non_normative_rationale": "duplicate-of-PARA-0002"}',
+    )
+    assert result.startswith("OK")
+    assert len(graph.updated) == 1
+
+
+def test_update_non_para_marking_rejected() -> None:
+    graph = _StubGraph([
+        _n("HLR-0001", "HLR", title="Sort Stability Guarantee",
+           content="The system shall keep sorting stable."),
+    ])
+    tool = GraphWriteTool(graph=graph)
+    result = tool._execute(
+        operation="update_node", node_id="HLR-0001",
+        properties='{"non_normative": true, '
+                   '"non_normative_rationale": "background/context"}',
+    )
+    assert result.startswith("ERROR")
+    assert "PARA" in result
+    assert graph.updated == []
+
+
+def test_update_para_marking_merges_with_existing_properties() -> None:
+    """Rationale supplied in a second call must validate against the merged
+    property bag, not the delta alone."""
+    graph = _StubGraph([
+        _n("DOC-0001", "DOCUMENT", content="doc body"),
+        _n("PARA-0001", "PARA", parent_id="DOC-0001",
+           title="Input Handling", content="Paragraph text.",
+           properties={"non_normative": True,
+                       "non_normative_rationale": "background/context"}),
+    ])
+    tool = GraphWriteTool(graph=graph)
+    result = tool._execute(
+        operation="update_node", node_id="PARA-0001",
+        properties='{"non_normative_rationale": "example/illustration"}',
+    )
+    assert result.startswith("OK")
+
+
+def test_add_para_with_invalid_marking_rejected() -> None:
+    graph = _para_graph()
+    tool = GraphWriteTool(graph=graph)
+    result = tool._execute(
+        operation="add_node", node_type="PARA", parent_id="DOC-0001",
+        title="Scene Setting Prose", content="Background story.",
+        properties='{"non_normative": true}',
+    )
+    assert result.startswith("ERROR")
+    assert "non_normative_rationale" in result
+    assert graph.added == []

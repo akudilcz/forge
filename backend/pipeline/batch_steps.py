@@ -285,7 +285,13 @@ def _node_dicts_for_ids(flow: Any, ids: list[str]) -> list[dict[str, Any]]:
 
 
 async def batch_phase3(flow: Any, phase: int) -> StepResult:
-    """Chunk-assign HLRs to uncovered PARAs with per-chunk retry.
+    """Cover-or-classify uncovered PARAs in chunks with per-chunk retry.
+
+    Each PARA is resolved by an HLR (reparent/create) OR by an explicit
+    ``non_normative`` marking with a documented rationale (specs/03 Phase 3).
+    Resolution accounting is analyser-backed: the collector re-runs the gap
+    scan, which no longer emits UNCOVERED_PARA for validly marked PARAs, so
+    a marking resolves the item exactly like a new HLR does.
 
     Static prefix (all HLRs + LLRs) is snapshotted once so every chunk call
     shares a byte-identical cacheable prefix; only the PARA list varies.

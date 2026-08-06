@@ -132,8 +132,9 @@ class TestWordingPayload:
         assert "Sorting must work somehow." in payload
         assert "must start with 'The system shall '" in payload
 
-    def test_system_prompt_demands_shall_form(self) -> None:
-        assert "The system shall" in WORDING_REPAIR_SYSTEM_PROMPT
+    def test_system_prompt_demands_ears_form(self) -> None:
+        assert "The <system> shall <response>." in WORDING_REPAIR_SYSTEM_PROMPT
+        assert "If <condition>, then the <system> shall <response>." in WORDING_REPAIR_SYSTEM_PROMPT
         assert "one line per node" in WORDING_REPAIR_SYSTEM_PROMPT
 
     def test_long_content_is_capped_not_unbounded(self) -> None:

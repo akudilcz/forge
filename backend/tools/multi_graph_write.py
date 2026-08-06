@@ -174,7 +174,14 @@ def _prevalidate_batch(graph: object, ops: list[dict[str, Any]]) -> list[str]:
             if op == "update_node":
                 new_title = str(op_dict.get("title", "")).strip() or None
                 new_content = str(op_dict.get("content", "")) or None
-                err = validate_update_node(graph, existing, new_title, new_content)
+                new_props = (
+                    _parse_json_obj(str(op_dict["properties"]))
+                    if "properties" in op_dict
+                    else None
+                )
+                err = validate_update_node(
+                    graph, existing, new_title, new_content, new_props,
+                )
             elif existing is not None and isinstance(existing, GraphNode):
                 try:
                     from backend.tools.graph_write_parsing import _coerce_to_list
