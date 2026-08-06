@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 import { RotateCcw, FileText, Play } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useStore } from '@/store';
+import { PipelineOverview } from './PipelineOverview';
 
 // ── Forge.md editor ───────────────────────────────────────────────────────────
 
@@ -89,7 +90,7 @@ function ForgemdEditor() {
             value={draft}
             onChange={e => setDraft(e.target.value)}
             spellCheck={false}
-            className="w-full h-full px-4 py-3 bg-black/20 font-mono text-xs text-forge-text/90 placeholder-forge-muted/40 resize-none focus:outline-none focus:bg-black/30 transition-colors"
+            className="w-full h-full px-4 py-3 bg-forge-bg/60 font-mono text-xs text-forge-text/90 placeholder-forge-muted/40 resize-none focus:outline-none focus:bg-forge-bg/80 transition-colors"
           />
         </div>
       ) : (
@@ -155,7 +156,8 @@ export function CommandCentre() {
         </div>
       </div>
 
-      {/* Phase progress is shown in the global PhaseBreadcrumb (Layout) */}
+      {/* Pipeline hero — one card per phase */}
+      <PipelineOverview />
 
       {/* Forge.md editor */}
       <div className="flex-1 min-h-0">

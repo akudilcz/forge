@@ -7,46 +7,63 @@ cockpit for the Observe-Act loop.
 
 ```
 +------------------------------------------------------------+
-| StatusBar: Project | IDLE/RUNNING | [Play/Pause] | iter #N |
-+----------------+--------------------+----------------------+
-| WORK QUEUE     | ARENA              | SYSTEM LOG           |
-|                |                    |                      |
-| Prioritised    | Live view of the   | Append-only log of   |
-| open gaps      | currently running  | backend events and   |
-|                | agent              | phase transitions    |
-+----------------+--------------------+----------------------+
+| Pipeline rail: 15 phase segments | build status | wall time |
++------------------------------------------------------------+
+| Header: Run All / Stop | Reset                              |
++------------------------------------------------------------+
+| PIPELINE OVERVIEW — one card per phase (status, gaps, time) |
++------------------------------------------------------------+
+| FORGE.MD EDITOR (fills remaining space)                     |
++------------------------------------------------------------+
+| Console (log stream + request input)  |  Work Queue         |
++------------------------------------------------------------+
 ```
 
-## StatusBar
+## Pipeline rail
 
-- Shows project name (from `PROJECT.title`).
-- Shows current loop state (`IDLE` / `RUNNING` / `STOPPING`).
-- Hosts the single Play/Pause control — see
-  [04-loop-control.md](04-loop-control.md).
-- Shows the iteration counter, incremented once per observe-act cycle.
+- Shown at the top of **every** screen (mounted in the layout, not just the
+  Command Centre). All 15 phases as a connected track.
+- Per-phase status is encoded in form as well as colour: complete = check,
+  active = spinner, awaiting approval = pause glyph, pending = hollow.
+- Structural gap counts appear as a badge on the owning phase's segment.
+- Wall time per phase is clocked client-side from websocket status
+  transitions and shown in the segment tooltip; the active phase's elapsed
+  time is shown live at the right of the rail.
+- The rail also shows the loop state (Building / Idle) and iteration counter.
+- Clicking a segment navigates to that phase's dashboard.
 
-## Work Queue
+## Pipeline overview (hero)
 
-- Lists open gaps in priority order.
-- Each entry shows gap type, target node, and current age.
-- At Phase 0 the work queue is empty (no gaps exist yet).
-- Items disappear from the queue as agents resolve them.
+- One card per phase: colour spine, phase icon, number and name, status
+  glyph, open structural gap count, and elapsed wall time.
+- The active phase's card is emphasised (accent border, subtle pulse —
+  suppressed under `prefers-reduced-motion`).
+- Clicking a card navigates to `/phase/N`.
 
-## Arena
+## Header controls
 
-- Inactive when the loop is IDLE.
-- When an agent is dispatched, the arena shows:
-  - Which agent is running (role + name).
-  - The gap it is resolving.
-  - A live stream of tool calls and their results.
+- **Run All** starts the loop end to end; while running it is replaced by
+  **Stop**. See [04-loop-control.md](04-loop-control.md).
+- **Reset** clears all derived nodes, keeping Forge.md.
 
-## System Log
+## Forge.md editor
 
-- Streams backend events: project created, phase started/completed, provider
-  changed, errors.
-- Timestamped, append-only. The user cannot edit the log from the UI.
+- Edits the ingested DOCUMENT node in place. Saving cascades: derived nodes
+  are purged and phases 2+ reset to pending.
+
+## Console and Work Queue
+
+- The bottom panel (visible on every screen) splits into the console log and
+  the work queue.
+- Console entries encode severity in form, not just colour: WARN and ERROR
+  rows carry an icon and a tinted left rule.
+- LLM and tool entries surface telemetry inline — model, prompt→completion
+  tokens, and duration chips — from the FORGE_LOG payload.
+- The console input sends free-text requests to the backend console agent.
 
 ## Sidebar
 
 - The phase strip on the sidebar highlights the current phase and marks
   completed phases. Visible on every screen, not just the Command Centre.
+- The sidebar footer hosts the light/dark theme toggle; the preference is
+  persisted and otherwise follows the OS `prefers-color-scheme` hint.

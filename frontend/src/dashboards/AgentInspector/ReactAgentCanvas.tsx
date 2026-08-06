@@ -142,7 +142,7 @@ export function ReactAgentCanvas({
 
   return (
     <svg viewBox={`0 0 ${CW} ${CH}`} width="100%"
-      style={{ background: '#0d1117', display: 'block' }}>
+      style={{ background: 'var(--graph-canvas)', display: 'block' }}>
       <Defs agentColor={agentColor} />
 
       {/* START */}

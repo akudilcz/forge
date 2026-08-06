@@ -124,12 +124,22 @@ export function useForgeSocket() {
 
           case 'FORGE_LOG': {
             const p = data.payload;
+            const numMeta = (v: unknown): number | undefined => {
+              if (v == null) return undefined;
+              const n = typeof v === 'number' ? v : parseInt(String(v), 10);
+              return Number.isFinite(n) ? n : undefined;
+            };
             addLogEntry({
               ts: p.ts as string,
               level: (p.level as LogEntry['level']) ?? 'INFO',
               cat: (p.cat as string) ?? 'SYS',
               msg: p.msg as string,
               detail: (p.detail as string | undefined) ?? undefined,
+              model: (p.model as string | undefined) ?? undefined,
+              durationMs: numMeta(p.duration_ms),
+              promptTokens: numMeta(p.prompt_tokens),
+              completionTokens: numMeta(p.completion_tokens),
+              toolName: (p.tool_name as string | undefined) ?? undefined,
             });
             // Update last LLM model and context usage if present in payload
             if (p.model) setLastLlmModel(p.model as string);

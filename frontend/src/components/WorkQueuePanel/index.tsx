@@ -165,7 +165,7 @@ export function WorkQueuePanel() {
   return (
     <div className="flex flex-col h-full border-l border-forge-border/30 bg-forge-bg">
       {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-forge-border/30 bg-black/20 shrink-0">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-forge-border/30 bg-forge-bg/40 shrink-0">
         <ListChecks className="w-3.5 h-3.5 text-forge-muted" />
         <span className="text-[11px] font-semibold text-forge-text">Work Queue</span>
         {total > 0 && (

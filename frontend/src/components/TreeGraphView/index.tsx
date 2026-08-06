@@ -28,8 +28,25 @@ export interface TreeGraphHandle {
 
 // ── Node ──────────────────────────────────────────────────────────────────────
 
+/**
+ * Shape language per artifact family \u2014 corner radius distinguishes the
+ * hierarchy tier at a glance, in addition to the type hue:
+ *   source docs (DOCUMENT/PARA)        \u2192 soft rounded
+ *   requirements (HLR/LLR)            \u2192 sharp corners
+ *   design tier (ARCH/MODULE/\u2026)       \u2192 medium rounded
+ *   verification (SUITE/CASE/TEST/\u2026)  \u2192 pill ends
+ */
+const TYPE_SHAPE: Record<string, string> = {
+  PROJECT: 'rounded-lg', DOCUMENT: 'rounded-lg', PARA: 'rounded-lg',
+  HLR: 'rounded-[2px]', LLR: 'rounded-[2px]', REQ: 'rounded-[2px]',
+  ARCHITECTURE: 'rounded-md', MODULE: 'rounded-md', CONTRACT: 'rounded-md',
+  CLASS: 'rounded-md', DESIGN: 'rounded-md', CODE: 'rounded-md',
+  SUITE: 'rounded-full', CASE_HLR: 'rounded-full', CASE_LLR: 'rounded-full',
+  TEST: 'rounded-full', RESULT: 'rounded-full',
+};
+
 function GraphNodeComponent({ data, selected }: NodeProps) {
-  const { label, nodeType, color, highlighted, dimmed } = data as {
+  const { label, nodeType, color, gnode, highlighted, dimmed } = data as {
     label: string; nodeType: string; color: string; gnode: GNode;
     highlighted?: boolean; dimmed?: boolean;
   };
@@ -44,25 +61,42 @@ function GraphNodeComponent({ data, selected }: NodeProps) {
       ? `0 0 8px ${color}25`
       : 'none';
   const opacity = dimmed ? 0.3 : 1;
+  const shape = TYPE_SHAPE[nodeType] ?? 'rounded-md';
+  const traceCount = gnode?.trace_to?.length ?? 0;
+  const hoverContext = `${nodeType} \u00b7 ${gnode?.node_id ?? ''}\n${label}${
+    traceCount > 0 ? `\ntraces \u2192 ${traceCount}` : ''
+  }`;
 
   return (
     <>
       <Handle type="target" position={Position.Left} style={{ opacity: 0 }} />
       <div
+        title={hoverContext}
         style={{
           background: highlighted ? `${color}25` : `${color}15`,
           borderColor,
           borderWidth,
+          borderLeftWidth: Math.max(borderWidth, 3),
           boxShadow: shadow,
           opacity,
           transition: 'opacity 0.2s, box-shadow 0.2s, border-color 0.2s',
         }}
-        className="rounded-md border px-2 py-1 min-w-[130px] max-w-[170px]"
+        className={`border px-2.5 py-1 min-w-[130px] max-w-[170px] ${shape}`}
       >
-        <div className="text-[8px] font-bold font-mono uppercase tracking-wider" style={{ color }}>
-          {nodeType.replace('_', ' ')}
+        <div className="flex items-baseline gap-1">
+          <span className="text-[8px] font-bold font-mono uppercase tracking-wider" style={{ color }}>
+            {nodeType.replace('_', ' ')}
+          </span>
+          {traceCount > 0 && (
+            <span className="text-[7px] font-mono opacity-60" style={{ color }}>
+              \u21e2{traceCount}
+            </span>
+          )}
         </div>
-        <div className="text-[10px] font-mono text-white/80 leading-tight truncate mt-0.5">
+        <div
+          className="text-[10px] font-mono leading-tight truncate mt-0.5"
+          style={{ color: 'var(--graph-node-label)' }}
+        >
           {truncLabel}
         </div>
       </div>
@@ -133,7 +167,7 @@ export const TreeGraphView = forwardRef<TreeGraphHandle, {
           ...e,
           style: {
             ...e.style,
-            stroke: isTrace ? 'rgba(251,191,36,0.8)' : 'rgba(255,255,255,0.5)',
+            stroke: isTrace ? 'rgba(251,191,36,0.8)' : 'var(--graph-edge-active)',
             strokeWidth: 2,
           },
           zIndex: 20,
@@ -167,7 +201,7 @@ export const TreeGraphView = forwardRef<TreeGraphHandle, {
   }, [onNodeClick]);
 
   return (
-    <div style={{ width, height }} className="bg-[#0d1117]">
+    <div style={{ width, height, background: 'var(--graph-canvas)' }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -185,12 +219,15 @@ export const TreeGraphView = forwardRef<TreeGraphHandle, {
         nodesConnectable={false}
         colorMode="dark"
       >
-        <Background color="#21262d" gap={20} />
-        <Controls showInteractive={false} style={{ background: '#161b22', borderColor: '#30363d' }} />
+        <Background color="var(--graph-grid)" gap={20} />
+        <Controls
+          showInteractive={false}
+          style={{ background: 'rgb(var(--forge-surface))', borderColor: 'rgb(var(--forge-border-strong))' }}
+        />
         <MiniMap
           nodeColor={(n) => (n.data?.color as string) ?? '#94a3b8'}
-          style={{ background: '#0d1117', border: '1px solid #21262d' }}
-          maskColor="rgba(0,0,0,0.7)"
+          style={{ background: 'var(--graph-canvas)', border: '1px solid var(--graph-grid)' }}
+          maskColor="rgba(0,0,0,0.55)"
         />
       </ReactFlow>
     </div>

@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { LayoutDashboard, Share2, Bot, FileSearch, Settings, PanelLeftClose, PanelLeftOpen, Check } from 'lucide-react';
+import { LayoutDashboard, Share2, Bot, FileSearch, Settings, PanelLeftClose, PanelLeftOpen, Check, Hammer, Sun, Moon } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useStore, type PhaseStatus } from '@/store';
+import { useTheme } from '@/hooks/useTheme';
 import { PHASE_CONFIG, NUM_PHASES } from '@/lib/phaseConfig';
 import { PHASE_COLOR } from '@/lib/nodeColors';
 
@@ -60,6 +61,7 @@ function NavItem({ to, icon, label, collapsed, end }: {
 
 export function Sidebar() {
   const { phases } = useStore();
+  const { theme, toggleTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(() =>
     localStorage.getItem('sidebar.collapsed') === 'true',
   );
@@ -75,7 +77,9 @@ export function Sidebar() {
     <aside className={`${collapsed ? 'w-12' : 'w-56'} border-r border-forge-border bg-forge-surface flex flex-col transition-[width] duration-200 shrink-0`}>
       {/* Logo */}
       <NavLink to="/" className="h-14 flex items-center px-3 border-b border-forge-border shrink-0 hover:bg-forge-border/30 transition-colors">
-        <div className="w-6 h-6 bg-forge-accent rounded-md shrink-0" />
+        <div className="w-6 h-6 rounded-md shrink-0 border border-forge-accent/40 bg-forge-accent/10 flex items-center justify-center">
+          <Hammer size={13} className="text-forge-accent" />
+        </div>
         {!collapsed && (
           <span className="font-bold font-mono text-forge-text tracking-wider ml-3 truncate">
             FORGE <span className="text-forge-muted/50 font-normal text-xs tracking-normal">V0.1 Beta</span>
@@ -139,6 +143,17 @@ export function Sidebar() {
       {/* Footer */}
       <div className="p-2 border-t border-forge-border shrink-0 space-y-0.5">
         <NavItem to="/settings" icon={<Settings size={16} />} label="Settings" collapsed={collapsed} />
+        <button
+          onClick={toggleTheme}
+          title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          className={cn(
+            'flex items-center gap-2.5 px-3 py-2 w-full rounded-lg text-sm font-medium text-forge-muted hover:text-forge-text hover:bg-forge-border/50 transition-all',
+            collapsed && 'justify-center px-2',
+          )}
+        >
+          {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+          {!collapsed && <span>{theme === 'dark' ? 'Light theme' : 'Dark theme'}</span>}
+        </button>
         <button
           onClick={toggle}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}

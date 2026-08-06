@@ -112,7 +112,7 @@ export function useTreeLayout(gnodes: GNode[], allNodes: GNode[]) {
           source: ancestor,
           target: n.node_id,
           type: 'bezier',
-          style: { stroke: 'rgba(255,255,255,0.18)', strokeWidth: 1.2 },
+          style: { stroke: 'var(--graph-edge)', strokeWidth: 1.2 },
         });
       }
     }

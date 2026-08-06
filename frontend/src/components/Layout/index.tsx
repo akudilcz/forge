@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from '@/components/Sidebar';
+import { PhaseBreadcrumb } from '@/components/PhaseBreadcrumb';
 import { ConsoleBar } from '@/components/ConsoleBar';
 import { WorkQueuePanel } from '@/components/WorkQueuePanel';
 import { useForgeSocket } from '@/hooks/useForgeSocket';
@@ -80,6 +81,7 @@ export function Layout() {
     <div className="flex h-screen bg-forge-bg text-forge-text overflow-hidden font-sans">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
+        <PhaseBreadcrumb />
         <main className="flex-1 overflow-auto bg-forge-bg relative">
           <Outlet />
         </main>

@@ -127,7 +127,7 @@ function GraphCanvas({
   }, []);
 
   return (
-    <div ref={containerRef} className="flex-1 min-w-0 min-h-0 overflow-hidden bg-[#0d1117]">
+    <div ref={containerRef} className="flex-1 min-w-0 min-h-0 overflow-hidden" style={{ background: 'var(--graph-canvas)' }}>
       {dims.width > 0 && dims.height > 0 && (
         <TreeGraphView
           ref={graphRef}

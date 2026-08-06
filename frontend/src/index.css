@@ -2,6 +2,64 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── FORGE theme tokens ────────────────────────────────────────────────────────
+   Raw RGB triplets so Tailwind opacity modifiers (`bg-forge-accent/10`) work.
+   Dark is the default control-station theme; light is opt-in via
+   `data-theme="light"` on <html> (see hooks/useTheme.ts). */
+
+:root {
+  color-scheme: dark;
+
+  --forge-bg: 14 17 22;             /* #0e1116 near-black steel */
+  --forge-surface: 21 26 33;        /* #151a21 */
+  --forge-raised: 27 34 44;         /* #1b222c */
+  --forge-border: 35 43 54;         /* #232b36 */
+  --forge-border-strong: 48 58 71;  /* #303a47 */
+  --forge-text: 232 237 244;        /* #e8edf4 */
+  --forge-muted: 139 152 169;       /* #8b98a9 */
+  --forge-faint: 91 102 117;        /* #5b6675 */
+  --forge-accent: 88 166 255;       /* #58a6ff */
+  --forge-accent-dim: 31 111 235;   /* #1f6feb */
+  --forge-success: 63 185 80;       /* #3fb950 */
+  --forge-warning: 217 161 41;      /* #d9a129 */
+  --forge-error: 240 86 79;         /* #f0564f */
+  --forge-purple: 188 140 255;      /* #bc8cff */
+  --forge-orange: 255 166 87;       /* #ffa657 */
+
+  /* Graph canvas colours (TreeGraphView inline styles) */
+  --graph-canvas: #0d1117;
+  --graph-grid: #21262d;
+  --graph-edge: rgba(255, 255, 255, 0.18);
+  --graph-edge-active: rgba(255, 255, 255, 0.5);
+  --graph-node-label: rgba(255, 255, 255, 0.82);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --forge-bg: 244 246 249;          /* #f4f6f9 */
+  --forge-surface: 255 255 255;     /* #ffffff */
+  --forge-raised: 238 241 245;      /* #eef1f5 */
+  --forge-border: 216 222 231;      /* #d8dee7 */
+  --forge-border-strong: 183 194 208; /* #b7c2d0 */
+  --forge-text: 26 35 48;           /* #1a2330 */
+  --forge-muted: 91 102 117;        /* #5b6675 */
+  --forge-faint: 139 152 169;       /* #8b98a9 */
+  --forge-accent: 11 98 214;        /* #0b62d6 */
+  --forge-accent-dim: 9 79 176;     /* #094fb0 */
+  --forge-success: 26 127 55;       /* #1a7f37 */
+  --forge-warning: 154 103 0;       /* #9a6700 */
+  --forge-error: 207 34 46;         /* #cf222e */
+  --forge-purple: 130 80 223;       /* #8250df */
+  --forge-orange: 188 76 0;         /* #bc4c00 */
+
+  --graph-canvas: #eef1f5;
+  --graph-grid: #d8dee7;
+  --graph-edge: rgba(26, 35, 48, 0.22);
+  --graph-edge-active: rgba(26, 35, 48, 0.55);
+  --graph-node-label: rgba(26, 35, 48, 0.85);
+}
+
 @layer base {
   * {
     box-sizing: border-box;
@@ -13,8 +71,8 @@
     height: 100%;
     margin: 0;
     padding: 0;
-    background-color: #0f1117;
-    color: #e6edf3;
+    background-color: rgb(var(--forge-bg));
+    color: rgb(var(--forge-text));
   }
 
   ::-webkit-scrollbar {
@@ -23,29 +81,75 @@
   }
 
   ::-webkit-scrollbar-track {
-    background: #161b22;
+    background: rgb(var(--forge-surface));
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #30363d;
+    background: rgb(var(--forge-border-strong));
     border-radius: 3px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #8b949e;
+    background: rgb(var(--forge-muted));
   }
 
-  /* Selection colour */
   ::selection {
-    background-color: rgba(88, 166, 255, 0.2);
+    background-color: rgb(var(--forge-accent) / 0.25);
+  }
+
+  /* Visible keyboard focus everywhere, without boxing mouse clicks. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--forge-accent) / 0.7);
+    outline-offset: 1px;
+    border-radius: 2px;
   }
 }
 
-@layer utilities {
-  .clsx {
-    /* placeholder — actual clsx logic is inline */
+/* ── Reduced motion ──────────────────────────────────────────────────────────
+   Kill decorative animation/transitions for users who ask for it. Framer
+   Motion components additionally consult useReducedMotion(). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
+
+/* ── Light-theme hue compensation ────────────────────────────────────────────
+   Components use Tailwind 300–500 hue text classes tuned for a dark canvas.
+   In light mode those fail contrast, so remap them to the 600–700 shades of
+   the same hue. Tinted `bg-*/10` chips and borders remain untouched. */
+:root[data-theme='light'] .text-slate-300,
+:root[data-theme='light'] .text-slate-400 { color: #475569; }
+:root[data-theme='light'] .text-slate-500 { color: #334155; }
+:root[data-theme='light'] .text-sky-300,
+:root[data-theme='light'] .text-sky-400 { color: #0369a1; }
+:root[data-theme='light'] .text-blue-400 { color: #1d4ed8; }
+:root[data-theme='light'] .text-cyan-400,
+:root[data-theme='light'] .text-cyan-500 { color: #0e7490; }
+:root[data-theme='light'] .text-teal-400 { color: #0f766e; }
+:root[data-theme='light'] .text-emerald-300,
+:root[data-theme='light'] .text-emerald-400,
+:root[data-theme='light'] .text-emerald-500 { color: #047857; }
+:root[data-theme='light'] .text-green-400,
+:root[data-theme='light'] .text-green-500 { color: #15803d; }
+:root[data-theme='light'] .text-lime-400 { color: #4d7c0f; }
+:root[data-theme='light'] .text-amber-400,
+:root[data-theme='light'] .text-amber-500 { color: #b45309; }
+:root[data-theme='light'] .text-yellow-300 { color: #a16207; }
+:root[data-theme='light'] .text-orange-400,
+:root[data-theme='light'] .text-orange-500 { color: #c2410c; }
+:root[data-theme='light'] .text-red-400 { color: #b91c1c; }
+:root[data-theme='light'] .text-rose-400 { color: #be123c; }
+:root[data-theme='light'] .text-pink-400 { color: #be185d; }
+:root[data-theme='light'] .text-purple-400 { color: #7e22ce; }
+:root[data-theme='light'] .text-violet-400,
+:root[data-theme='light'] .text-violet-500 { color: #6d28d9; }
+:root[data-theme='light'] .text-indigo-400 { color: #4338ca; }
 
 /* ── Monaco trace decoration styles ────────────────────────────────────────── */
 

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react';
-import { Terminal, ChevronUp, ChevronDown, Send, Copy, Check, Trash2, MessageSquareX, Cpu } from 'lucide-react';
+import { Terminal, ChevronUp, ChevronDown, Send, Copy, Check, Trash2, MessageSquareX, Cpu, AlertTriangle, OctagonAlert } from 'lucide-react';
 import { useStore, type LogEntry } from '@/store';
 
 // ── Color maps ──────────────────────────────────────────────────────────────
@@ -30,20 +30,60 @@ const LEVEL_COLOR: Record<string, string> = {
   ERROR: 'text-forge-error',
 };
 
-// ── Log row ─────────────────────────────────────────────────────────────────
+/** Severity encoded in form — icon + left rule, not colour alone. */
+const LEVEL_ROW: Record<string, string> = {
+  INFO:  'border-l-2 border-transparent',
+  WARN:  'border-l-2 border-forge-warning/70 bg-forge-warning/[0.04]',
+  ERROR: 'border-l-2 border-forge-error/80 bg-forge-error/[0.06]',
+};
+
+function LevelGlyph({ level }: { level: LogEntry['level'] }) {
+  if (level === 'ERROR') return <OctagonAlert size={10} className="text-forge-error shrink-0 mt-[1px]" />;
+  if (level === 'WARN') return <AlertTriangle size={10} className="text-forge-warning shrink-0 mt-[1px]" />;
+  return <span className="w-[10px] shrink-0" />;
+}
+
+/** Compact telemetry chips for LLM / tool entries carrying metrics. */
+function MetaChips({ entry }: { entry: LogEntry }) {
+  const hasTokens = entry.promptTokens != null || entry.completionTokens != null;
+  if (!entry.model && entry.durationMs == null && !hasTokens) return null;
+  return (
+    <span className="inline-flex items-center gap-1 ml-1.5 align-middle">
+      {entry.model && (
+        <span className="text-[8px] font-mono px-1 py-px rounded border border-cyan-400/25 text-cyan-400 bg-cyan-400/10">
+          {entry.model}
+        </span>
+      )}
+      {hasTokens && (
+        <span className="text-[8px] font-mono px-1 py-px rounded border border-forge-border text-forge-muted bg-forge-raised/60 tabular-nums">
+          {entry.promptTokens ?? 0}→{entry.completionTokens ?? 0} tok
+        </span>
+      )}
+      {entry.durationMs != null && (
+        <span className="text-[8px] font-mono px-1 py-px rounded border border-forge-border text-forge-muted bg-forge-raised/60 tabular-nums">
+          {entry.durationMs >= 1000 ? `${(entry.durationMs / 1000).toFixed(1)}s` : `${entry.durationMs}ms`}
+        </span>
+      )}
+    </span>
+  );
+}
 
 function LogRow({ entry }: { entry: LogEntry }) {
   return (
-    <div className="py-0.5 hover:bg-forge-bg/30 transition-colors">
+    <div className={`py-0.5 pl-1.5 hover:bg-forge-bg/30 transition-colors ${LEVEL_ROW[entry.level] ?? LEVEL_ROW.INFO}`}>
       <div className="flex gap-1.5 items-start">
         <span className="shrink-0 text-forge-muted/30 tabular-nums text-[10px] w-[5.5rem]">{entry.ts}</span>
+        <LevelGlyph level={entry.level} />
         <span className={`shrink-0 w-10 text-[9px] uppercase font-bold ${LEVEL_COLOR[entry.level] ?? 'text-forge-muted/60'}`}>
           {entry.level}
         </span>
         <span className={`shrink-0 w-12 text-[9px] uppercase font-bold ${CAT_COLOR[entry.cat] ?? 'text-forge-muted'}`}>
           {entry.cat}
         </span>
-        <span className="flex-1 min-w-0 text-forge-text/80 text-[10px] break-words">{entry.msg}</span>
+        <span className="flex-1 min-w-0 text-forge-text/80 text-[10px] break-words">
+          {entry.msg}
+          <MetaChips entry={entry} />
+        </span>
       </div>
       {entry.detail && (
         <div className="pl-[8.5rem] text-[10px] text-forge-muted/50 font-mono break-all">{entry.detail}</div>
@@ -75,7 +115,7 @@ function ConsoleLog({ logs }: { logs: LogEntry[] }) {
     <div
       ref={containerRef}
       onScroll={onScroll}
-      className="flex-1 overflow-y-auto px-3 py-2 font-mono bg-black/20 min-h-0 scrollbar-thin"
+      className="flex-1 overflow-y-auto px-3 py-2 font-mono bg-forge-bg/40 min-h-0 scrollbar-thin"
     >
       {logs.length === 0 && (
         <p className="text-forge-muted/40 text-[11px] italic pt-2">No activity yet.</p>

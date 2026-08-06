@@ -70,7 +70,7 @@ function AgentCard({
       className="w-full text-left p-4 rounded-xl border transition-all"
       style={{
         background: selected ? color + '12' : undefined,
-        borderColor: selected ? color : '#21262d',
+        borderColor: selected ? color : 'rgb(var(--forge-border))',
       }}
     >
       <div className="flex items-center justify-between mb-2.5">
@@ -337,8 +337,8 @@ function RightPanel({
     : null;
 
   const canvas = (
-    <div className="flex flex-col h-full min-h-0 bg-[#0d1117]">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-forge-border shrink-0 bg-[#0d1117]">
+    <div className="flex flex-col h-full min-h-0" style={{ background: 'var(--graph-canvas)' }}>
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-forge-border shrink-0" style={{ background: 'var(--graph-canvas)' }}>
         <span className="text-[10px] font-mono text-forge-muted">Gap Prompts</span>
         {selectedDef && (
           <button onClick={() => setShowLifecycle(v => !v)}

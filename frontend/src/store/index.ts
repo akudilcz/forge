@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { combine } from 'zustand/middleware';
 import { queryClient } from '@/queryClient';
+import { nextPhaseTimes, type PhaseTimes } from '@/lib/phaseTiming';
 
 export interface WorkQueueItem {
   id: string;
@@ -35,6 +36,12 @@ export interface LogEntry {
   cat: string;          // LOOP | PHASE | GAP | AGENT | LLM | TOOL | USER | SYS
   msg: string;
   detail?: string;
+  /** LLM / tool telemetry forwarded from FORGE_LOG payloads when present. */
+  model?: string;
+  durationMs?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  toolName?: string;
 }
 
 // Types for the v4 Graph-Centric Architecture
@@ -79,6 +86,8 @@ const initialState = {
     iterationCount: 0,
   } as SessionState,
   phases: {} as Record<number, { status: PhaseStatus }>,
+  /** Client-side wall clock per phase, driven by status transitions. */
+  phaseTimes: {} as PhaseTimes,
   gaps: [] as Gap[],
   resolvedGaps: [] as Gap[],
   agents: {} as Record<string, AgentState>,
@@ -182,8 +191,9 @@ export const useStore = create(
       }
       set({
         phases: Object.fromEntries(
-          Array.from({ length: 14 }, (_, i) => [i, { status: 'pending' as PhaseStatus }])
+          Array.from({ length: 15 }, (_, i) => [i, { status: 'pending' as PhaseStatus }])
         ),
+        phaseTimes: {},
         gaps: [],
         resolvedGaps: [],
         agents: {},
@@ -204,10 +214,13 @@ export const useStore = create(
       }
       set((s) => ({
         phases: Object.fromEntries(
-          Array.from({ length: 14 }, (_, i) => [
+          Array.from({ length: 15 }, (_, i) => [
             i,
             { status: (i < 2 ? s.phases[i]?.status : 'pending') as PhaseStatus },
           ])
+        ),
+        phaseTimes: Object.fromEntries(
+          Object.entries(s.phaseTimes).filter(([k]) => parseInt(k, 10) < 2),
         ),
         gaps: [],
         resolvedGaps: [],
@@ -249,11 +262,18 @@ export const useStore = create(
 
     // Phase Actions
     updatePhase: (phase: number, status: PhaseStatus) =>
-      set((s) => ({ phases: { ...s.phases, [phase]: { status } } })),
+      set((s) => ({
+        phases: { ...s.phases, [phase]: { status } },
+        phaseTimes: nextPhaseTimes(s.phaseTimes, phase, status, Date.now()),
+      })),
     setPhases: (phases: Array<{ phase_number: number; status: PhaseStatus }>) =>
-      set({
+      set((s) => ({
         phases: Object.fromEntries(phases.map((p) => [p.phase_number, { status: p.status as PhaseStatus }])),
-      }),
+        phaseTimes: phases.reduce(
+          (acc, p) => nextPhaseTimes(acc, p.phase_number, p.status as PhaseStatus, Date.now()),
+          s.phaseTimes,
+        ),
+      })),
 
     // Gap Actions
     setGaps: (gaps: Gap[]) => set({ gaps }),

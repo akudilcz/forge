@@ -383,16 +383,18 @@ function LogTable({ records, loading, selected, onSelect, onFilterAdd }: LogTabl
             <th className="w-[44px] px-2 py-1 text-left font-normal">ph</th>
             <th className="w-[140px] px-2 py-1 text-left font-normal">gap_type</th>
             <th className="w-[120px] px-2 py-1 text-left font-normal">node_id</th>
+            <th className="w-[110px] px-2 py-1 text-left font-normal">model</th>
+            <th className="w-[88px] px-2 py-1 text-right font-normal">tokens</th>
             <th className="w-[68px] px-2 py-1 text-right font-normal">dur</th>
             <th className="px-2 py-1 text-left font-normal">msg</th>
           </tr>
         </thead>
         <tbody>
           {loading && records.length === 0 && (
-            <tr><td colSpan={8} className="px-3 py-6 text-center text-forge-muted">loading…</td></tr>
+            <tr><td colSpan={10} className="px-3 py-6 text-center text-forge-muted">loading…</td></tr>
           )}
           {!loading && records.length === 0 && (
-            <tr><td colSpan={8} className="px-3 py-6 text-center text-forge-muted">no records match</td></tr>
+            <tr><td colSpan={10} className="px-3 py-6 text-center text-forge-muted">no records match</td></tr>
           )}
           {records.map(r => {
             const isSelected = selected?.id === r.id;
@@ -433,6 +435,14 @@ function LogTable({ records, loading, selected, onSelect, onFilterAdd }: LogTabl
                       {r.node_id}
                     </button>
                   )}
+                </td>
+                <td className="px-2 py-0.5 truncate text-cyan-400/80" title={r.model ?? undefined}>
+                  {r.model ?? ''}
+                </td>
+                <td className="px-2 py-0.5 text-right text-forge-muted tabular-nums">
+                  {r.prompt_tokens != null || r.completion_tokens != null
+                    ? `${r.prompt_tokens ?? 0}→${r.completion_tokens ?? 0}`
+                    : ''}
                 </td>
                 <td className="px-2 py-0.5 text-right text-forge-muted">
                   {r.duration_ms != null ? `${r.duration_ms}ms` : ''}
