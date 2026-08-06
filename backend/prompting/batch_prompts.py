@@ -8,6 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.prompting.task_prompts_authoring import (
+    CASE_CONTRACT_ENCODING,
+    NORMATIVE_MUST_CAPTURE,
+)
+
 
 def build_batch_phase3_prompt(
     uncovered_paras: list[dict[str, Any]],
@@ -53,6 +58,9 @@ def build_batch_phase3_prompt(
         "  leave its current PARA with zero HLRs — create a new HLR instead.\n"
         "- Each HLR content must be a single ATOMIC sentence starting with\n"
         "  'The system shall '. One testable obligation per HLR.\n"
+        "- A PARA may contain SEVERAL obligations — create one HLR per\n"
+        "  obligation, never a single summary HLR for the paragraph.\n"
+        f"{NORMATIVE_MUST_CAPTURE}"
         "- Work through ALL uncovered PARAs before stopping.\n"
         "- Pass the actual PARA content text to derive_requirement, not a node ID."
     )
@@ -292,7 +300,8 @@ def build_batch_phase10_prompt(
         "- Every CASE's parent_id must be the SUITE node shown above.\n"
         "- Use multi_graph_write with an operations array — ONE tool call writes\n"
         "  every case at once. Do NOT make multiple graph_add_node calls.\n"
-        "- Titles must be distinct, concrete 3-5 word noun phrases."
+        "- Titles must be distinct, concrete 3-5 word noun phrases.\n"
+        f"{CASE_CONTRACT_ENCODING}"
     )
 
 

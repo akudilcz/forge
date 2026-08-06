@@ -336,3 +336,113 @@ class TestStaleNodePrompt:
         description, _ = _entry(self._stale_gap(), ctx="")
         assert "graph_read" in description
         assert "do NOT call graph_read" not in description
+
+
+# ── Spec-fidelity prompt pins ────────────────────────────────────────────────
+#
+# Live trace (topological_sort e2e, oracle 47/54): §-level normative facts
+# carried only in an API-signature code block never reached HLR/LLR/CASE/TEST
+# (exception base class, `find_cycle -> ... | None`, tie_breaker arity), and
+# ordering/tie-break CASEs used degenerate edge-free graphs a wrong
+# implementation passes. These tests pin the prompt text that closes each
+# fidelity hole; drop a pin only when the design material changes with it.
+
+
+class TestSpecFidelityPromptPins:
+    """Phase 2/3 and 9/10 prompts name the must-capture contract categories."""
+
+    MUST_CAPTURE_PHRASES = (
+        "Exception contracts",
+        "base class",
+        "Return-value contracts",
+        "None",
+        "tie-break",
+        "callable",
+        "arity",
+    )
+
+    CASE_ENCODING_PHRASES = (
+        "base class",
+        "is None",
+        "DISCRIMINATING",
+        "exact output sequence",
+        "arity",
+    )
+
+    def test_doc_chunk_marks_signature_code_blocks_normative(self) -> None:
+        description, _ = _entry(_gap(GapType.UNCHUNKED_DOCUMENT, node_id="DOC-0001"))
+        assert "code block" in description
+        assert "NORMATIVE" in description
+
+    def test_para_hlr_lists_must_capture_categories(self) -> None:
+        description, _ = _entry(_gap(GapType.UNCOVERED_PARA, node_id="PARA-0027"))
+        for phrase in self.MUST_CAPTURE_PHRASES:
+            assert phrase in description, phrase
+
+    def test_batch_phase3_lists_must_capture_categories(self) -> None:
+        from backend.prompting.batch_prompts import build_batch_phase3_prompt
+
+        prompt = build_batch_phase3_prompt(
+            [{"node_id": "PARA-0027", "title": "Public API", "content": "class E(ValueError)"}],
+            [],
+            [],
+        )
+        for phrase in self.MUST_CAPTURE_PHRASES:
+            assert phrase in prompt, phrase
+
+    def test_batch_phase10_requires_discriminating_cases(self) -> None:
+        from backend.prompting.batch_prompts import build_batch_phase10_prompt
+
+        prompt = build_batch_phase10_prompt(
+            [{"node_id": "HLR-0007", "title": "Tie-break order", "content": "shall order"}],
+            [],
+            {"node_id": "SUITE-0001", "content": "strategy"},
+            [],
+        )
+        for phrase in self.CASE_ENCODING_PHRASES:
+            assert phrase in prompt, phrase
+
+    def test_test_hlr_requires_contract_encoding(self) -> None:
+        description, _ = _entry(_gap(GapType.UNTESTED_HLR, node_id="HLR-0005"))
+        for phrase in self.CASE_ENCODING_PHRASES:
+            assert phrase in description, phrase
+
+    def test_test_llr_requires_contract_encoding(self) -> None:
+        description, _ = _entry(_gap(GapType.UNTESTED_LLR, node_id="LLR-0003"))
+        for phrase in self.CASE_ENCODING_PHRASES:
+            assert phrase in description, phrase
+
+    def test_contract_prompt_requires_structured_public_api(self) -> None:
+        """Phase 6 contracts carry properties.public_api (design/16).
+
+        Live trace (merge_sort, oracle 1/24): the whitepaper API never
+        reached the workspace — nothing machine-checkable pinned the
+        required module/symbol names, so codegen invented its own layout.
+        """
+        description, _ = _entry(_gap(GapType.UNCONTRACTED, node_id="MODULE-0001"))
+        for phrase in (
+            "public_api",
+            '"module"',
+            '"symbol"',
+            '"kind"',
+            '"signature"',
+            "transcribe",
+            "exactly",
+        ):
+            assert phrase in description, phrase
+
+    def test_contract_prompt_requires_prohibited_constructs(self) -> None:
+        """Whitepaper implementation bans become prohibited_constructs.
+
+        Live trace (expression_evaluator): generated code delegated to
+        compile() despite the whitepaper's explicit §12 ban.
+        """
+        description, _ = _entry(_gap(GapType.UNCONTRACTED, node_id="MODULE-0001"))
+        for phrase in (
+            "prohibited_constructs",
+            '"construct"',
+            '"rationale"',
+            "must not use",
+            "omit",
+        ):
+            assert phrase in description, phrase

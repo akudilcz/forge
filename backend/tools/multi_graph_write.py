@@ -141,7 +141,8 @@ def _prevalidate_batch(graph: object, ops: list[dict[str, Any]]) -> list[str]:
             props = _parse_json_obj(str(op_dict.get("properties", "{}")))
             trace_to = _parse_trace_to(dict(op_dict), props)
             err = validate_add_node(
-                graph, node_type, node_id, parent_id, title, content, trace_to
+                graph, node_type, node_id, parent_id, title, content, trace_to,
+                props,
             )
             if err is None and parent_id:
                 in_batch = [p for p in pending if p.parent_id == parent_id]

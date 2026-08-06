@@ -35,9 +35,27 @@ For each generated file in the workspace:
 5. **Create/update TEST nodes** — for each test file in `tests/`, create
    a TEST node (Layer 6) as a child of the matched CASE node.
 
-6. **Record RESULT nodes** — read the last pytest run output and create
-   one RESULT node per test function. Each RESULT records status:
-   `passed`, `failed`, `skipped`, or `error`.
+6. **Record RESULT nodes** — a second pipeline step
+   (`record_results_step`) that runs strictly **after** TEST sync:
+
+   1. **Heal parentage** — any existing RESULT node whose parent is not
+      a TEST node (e.g. CASE-parented RESULTs written by a pre-fix build
+      being resumed) is re-parented onto the TEST node resolved from its
+      `file_path`/`function_name` properties, and the TEST id is merged
+      into its `trace_to`. Healing is deterministic (no test run needed)
+      so a resumed Phase 13 repairs an existing bad graph before any new
+      evidence is recorded.
+   2. **Record** — run the test suite via bazel and create one RESULT
+      node per test function with status `passed`, `failed`, `skipped`,
+      or `error`. Evidence is always parsed fresh from this run — never
+      cached from Phase 12 — so RESULTs describe the tidied workspace.
+
+   A RESULT's only valid parent is a TEST node. There is **no fallback**:
+   if no TEST node can be resolved for a test function (its file matches
+   no CASE, or the CASE has no TEST child), recording raises a
+   `RuntimeError` — an invalid RESULT is never written. Because this
+   step runs after TEST sync, a missing TEST parent indicates a real
+   sync or traceability bug and must halt the phase loudly.
 
 ---
 

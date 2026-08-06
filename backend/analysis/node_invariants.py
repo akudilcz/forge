@@ -13,7 +13,7 @@ tells the agent exactly how to fix the violation in the same turn.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 
 from backend.graph.models import GraphNode, NodeType
 
@@ -134,6 +134,88 @@ def check_min_content_length(node_type: str, content: str) -> str | None:
             f"{MIN_CONTENT_LENGTH} required. Provide substantive, actionable "
             f"content and retry."
         )
+    return None
+
+
+# ── CONTRACT public_api shape (design/16 Structured Public API Surface) ──────
+
+#: Allowed `kind` values for a CONTRACT public_api entry.
+CONTRACT_API_KINDS: frozenset[str] = frozenset({"function", "class", "method"})
+
+#: Required keys of every public_api entry.
+CONTRACT_API_KEYS: tuple[str, ...] = ("module", "symbol", "kind", "signature")
+
+
+def check_contract_public_api(
+    node_type: str, properties: Mapping[str, object],
+) -> str | None:
+    """CONTRACT nodes must declare a valid, non-empty ``public_api``.
+
+    Live trace (merge_sort e2e, oracle 1/24): prose-only contracts let
+    codegen ship a workspace exposing none of the whitepaper's required
+    symbols. The structured surface makes the API machine-checkable by
+    the phase-12 API-surface gate (design/22).
+    """
+    if node_type != "CONTRACT":
+        return None
+    fix = "Supply properties.public_api per design/16 and retry."
+    api = properties.get("public_api")
+    if not isinstance(api, list) or not api:
+        return (
+            "CONTRACT must declare a non-empty properties.public_api list "
+            f"of {{module, symbol, kind, signature}} entries. {fix}"
+        )
+    for i, entry in enumerate(api):
+        if not isinstance(entry, dict):
+            return f"public_api[{i}] is not an object. {fix}"
+        for key in CONTRACT_API_KEYS:
+            value = entry.get(key)
+            if not isinstance(value, str) or not value.strip():
+                return (
+                    f"public_api[{i}] is missing a non-empty string "
+                    f"{key!r}. {fix}"
+                )
+        if entry["kind"] not in CONTRACT_API_KINDS:
+            return (
+                f"public_api[{i}] has kind {entry['kind']!r} — must be one "
+                f"of {sorted(CONTRACT_API_KINDS)}. {fix}"
+            )
+    return None
+
+
+def check_contract_prohibited(
+    node_type: str, properties: Mapping[str, object],
+) -> str | None:
+    """Shape-check ``prohibited_constructs`` when a CONTRACT declares it.
+
+    Optional, unlike ``public_api``: most whitepapers state no
+    implementation prohibitions. When present, each entry must carry a
+    non-empty ``construct`` (dotted callable/module name) and
+    ``rationale`` so the phase-12 gate can quote WHY a hit is banned.
+    (Live trace: expression_evaluator's generated code delegated to
+    ``compile()`` despite the whitepaper's explicit §12 ban.)
+    """
+    if node_type != "CONTRACT":
+        return None
+    if "prohibited_constructs" not in properties:
+        return None
+    fix = "Fix properties.prohibited_constructs per design/16 and retry."
+    banned = properties["prohibited_constructs"]
+    if not isinstance(banned, list):
+        return (
+            "prohibited_constructs must be a list of "
+            f"{{construct, rationale}} objects. {fix}"
+        )
+    for i, entry in enumerate(banned):
+        if not isinstance(entry, dict):
+            return f"prohibited_constructs[{i}] is not an object. {fix}"
+        for key in ("construct", "rationale"):
+            value = entry.get(key)
+            if not isinstance(value, str) or not value.strip():
+                return (
+                    f"prohibited_constructs[{i}] is missing a non-empty "
+                    f"string {key!r}. {fix}"
+                )
     return None
 
 

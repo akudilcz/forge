@@ -83,6 +83,15 @@ resolution). Tools: `graph_read`, `graph_add_node`.
 - Each PARA carries its own content, not its children's content
 - Heading-only nodes (no body text) use `para_type: "heading"`
 
+**Normative code blocks:** API-signature code blocks are requirements
+sources, not decoration. Every fact in a signature — base classes,
+attributes, `| None` returns, `Callable[...]` shapes, keyword-only
+markers — is an obligation downstream phases must capture, so the code
+block is kept verbatim in its PARA body. (Live-trace lesson: a build
+summarised the public-API block into "shall provide function X" HLRs and
+lost the exception base class, the `None` return contract, and the
+tie-breaker callable arity — 7 oracle failures.)
+
 ---
 
 ## Pipeline Steps

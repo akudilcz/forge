@@ -10,6 +10,7 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from backend.codegen.bazel_gen import init_bazel_workspace
 from backend.server.forge_logger import forge_logger
@@ -45,6 +46,30 @@ class FileState:
     total_functions: int = 0
     traced_functions: int = 0
     syntax_error: str = ""
+    #: Top-level API facts for the phase-12 API-surface gate (design/22):
+    #: name -> kind ("function" | "class" | "method" for "Class.method",
+    #: "import" for names bound by absolute imports).
+    symbols: dict[str, str] = field(default_factory=dict)
+    #: Relative import statements (verbatim) — each one breaks top-level
+    #: importability of src modules and is flagged by the gate.
+    relative_imports: list[str] = field(default_factory=list)
+    #: Alias-resolved imports: real dotted name -> line numbers
+    #: (``import ast as t`` records "ast"; ``from ast import literal_eval``
+    #: records "ast.literal_eval"). Consumed by the prohibited-constructs gate.
+    imported_modules: dict[str, list[int]] = field(default_factory=dict)
+    #: Alias-resolved call targets: dotted name -> line numbers
+    #: (``t.parse(x)`` under ``import ast as t`` records "ast.parse").
+    call_targets: dict[str, list[int]] = field(default_factory=dict)
+
+
+@dataclass
+class ApiFacts:
+    """Static AST facts one file contributes to the phase-12 gates."""
+
+    symbols: dict[str, str] = field(default_factory=dict)
+    relative_imports: list[str] = field(default_factory=list)
+    imported_modules: dict[str, list[int]] = field(default_factory=dict)
+    call_targets: dict[str, list[int]] = field(default_factory=dict)
 
 
 @dataclass
@@ -65,10 +90,11 @@ class WorkspaceState:
 # ── File scanning ───────────────────────────────────────────────────────────
 
 def _analyse_file(filepath: Path, rel_path: str) -> FileState:
-    """Read a file and analyse its trace annotations."""
+    """Read a file and analyse its trace annotations and API facts."""
     code = filepath.read_text(encoding="utf-8")
     syntax_err = _check_syntax(code, rel_path)
     analysis: TraceAnalysis = analyse_traces(code)
+    facts = _collect_api_facts(code)
     return FileState(
         path=rel_path,
         traces=analysis.traces,
@@ -76,7 +102,89 @@ def _analyse_file(filepath: Path, rel_path: str) -> FileState:
         total_functions=analysis.total_functions,
         traced_functions=analysis.traced_functions,
         syntax_error=syntax_err,
+        symbols=facts.symbols,
+        relative_imports=facts.relative_imports,
+        imported_modules=facts.imported_modules,
+        call_targets=facts.call_targets,
     )
+
+
+def _collect_api_facts(code: str) -> ApiFacts:
+    """Statically collect symbols, imports, and call targets via AST.
+
+    A file that fails to parse yields empty facts; its ``syntax_error``
+    gap already blocks the phase, so the gates stay quiet for it.
+    """
+    import ast  # noqa: PLC0415
+
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return ApiFacts()
+
+    facts = ApiFacts()
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            facts.symbols[node.name] = "function"
+        elif isinstance(node, ast.ClassDef):
+            facts.symbols[node.name] = "class"
+            for member in node.body:
+                if isinstance(member, ast.FunctionDef | ast.AsyncFunctionDef):
+                    facts.symbols[f"{node.name}.{member.name}"] = "method"
+        elif isinstance(node, ast.ImportFrom):
+            if node.level > 0:
+                facts.relative_imports.append(ast.unparse(node))
+            else:
+                for alias in node.names:
+                    facts.symbols[alias.asname or alias.name] = "import"
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                facts.symbols[alias.asname or alias.name.split(".")[0]] = "import"
+
+    aliases = _collect_imports(tree, facts.imported_modules)
+    _collect_call_targets(tree, aliases, facts.call_targets)
+    return facts
+
+
+def _collect_imports(tree: Any, imported: dict[str, list[int]]) -> dict[str, str]:
+    """Record absolute imports (real dotted name -> lines); return alias map."""
+    import ast  # noqa: PLC0415
+
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imported.setdefault(alias.name, []).append(node.lineno)
+                bound = alias.asname or alias.name.split(".")[0]
+                aliases[bound] = alias.name if alias.asname else bound
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            for alias in node.names:
+                dotted = f"{node.module}.{alias.name}"
+                imported.setdefault(dotted, []).append(node.lineno)
+                aliases[alias.asname or alias.name] = dotted
+    return aliases
+
+
+def _collect_call_targets(
+    tree: Any, aliases: dict[str, str], targets: dict[str, list[int]],
+) -> None:
+    """Record every call's alias-resolved dotted target name -> lines."""
+    import ast  # noqa: PLC0415
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        parts: list[str] = []
+        func = node.func
+        while isinstance(func, ast.Attribute):
+            parts.append(func.attr)
+            func = func.value
+        if not isinstance(func, ast.Name):
+            continue  # call on a computed expression — not statically named
+        root = aliases.get(func.id) or func.id
+        parts.append(root)
+        dotted = ".".join(reversed(parts))
+        targets.setdefault(dotted, []).append(node.lineno)
 
 
 def _check_syntax(code: str, rel_path: str) -> str:

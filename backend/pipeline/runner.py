@@ -28,6 +28,7 @@ from backend.pipeline.steps import (
     structural,
 )
 from backend.server.forge_logger import forge_logger
+from backend.workspace.result_recorder import record_results_step
 from backend.workspace.sync import workspace_sync
 
 logger = logging.getLogger(__name__)
@@ -48,7 +49,9 @@ PHASE_STEPS: dict[int, list[StepFn]] = {
     7: [batch_phase7, quality_gaps, combined_quality, semantic],
     8: [batch_phase8, quality_gaps, combined_quality, semantic, design_consolidation],
     10: [batch_phase10, quality_gaps, combined_quality, semantic, case_trace_coverage],
-    13: [workspace_sync],
+    # RESULT recording runs after sync so every RESULT has a TEST parent
+    # (design/23); the step also heals misparented RESULTs on resume.
+    13: [workspace_sync, record_results_step],
 }
 
 

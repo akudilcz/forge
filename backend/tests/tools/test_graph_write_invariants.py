@@ -401,3 +401,62 @@ def test_multi_graph_write_valid_batch_applies() -> None:
     result = tool._execute(operations=ops)
     assert "2/2" in result
     assert len(graph.added) == 2
+
+
+# ── add_node: CONTRACT public_api (design/16) ────────────────────────────────
+
+
+def _module_graph() -> _StubGraph:
+    return _StubGraph([
+        _n("MODULE-0001", "MODULE", title="Merge Sort Engine",
+           content="Sorting responsibilities."),
+    ])
+
+
+_CONTRACT_CONTENT = (
+    "def sort(items: list) -> None — sorts in place. "
+    "Preconditions: items is a mutable sequence. "
+    "Postconditions: items ascending. Errors: raises TypeError on "
+    "incomparable elements."
+)
+
+
+def test_add_contract_without_public_api_rejected() -> None:
+    graph = _module_graph()
+    tool = GraphWriteTool(graph=graph)
+    result = tool._execute(
+        operation="add_node", node_type="CONTRACT", parent_id="MODULE-0001",
+        title="Merge Sort Contract", content=_CONTRACT_CONTENT,
+    )
+    assert result.startswith("ERROR")
+    assert "public_api" in result
+    assert graph.added == []
+
+
+def test_add_contract_with_valid_public_api_accepted() -> None:
+    graph = _module_graph()
+    tool = GraphWriteTool(graph=graph)
+    result = tool._execute(
+        operation="add_node", node_type="CONTRACT", parent_id="MODULE-0001",
+        title="Merge Sort Contract", content=_CONTRACT_CONTENT,
+        properties=(
+            '{"public_api": [{"module": "merge_sort", "symbol": "sort",'
+            ' "kind": "function",'
+            ' "signature": "def sort(items: list) -> None"}]}'
+        ),
+    )
+    assert result.startswith("OK")
+    assert len(graph.added) == 1
+
+
+def test_add_contract_with_malformed_public_api_rejected() -> None:
+    graph = _module_graph()
+    tool = GraphWriteTool(graph=graph)
+    result = tool._execute(
+        operation="add_node", node_type="CONTRACT", parent_id="MODULE-0001",
+        title="Merge Sort Contract", content=_CONTRACT_CONTENT,
+        properties='{"public_api": [{"module": "merge_sort"}]}',
+    )
+    assert result.startswith("ERROR")
+    assert "public_api" in result
+    assert graph.added == []

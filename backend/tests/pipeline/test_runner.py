@@ -79,6 +79,16 @@ def test_get_steps_batch_for_phase_5() -> None:
     assert "structural" not in names
 
 
+def test_get_steps_phase_13_records_results_after_sync() -> None:
+    """Phase 13 records RESULT nodes only after workspace sync creates TESTs.
+
+    Regression: RESULTs recorded in phase 12 (before TEST nodes existed)
+    were parented to CASE nodes — 230 ORPHAN_NODE gaps in a live build.
+    """
+    names = [s.__name__ for s in get_steps(13)]
+    assert names == ["workspace_sync", "record_results_step"]
+
+
 def test_get_steps_batch_for_phase_7() -> None:
     """Phase 7 uses batch_phase7 + combined_quality."""
     steps = get_steps(7)

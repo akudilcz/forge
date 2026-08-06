@@ -86,6 +86,17 @@ The agent is a Requirements Engineer. Tools: `graph_read`,
      graph_reparent_node(hlr_id, parent_id=<para_id>)
 ```
 
+**Must-capture categories** (`NORMATIVE_MUST_CAPTURE` in
+`backend/prompting/task_prompts_authoring.py`, shared with the batch
+phase-3 prompt): derivation must produce one requirement per normative
+fact in these repeatedly-dropped categories — exception contracts
+(exact class AND base class, required attributes/message), return-value
+contracts (exact values incl. None-vs-empty distinctions), ordering /
+tie-break / determinism rules (including *when* the rule applies), and
+caller-supplied callable contracts (signature and arity). API-signature
+code blocks are normative: never summarised as "shall provide
+function X".
+
 The `derive_requirement` tool makes a targeted LLM call to produce:
 - `req_text`: formal shall-statement in EARS format
 - `verification_method`: test | analysis | review | demo

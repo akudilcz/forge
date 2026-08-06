@@ -67,6 +67,17 @@ Per-requirement context (deliberately shallow to avoid O(N^2) growth):
 5. Create the CASE node as a child of SUITE.
 6. Add a `trace_to` link from the CASE to the requirement it verifies.
 
+**Contract-encoding rules** (`CASE_CONTRACT_ENCODING` in
+`backend/prompting/task_prompts_authoring.py`, shared with the batch
+phase-10 prompt): acceptance criteria must make a wrong implementation
+fail — exception cases assert the base class too; return-value cases
+assert the exact value (`is None`, never an empty collection as
+equivalent); ordering/tie-break cases use discriminating inputs (data
+with real dependencies, full exact output sequence asserted — an
+edge-free input cannot distinguish "sort once" from "sort at every
+selection step"); callable-parameter cases invoke the callable with the
+exact contracted arity.
+
 ## Pipeline Steps
 
 | Step | Purpose |

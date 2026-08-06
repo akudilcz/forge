@@ -17,10 +17,12 @@ graph-free checks (title, wording, length, CASE-must-trace) always run.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from backend.analysis.node_invariants import (
     check_case_trace_targets,
+    check_contract_prohibited,
+    check_contract_public_api,
     check_min_content_length,
     check_requirement_wording,
     check_sibling_content_unique,
@@ -64,6 +66,7 @@ def validate_add_node(
     title: str,
     content: str,
     trace_to: list[str],
+    properties: Mapping[str, object],
 ) -> str | None:
     """All authoring invariants for a prospective new node.
 
@@ -75,6 +78,8 @@ def validate_add_node(
         check_requirement_wording(node_type, content),
         check_min_content_length(node_type, content),
         check_case_trace_targets(node_type, trace_to, _resolver(graph)),
+        check_contract_public_api(node_type, properties),
+        check_contract_prohibited(node_type, properties),
     ):
         if msg is not None:
             return f"ERROR: {msg}"

@@ -646,3 +646,32 @@ class TestScoreBreakdownNoCoverage:
         out = _score_breakdown(ws, graph)
         assert "Statement:" not in out
         assert "MC/DC: 80%" in out
+
+
+class TestSystemPromptApiSurfacePins:
+    """Anti-fragmentation + API-surface conventions (design/22).
+
+    Live trace (merge_sort, oracle 1/24): codegen fragmented one module
+    into ten invented files with relative imports and never exported the
+    contract's required symbols.
+    """
+
+    def test_prompt_pins_file_layout_to_designs(self) -> None:
+        from backend.codegen.mission_agent import _SYSTEM_PROMPT
+
+        assert "one source file per DESIGN" in _SYSTEM_PROMPT
+        assert "Do NOT invent additional modules" in _SYSTEM_PROMPT
+
+    def test_prompt_requires_contract_api_and_absolute_imports(self) -> None:
+        from backend.codegen.mission_agent import _SYSTEM_PROMPT
+
+        assert "public_api" in _SYSTEM_PROMPT
+        assert "absolute imports" in _SYSTEM_PROMPT
+        assert "relative import" in _SYSTEM_PROMPT.lower()
+
+    def test_prompt_declares_prohibited_constructs_hard_bans(self) -> None:
+        from backend.codegen.mission_agent import _SYSTEM_PROMPT
+
+        assert "prohibited_constructs" in _SYSTEM_PROMPT
+        assert "hard ban" in _SYSTEM_PROMPT.lower()
+        assert "tests may use anything" in _SYSTEM_PROMPT.lower()

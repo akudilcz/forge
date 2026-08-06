@@ -1,8 +1,11 @@
-"""Post-generation recording — trace audit, test results, coverage metrics.
+"""Post-generation recording — trace audit and coverage metrics.
 
 Runs after the mission agent finishes: LLM trace audit over generated
-files, RESULT-node recording for executed tests, and persistence of
-statement/branch coverage onto the DESIGN node for the web UI.
+files and persistence of statement/branch coverage onto the DESIGN node
+for the web UI. RESULT nodes are NOT recorded here — a RESULT's only
+valid parent is a TEST node, which phase 13 workspace sync creates, so
+recording belongs to the phase 13 ``record_results_step``
+(design/23_phase_13_workspace_sync.md).
 
 Design reference: design/22_phase_12_generate_code.md
 """
@@ -12,7 +15,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from backend.server.forge_logger import forge_logger
-from backend.workspace.result_recorder import is_failure, is_passed
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -48,26 +50,6 @@ async def _run_trace_audit(
         f"Trace audit complete — {fully_traced}/{len(audit_results)} fully traced, "
         f"{total_suggested} suggestion(s)",
     )
-
-
-async def _record_test_results(
-    workspace: Path,
-    graph: ProjectGraph,
-    last_state: Any | None = None,
-) -> None:
-    """Record test RESULT nodes and persist coverage metrics."""
-    from backend.workspace.result_recorder import record_results  # noqa: PLC0415
-
-    results = await record_results(workspace, graph, last_state)
-    passed = sum(1 for r in results if is_passed(r.status))
-    # Reporting semantics: skipped is counted as neither passed nor failed.
-    failed = sum(1 for r in results if is_failure(r.status))
-    forge_logger.emit(
-        "INFO",
-        "CGEN ",
-        f"{len(results)} test result(s) recorded — {passed} passed, {failed} failed",
-    )
-    await _persist_coverage_metrics(graph, last_state)
 
 
 async def _persist_coverage_metrics(graph: Any, last_state: Any) -> None:
