@@ -130,29 +130,50 @@ async def _check_case_traces(
         + "\n".join(f"{rid}: <COVERS | NO_COVERAGE> - <reason>" for rid in expected_ids)
     )
 
-    response = await llm.ainvoke(
-        [SystemMessage(content=_BATCH_SYSTEM_PROMPT), HumanMessage(content=prompt)]
-    )
-    text = (response.content if hasattr(response, "content") else str(response)).strip()
+    def _parse(text: str) -> dict[str, bool]:
+        verdicts: dict[str, bool] = {}
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or ":" not in line:
+                continue
+            rid, _, rest = line.partition(":")
+            rid = rid.strip()
+            if rid not in expected_ids:
+                continue
+            verdicts[rid] = rest.strip().upper().startswith("COVERS")
+        return verdicts
 
-    # Parse per-requirement verdicts.
-    verdicts: dict[str, bool] = {}
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or ":" not in line:
-            continue
-        rid, _, rest = line.partition(":")
-        rid = rid.strip()
-        if rid not in expected_ids:
-            continue
-        verdicts[rid] = rest.strip().upper().startswith("COVERS")
+    messages = [SystemMessage(content=_BATCH_SYSTEM_PROMPT), HumanMessage(content=prompt)]
+    response = await llm.ainvoke(messages)
+    text = (response.content if hasattr(response, "content") else str(response)).strip()
+    verdicts = _parse(text)
+
+    if any(rid not in verdicts for rid in expected_ids):
+        # Provider flake (empty/truncated body): one bounded retry.
+        # Live evidence: union_find phase 10 crashed on raw response ''.
+        forge_logger.emit(
+            "WARN", "CTRC ",
+            f"{case.node_id}: {sum(1 for r in expected_ids if r not in verdicts)} "
+            f"verdict(s) missing (raw len={len(text)}); retrying once",
+        )
+        response = await llm.ainvoke(messages)
+        text = (response.content if hasattr(response, "content") else str(response)).strip()
+        verdicts = {**_parse(text), **verdicts}
+
+    unverified = [rid for rid in expected_ids if rid not in verdicts]
+    if unverified:
+        # Absent evidence never justifies destructive action: the traces are
+        # KEPT and reported loudly; the phase continues.
+        forge_logger.emit(
+            "ERROR", "CTRC ",
+            f"case_trace_check: verdicts still missing after retry for "
+            f"{case.node_id} -> {unverified}; keeping trace(s) unverified "
+            f"(raw response: {text[:120]!r})",
+        )
 
     for rid in expected_ids:
         if rid not in verdicts:
-            raise RuntimeError(
-                f"case_trace_check: LLM verdict missing for {case.node_id}→{rid}; "
-                f"raw response: {text!r}"
-            )
+            continue
         label = "COVERS" if verdicts[rid] else "NO COVERAGE"
         forge_logger.decision(
             "case_trace_coverage", label,

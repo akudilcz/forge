@@ -65,15 +65,19 @@ async def test_batched_parses_multiple_verdicts() -> None:
 
 
 @pytest.mark.asyncio
-async def test_batched_raises_when_verdict_missing_for_requirement() -> None:
-    """LLM omits a verdict line — must raise rather than silently treat as covers."""
+async def test_batched_missing_verdict_retries_then_keeps_unverified() -> None:
+    """LLM omits a verdict line: retried once; still missing means the trace
+    is KEPT unverified (no destructive action on absent evidence) and the
+    judged verdicts still apply — never silently treated as covers, never a
+    phase-crashing raise (live: union_find phase 10, empty provider body)."""
     case = _node("CASE-1", "CASE_HLR", content="steps", trace_to=["HLR-1", "HLR-2"])
     hlr1 = _node("HLR-1", "HLR", content="A")
     hlr2 = _node("HLR-2", "HLR", content="B")
     graph = _Graph([case, hlr1, hlr2])
     llm = _llm("HLR-1: COVERS - only one line")
-    with pytest.raises(RuntimeError, match="HLR-2"):
-        await _check_case_traces(llm, graph, case, ["HLR-1", "HLR-2"])
+    bad = await _check_case_traces(llm, graph, case, ["HLR-1", "HLR-2"])
+    assert bad == []  # HLR-1 judged COVERS; HLR-2 kept unverified
+    assert llm.ainvoke.await_count == 2
 
 
 @pytest.mark.asyncio

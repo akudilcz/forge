@@ -117,3 +117,66 @@ async def test_checker_covers_keeps_trace() -> None:
 
     assert result == 0
     graph.delete_node.assert_not_awaited()
+
+
+# ── Empty/missing-verdict resilience (live: union_find phase 10) ─────────────
+
+
+class _FlakyLLM:
+    """First call returns empty text (provider flake), second a full verdict."""
+
+    def __init__(self, good_text: str) -> None:
+        self.calls = 0
+        self._good = good_text
+
+    async def ainvoke(self, _msgs: object) -> object:
+        self.calls += 1
+        from types import SimpleNamespace
+        return SimpleNamespace(content="" if self.calls == 1 else self._good)
+
+
+class _AlwaysEmptyLLM:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def ainvoke(self, _msgs: object) -> object:
+        self.calls += 1
+        from types import SimpleNamespace
+        return SimpleNamespace(content="")
+
+
+def _case_and_graph() -> tuple[MagicMock, MagicMock]:
+    case = MagicMock()
+    case.node_id = "CASE_HLR-0074"
+    case.node_type = "CASE_HLR"
+    case.content = "verify union"
+    req = MagicMock()
+    req.node_id = "HLR-0080"
+    req.node_type = "HLR"
+    req.content = "The system shall union sets."
+    graph = MagicMock()
+    graph.node_sync.return_value = req
+    return case, graph
+
+
+@pytest.mark.asyncio
+async def test_empty_verdict_response_retries_once_then_succeeds() -> None:
+    """Live failure: empty provider response crashed phase 10. One retry."""
+    from backend.quality.case_trace_check import _check_case_traces
+    case, graph = _case_and_graph()
+    llm = _FlakyLLM("HLR-0080: COVERS - direct")
+    bad = await _check_case_traces(llm, graph, case, ["HLR-0080"])
+    assert bad == []
+    assert llm.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_verdict_still_missing_after_retry_keeps_trace_and_warns() -> None:
+    """Double failure: unverified trace is KEPT (no destructive action on
+    absent evidence) and reported loudly — the phase continues."""
+    from backend.quality.case_trace_check import _check_case_traces
+    case, graph = _case_and_graph()
+    llm = _AlwaysEmptyLLM()
+    bad = await _check_case_traces(llm, graph, case, ["HLR-0080"])
+    assert bad == []
+    assert llm.calls == 2
