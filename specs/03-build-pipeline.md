@@ -21,7 +21,7 @@ dedicated dashboard per phase via `/phase/:phaseNum`.
 | 9 | Write Test Strategy   | Agent (single dispatch) | SUITE node                         | No `UNSUITED` |
 |10 | Write Test Cases      | Agent (batch) + independent oracle judge | CASE_HLR / CASE_LLR nodes, oracle-validated | No `UNTESTED_HLR` / `UNTESTED_LLR` |
 |11 | Render Documentation  | Deterministic   | 8 Markdown docs in `workspace/docs/`       | Render returns |
-|12 | Generate Code         | Mission agent   | `src/`, `tests/`, build files, coverage    | Coverage gate (below) |
+|12 | Generate Code         | Mission agent   | `src/`, `tests/`, build files, coverage    | Requirement-coverage gate (below) |
 |13 | Workspace Sync        | Deterministic   | CODE / TEST / RESULT nodes                 | No `UNSYNCED_DESIGN` / `UNSYNCED_TEST` |
 |14 | Build Deliverables    | Deterministic   | `deliverables/` + `deliverables.zip`       | Pack built |
 
@@ -249,11 +249,15 @@ build scaffolding, then works a prioritised gap list detected by
 deterministic workspace scanning: broken test environment, syntax errors,
 missing sources/tests, API-surface mismatches (including unmet contract
 `raises` obligations — exception class missing, wrong base class, or never
-raised in its defining module), prohibited constructs,
-failing tests, invalid or missing traces, coverage shortfalls,
-unimplemented/uncovered requirements, weak traces, and scope creep. The
-agent runs at most 4 passes (fresh conversation per pass, workspace
-re-scanned between passes) of up to 200 tool calls each.
+raised in its defining module), prohibited constructs, weak test cases
+(surviving mutants — see §Mutation round), failing tests, invalid or
+missing traces, unimplemented/uncovered requirements, weak traces, and
+scope creep. Statement/branch coverage shortfalls are **report-only**:
+computed, persisted, and logged loudly, never gaps. The agent runs at
+most 4 passes (fresh conversation per pass, workspace re-scanned between
+passes) of up to 200 tool calls each, with a per-cluster repair-depth cap
+(§Repair depth and regeneration) and one bounded mutation round per
+completion attempt (§Mutation round).
 
 **13 — Workspace Sync.** Deterministic reconciliation of the workspace into
 the graph: a CODE node per generated source file (under its DESIGN), a TEST
@@ -278,18 +282,26 @@ and coverage report carry real evidence.
 
 ## The Phase 12 acceptance gate
 
-The generated codebase is accepted only when all of these hold
-simultaneously; otherwise the phase fails loudly:
+The hard gate is **requirements coverage**. The generated codebase is
+accepted only when all of these hold simultaneously; otherwise the phase
+fails loudly:
 
 1. **All tests pass** (a skipped test is not a pass), and at least one test
    ran if any LLRs exist.
-2. **Statement coverage = 100%** of generated source.
-3. **MC/DC branch coverage = 100%** wherever branches exist to measure.
-4. **Every LLR is implemented** — cited by `@traces(LLR-…)` on at least one
+2. **Every LLR is implemented** — cited by `@traces(LLR-…)` on at least one
    source function.
-5. **Every LLR is verified** — covered by at least one passing traced test.
-6. **Every function is traced** — every function in `src/`, including
+3. **Every LLR is verified** — covered by at least one passing traced test.
+4. **Every function is traced** — every function in `src/`, including
    dunders and private helpers, carries `@traces(LLR-…)`.
+
+**Statement and MC/DC branch coverage percentages are report-only.** They
+are measured on every scan, persisted as metrics, surfaced in the summary
+and deliverables, and any shortfall is logged loudly at WARN — but they
+never block acceptance and never emit gaps. Evidence for the rebalance:
+coverage percentages correlate only weakly with a suite's fault-finding
+power (Inozemtseva & Holmes), while chasing the last coverage points
+dominated measured phase-12 spend; suite strength is probed directly by
+the mutation round below instead.
 
 These are a joint invariant, not independent thresholds. A function that
 contributes to none of them is excess code; FORGE removes it rather than
@@ -297,6 +309,49 @@ retaining untraced implementation. The delivered workspace is the **minimal**
 code satisfying the requirement graph, with every line auditable back to an
 LLR — and via the graph, back to a paragraph of `forge.md`
 (see [12-artifact-model-and-traceability.md](12-artifact-model-and-traceability.md)).
+
+## Repair depth and regeneration
+
+Deep repair chains on the same slice are poor value (Olausson et al.:
+self-repair gains vanish once cost is counted; diverse regeneration beats
+continued repair). The mission loop therefore tracks a **repair ledger**:
+after each pass, every persisting gap cluster — keyed by the DESIGN's
+source path (`src/<slug>.py`), with failing test files mapped to the
+`src/` modules they import — has its pass count bumped; a cluster that
+clears resets.
+
+When a cluster has persisted through **2** passes, the next pass does not
+repair it: the prompt marks the cluster **REGENERATE** and instructs
+rewriting the file(s) from scratch. The regeneration brief is a context
+reset for that slice — it carries only the module's CONTRACT record, the
+DESIGN, and a summary of the failing evidence (each pass is already a
+fresh conversation thread), and that pass's model is built with
+`options.temperature + llm.regeneration_temperature_bump` (default +0.3)
+for sampling diversity. Regeneration counts as a normal pass within the
+4-pass bound; a slice that still fails keeps regenerating until the bound
+exhausts. A regeneration key with no matching DESIGN logs a WARN and
+falls back to normal repair.
+
+## Mutation round
+
+Once a pass ends with no `FAILING_TESTS` gap, **one** mutation round runs
+per phase-12 completion attempt (a flag on the mission state prevents
+looping). Each DESIGN's source file is mutated one operator at a time —
+comparison flips (`==`/`!=`, `<`/`<=`, `>`/`>=`), `+`/`-` swaps, and
+return-constant perturbation — only on lines inside `@traces`-annotated
+function spans. Each mutant is written to disk, the workspace suite runs,
+and the original is restored. A mutant the whole suite still passes is a
+**surviving mutant**: it becomes a `WEAK_CASE` gap quoting the mutant
+diff, dispatched to the mission agent with the instruction "write a test
+case this diff fails". Survivors get one remediation pass (within the
+4-pass bound) and are not re-verified.
+
+Bounds are loud, never silent: the round has a 300 s wall-clock budget
+and a 20-mutant-per-file cap — exceeding either logs a WARN skip, and a
+skip never blocks completion. Tooling note: mutmut was evaluated and
+rejected (import-time global config, whole-project copy + hardcoded
+pytest runner, no per-file programmatic API); FORGE uses a minimal
+internal AST mutator (`backend/codegen/mutation.py`).
 
 ## Human approval gates
 

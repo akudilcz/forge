@@ -162,8 +162,8 @@ async def test_async_evaluate_with_gaps(
     mock_find_gaps.return_value = [
         Gap(kind=GapKind.FAILING_TESTS, node_id="", file_path="tests/test_a.py",
             details="test_y failed"),
-        Gap(kind=GapKind.LOW_STRUCTURAL_COVERAGE, node_id="", file_path="src/foo.py",
-            details="Coverage below 100%"),
+        Gap(kind=GapKind.UNCOVERED_REQUIREMENT, node_id="LLR-001", file_path="",
+            details="No passing traced test"),
     ]
 
     graph = _make_graph(["LLR-001"])

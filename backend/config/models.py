@@ -123,6 +123,12 @@ class LLMConfig(BaseModel):
     # pre_model_hook built in backend/codegen/mission_history.py::
     # make_mission_trim_hook — see specs/03 §History Compaction.
     mission_token_budget: int = 60000
+    # Temperature bump applied to a Phase 12 mission pass that regenerates
+    # a persistently failing slice from scratch (U10: after
+    # REPAIR_DEPTH_CAP repair passes, diverse regeneration beats deeper
+    # repair — Olausson et al.). Added to options.temperature for that
+    # pass's model; normal passes use the configured default.
+    regeneration_temperature_bump: float = 0.3
     # Maximum nodes judged per combined-quality LLM call. The judge's verdict
     # block scales with node count, and one call over the whole phase truncates
     # at the provider output-token limit on large phases (live evidence:

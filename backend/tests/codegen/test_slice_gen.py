@@ -800,8 +800,9 @@ async def test_persist_traces_skips_non_design_case() -> None:
 
 # ── compute_value ─────────────────────────────────────────────────────────────
 
-def test_compute_value_includes_mcdc() -> None:
-    """MC/DC (branch coverage) is a gating dimension in compute_value."""
+def test_compute_value_ignores_coverage_percentages() -> None:
+    """U10 gate rebalance: statement and MC/DC percentages are report-only
+    metrics — they no longer gate the mission score."""
     from backend.codegen.mission_agent import compute_value
     from backend.workspace.scanner import FileState, WorkspaceState
 
@@ -815,15 +816,13 @@ def test_compute_value_includes_mcdc() -> None:
             ),
         },
         test_results=[MagicMock(status="passed")],
-        coverage_pct=100.0,
+        coverage_pct=40.0,
         branch_coverage_pct=50.0,
     )
     graph: Any = MagicMock()
     graph.all_nodes.return_value = [_make_node("LLR-001", "LLR", "Req")]
 
-    score = compute_value(ws, graph)
-    # branch_coverage_pct=50% → mcdc_score=0.5, which is the minimum
-    assert score == 0.5
+    assert compute_value(ws, graph) == 1.0
 
 
 def test_compute_value_all_100_returns_1() -> None:
@@ -1116,22 +1115,30 @@ def test_coverage_gate_raises_when_llr_has_no_source_traces() -> None:
         _enforce_coverage_gate(state, graph, _result_with_source())
 
 
-def test_coverage_gate_raises_when_stmt_below_100() -> None:
+def test_gate_does_not_raise_when_stmt_below_100() -> None:
+    """U10 gate rebalance: statement coverage < 100% is report-only —
+    logged loudly, never blocking."""
     state = _state(
         tests=[("passed", "tests/t.py", "t")],
         coverage_pct=80.0, branch_pct=100.0,
     )
-    with pytest.raises(CodeGenIncompleteError, match="statement coverage"):
+    with patch("backend.codegen.slice_gen.forge_logger") as logger_mock:
         _enforce_coverage_gate(state, _graph_with_llrs([]), _result_with_source())
+    warns = [c for c in logger_mock.emit.call_args_list if c.args[0] == "WARN"]
+    assert any("statement" in c.args[2].lower() for c in warns)
+    assert any("report-only" in c.args[2] for c in warns)
 
 
-def test_coverage_gate_raises_when_branch_below_100() -> None:
+def test_gate_does_not_raise_when_branch_below_100() -> None:
+    """U10 gate rebalance: MC/DC coverage < 100% is report-only."""
     state = _state(
         tests=[("passed", "tests/t.py", "t")],
         coverage_pct=100.0, branch_pct=60.0,
     )
-    with pytest.raises(CodeGenIncompleteError, match="branch/MC-DC"):
+    with patch("backend.codegen.slice_gen.forge_logger") as logger_mock:
         _enforce_coverage_gate(state, _graph_with_llrs([]), _result_with_source())
+    warns = [c for c in logger_mock.emit.call_args_list if c.args[0] == "WARN"]
+    assert any("MC/DC" in c.args[2] or "branch" in c.args[2].lower() for c in warns)
 
 
 def test_coverage_gate_raises_when_any_test_failed() -> None:

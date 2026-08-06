@@ -216,8 +216,11 @@ build halts loudly instead of spending indefinitely:
 | Pipeline cycles per phase (deletion-triggered re-runs) | 12 | Forced exit, logged |
 | Dispatch attempts per gap per pass | 3 | Gap abandoned for the pass; the phase audit then fails loudly |
 | Batch-authoring retries per chunk | 3 | Stragglers fall back to per-gap dispatch — no structural gap is ever left undispatched |
-| Phase 12 mission passes | 4 | Stops with remaining gaps reported; the coverage gate still decides acceptance |
+| Phase 12 mission passes | 4 | Stops with remaining gaps reported; the requirement-coverage gate still decides acceptance |
 | Phase 12 tool calls per pass | 200 | Pass ends; next pass re-scans |
+| Phase 12 repair passes per gap cluster | 2 | Next pass REGENERATEs the slice from scratch (fresh thread; contract + design + failing evidence only; temperature bump) instead of repairing — regeneration still counts within the 4-pass bound |
+| Phase 12 mutation rounds per completion attempt | 1 | Surviving mutants on traced lines become `WEAK_CASE` gaps ("write a test case this diff fails") with one remediation pass; the round is never repeated |
+| Phase 12 mutation round runtime | 300 s (and 20 mutants/file) | Remaining mutants skipped with a loud WARN — a skip never blocks completion and is never a silent pass |
 | Conversation history per dispatch | `llm.dispatch_token_budget` (24k tokens) | Oldest messages trimmed deterministically |
 | Phase 12 mission history per call | `llm.mission_token_budget` (60k tokens) | Oldest tool output pruned; recent turns preserved |
 
@@ -239,11 +242,12 @@ dispatch — never silently dropped.
 - **Transient LLM failures are retried a bounded number of times** (client
   retries plus one application-level retry where applicable); a persistent
   failure propagates rather than being swallowed.
-- **The Phase 12 coverage gate is absolute**: the generated codebase is
-  rejected unless all tests pass, statement and (where measurable)
-  MC/DC branch coverage are 100%, and every requirement has both an
-  implementation trace and passing test evidence
-  (see [03-build-pipeline.md](03-build-pipeline.md)).
+- **The Phase 12 requirement-coverage gate is absolute**: the generated
+  codebase is rejected unless all tests pass and every requirement has
+  both an implementation trace and passing test evidence. Statement and
+  MC/DC percentages are report-only — measured, persisted, and WARNed on
+  shortfall, never blocking (see [03-build-pipeline.md](03-build-pipeline.md)
+  §The Phase 12 acceptance gate).
 - **Test evidence is always fresh**: Phase 13 purges stale test artifacts and
   re-runs the full suite before recording RESULT nodes — evidence is never
   carried over from a previous run.

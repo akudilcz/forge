@@ -139,12 +139,11 @@ async def run_code_gen(
     elapsed = time.monotonic() - t0
     _log_summary(result, last_state, graph, gaps_resolved, elapsed, mission_stats)
 
-    # Strict coverage gate. Earlier behaviour accepted "INCOMPLETE" with
-    # sub-100% requirement coverage and advanced to phase 13 silently,
-    # allowing the integration test to pass with only ~73% LLR runtime
-    # coverage. Per the "fail loudly" invariant, codegen now raises when
-    # any of stmt/branch/requirement coverage is below 100% OR any test
-    # failed. Downstream phases must see a clean phase-12.
+    # Strict requirement-coverage gate. Earlier behaviour accepted
+    # "INCOMPLETE" with sub-100% requirement coverage and advanced to
+    # phase 13 silently. Per the "fail loudly" invariant, codegen raises
+    # when requirement coverage is below 100% OR any test failed.
+    # Statement/branch percentages are report-only (U10 gate rebalance).
     _enforce_coverage_gate(last_state, graph, result)
     return result
 
@@ -161,17 +160,18 @@ def _enforce_coverage_gate(
     """Raise ``CodeGenIncompleteError`` if phase 12 outputs are not fully green.
 
     Hard gates (all must be satisfied):
-        * At least one test was executed.
+        * At least one test was executed (when the graph has LLRs).
         * Every test passed (``failed == 0``).
-        * Statement coverage == 100%.
-        * Branch / MC/DC coverage == 100%.
         * Requirement coverage == 100% — every LLR is cited by a source
           ``@traces`` AND has a passing traced test (single coverage
           definition, specs/03).
+
+    Report-only (U10 gate rebalance — logged loudly, never blocking;
+    Inozemtseva & Holmes: coverage weakly correlates with suite
+    effectiveness): statement coverage and branch/MC-DC coverage.
     """
     # Each gate only fires when the thing it covers is actually present:
     # - A graph with no LLRs → no requirement-coverage check (trivially OK).
-    # - No source files → no statement/branch check (nothing to cover).
     # - No tests executed → only a problem when the graph has LLRs (every
     #   LLR should have driven a test).
     passed = sum(1 for r in last_state.test_results if is_passed(r.status))
@@ -182,21 +182,12 @@ def _enforce_coverage_gate(
     branch_pct = last_state.branch_coverage_pct
     req_detail = _compute_requirement_coverage_detail(last_state, graph)
 
+    if has_source:
+        _report_structural_coverage(stmt_pct, branch_pct)
+
     problems: list[str] = []
     if failed > 0:
         problems.append(f"{failed} test(s) failed")
-    if has_source:
-        if stmt_pct is None or stmt_pct < 99.999:
-            problems.append(
-                f"statement coverage {stmt_pct if stmt_pct is not None else 'n/a'} (need 100%)"
-            )
-        # branch_pct=None means lcov found zero branches to measure (no
-        # boolean logic in source) — that's not a gap, there's simply
-        # nothing to cover. Only fail if we have a measured value <100%.
-        if branch_pct is not None and branch_pct < 99.999:
-            problems.append(
-                f"branch/MC-DC coverage {branch_pct} (need 100%)"
-            )
     if req_detail["total"] > 0:
         if req_detail["unimplemented"]:
             problems.append(
@@ -225,6 +216,32 @@ def _enforce_coverage_gate(
             tests_failed=failed,
         )
         raise CodeGenIncompleteError(msg)
+
+
+def _report_structural_coverage(
+    stmt_pct: float | None,
+    branch_pct: float | None,
+) -> None:
+    """WARN loudly on structural-coverage shortfalls — report-only.
+
+    ``branch_pct=None`` means lcov found zero branches to measure (no
+    boolean logic in source) — nothing to report. ``stmt_pct=None`` with
+    source present means coverage was never measured; still worth a WARN.
+    """
+    if stmt_pct is None or stmt_pct < 99.999:
+        shown = f"{stmt_pct:.1f}%" if stmt_pct is not None else "n/a"
+        forge_logger.emit(
+            "WARN", "CGEN ",
+            f"Phase 12 statement coverage {shown} (report-only, not blocking)",
+            stmt_pct=int(stmt_pct) if stmt_pct is not None else None,
+        )
+    if branch_pct is not None and branch_pct < 99.999:
+        forge_logger.emit(
+            "WARN", "CGEN ",
+            f"Phase 12 branch/MC-DC coverage {branch_pct:.1f}% "
+            f"(report-only, not blocking)",
+            branch_pct=int(branch_pct),
+        )
 
 
 def _log_summary(

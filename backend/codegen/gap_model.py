@@ -26,15 +26,20 @@ class GapKind(IntEnum):
     MISSING_TEST = 3
     API_SURFACE_MISMATCH = 4     # CONTRACT public_api entry not exposed
     PROHIBITED_CONSTRUCT = 5     # CONTRACT-banned construct used in src/
-    FAILING_TESTS = 6
-    INVALID_TRACES = 7
-    UNTRACED_FUNCTIONS = 8
-    LOW_STRUCTURAL_COVERAGE = 9   # statement coverage < 100% for a file
-    LOW_BRANCH_COVERAGE = 10     # MC/DC branch coverage < 100%
-    UNIMPLEMENTED_REQUIREMENT = 11  # LLR absent from all source-file @traces
-    UNCOVERED_REQUIREMENT = 12    # LLR with no passing test evidence
-    WEAK_TRACE = 13              # function traces to LLR but doesn't implement it
-    SCOPE_CREEP = 14             # function not backed by any requirement
+    WEAK_CASE = 6                # surviving mutant on a traced line (mutation round)
+    FAILING_TESTS = 7
+    INVALID_TRACES = 8
+    UNTRACED_FUNCTIONS = 9
+    UNIMPLEMENTED_REQUIREMENT = 10  # LLR absent from all source-file @traces
+    UNCOVERED_REQUIREMENT = 11    # LLR with no passing test evidence
+    WEAK_TRACE = 12              # function traces to LLR but doesn't implement it
+    SCOPE_CREEP = 13             # function not backed by any requirement
+
+    # Statement/branch (MC/DC) coverage percentages are deliberately NOT
+    # gap kinds. U10 gate rebalance (Inozemtseva & Holmes: coverage weakly
+    # correlates with suite effectiveness): they are computed, persisted,
+    # and logged loudly as report-only metrics — never blocking gaps. The
+    # hard gate is requirements coverage (specs/03).
 
 
 @dataclass

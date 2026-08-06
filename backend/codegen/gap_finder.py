@@ -2,8 +2,12 @@
 
 Compares workspace state against the project graph to find gaps:
 missing source files, missing test files, untraced functions,
-failing tests, and coverage shortfalls. Used by the gap-first
+failing tests, and uncovered requirements. Used by the gap-first
 code generation pipeline.
+
+Statement/branch (MC/DC) coverage percentages are report-only (U10 gate
+rebalance): shortfalls are logged loudly here but never become blocking
+gaps — the hard gate is requirements coverage.
 """
 
 from __future__ import annotations
@@ -89,10 +93,9 @@ def find_gaps(
     _check_failing_tests(gaps, test_results)
     _check_invalid_traces(gaps, source_files, test_files, graph)
     _check_untraced_functions(gaps, source_files, test_files)
-    _check_low_structural_coverage(
-        gaps, source_files, coverage_by_file, uncovered_lines,
+    _report_coverage_shortfalls(
+        source_files, coverage_by_file, uncovered_lines, branch_coverage_pct,
     )
-    _check_low_branch_coverage(gaps, branch_coverage_pct)
     _check_unimplemented_requirement(gaps, source_files, graph)
     _check_uncovered_requirement(gaps, test_files, test_results, graph)
 
@@ -222,58 +225,38 @@ def _check_untraced_functions(
         ))
 
 
-def _check_low_structural_coverage(
-    gaps: list[Gap],
+def _report_coverage_shortfalls(
     source_files: dict[str, FileState],
     coverage_by_file: dict[str, float] | None,
-    uncovered_lines: dict[str, list[int]] | None = None,
-) -> None:
-    """Add LOW_STRUCTURAL_COVERAGE gaps for source files with < 100% coverage."""
-    if not coverage_by_file:
-        return
-    for path in source_files:
-        pct = coverage_by_file.get(path)
-        if pct is not None and pct < 100.0:
-            missing = (uncovered_lines or {}).get(path, [])
-            gaps.append(Gap(
-                kind=GapKind.LOW_STRUCTURAL_COVERAGE,
-                node_id="",
-                file_path=path,
-                details=f"Coverage {pct:.0f}% — uncovered lines: {missing}",
-                context={
-                    "coverage_pct": pct,
-                    "uncovered_lines": missing,
-                },
-            ))
-
-
-def _check_low_branch_coverage(
-    gaps: list[Gap],
+    uncovered_lines: dict[str, list[int]] | None,
     branch_coverage_pct: float | None,
 ) -> None:
-    """Add LOW_BRANCH_COVERAGE gap when MC/DC is below 100%.
+    """Log statement/MC-DC shortfalls loudly — report-only, never gaps.
 
-    DO-178C DAL-B requires 100% MC/DC. Any value below 100% is a
-    certification blocker. The agent should either write tests that
-    exercise missing branches or refactor the source to make branches
-    testable.
+    U10 gate rebalance (Inozemtseva & Holmes: coverage weakly correlates
+    with suite effectiveness): structural coverage percentages are still
+    computed, persisted (``_persist_coverage_metrics``), and WARNed here,
+    but no longer emit blocking gaps. The hard gate is requirements
+    coverage; test-suite strength is probed by the mutation round instead.
     """
-    if branch_coverage_pct is None:
-        return
-    if branch_coverage_pct >= 100.0:
-        return
-    gaps.append(Gap(
-        kind=GapKind.LOW_BRANCH_COVERAGE,
-        node_id="",
-        file_path="src/",
-        details=(
-            f"MC/DC branch coverage is {branch_coverage_pct:.1f}% — "
-            f"100% required for DO-178C certification. "
-            f"Write tests that exercise uncovered boolean conditions, "
-            f"or refactor source to make branches testable."
-        ),
-        context={"branch_coverage_pct": branch_coverage_pct},
-    ))
+    if coverage_by_file:
+        for path in source_files:
+            pct = coverage_by_file.get(path)
+            if pct is not None and pct < 100.0:
+                missing = (uncovered_lines or {}).get(path, [])
+                forge_logger.emit(
+                    "WARN", "GAPF ",
+                    f"Statement coverage {pct:.0f}% in {path} "
+                    f"(report-only, not blocking) — uncovered lines: {missing}",
+                    coverage_pct=int(pct),
+                )
+    if branch_coverage_pct is not None and branch_coverage_pct < 100.0:
+        forge_logger.emit(
+            "WARN", "GAPF ",
+            f"MC/DC branch coverage {branch_coverage_pct:.1f}% "
+            f"(report-only, not blocking)",
+            branch_pct=int(branch_coverage_pct),
+        )
 
 
 # Patterns that indicate scope creep unless explicitly required

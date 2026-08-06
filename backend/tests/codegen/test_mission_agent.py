@@ -193,13 +193,27 @@ class TestComputeValue:
         trace.llr_ids = ["LLR-1"]
         fs = _file_state(traces=[trace], total_fn=1, traced_fn=1)
         ws = _ws_state(
-            test_results=[MagicMock(status="passed")],
+            test_results=[MagicMock(status="passed"), MagicMock(status="failed")],
             source_files={"core.py": fs},
-            coverage_pct=50.0, branch_pct=100.0,
         )
         graph = MagicMock()
         graph.all_nodes.return_value = [_node("LLR-1", "LLR")]
         assert compute_value(ws, graph) == 0.5
+
+    def test_coverage_percentages_are_report_only(self) -> None:
+        """U10 gate rebalance: statement/MC-DC percentages never gate the
+        score — requirements coverage is the hard gate."""
+        trace = MagicMock()
+        trace.llr_ids = ["LLR-1"]
+        fs = _file_state(traces=[trace], total_fn=1, traced_fn=1)
+        ws = _ws_state(
+            test_results=[MagicMock(status="passed")],
+            source_files={"core.py": fs},
+            coverage_pct=10.0, branch_pct=20.0,
+        )
+        graph = MagicMock()
+        graph.all_nodes.return_value = [_node("LLR-1", "LLR")]
+        assert compute_value(ws, graph) == 1.0
 
     def test_zero_denominators_return_zero(self) -> None:
         ws = _ws_state(coverage_pct=0.0, branch_pct=0.0)
@@ -294,7 +308,7 @@ class TestCreateMissionAgent:
             patch("backend.codegen.mission_agent.build_llm"),
             patch("backend.codegen.mission_agent.create_react_agent") as mock_create,
         ):
-            create_mission_agent(config, [*required, graph_tool])
+            create_mission_agent(config, [*required, graph_tool], None)
             _, kwargs = mock_create.call_args
             for tool in required:
                 assert tool in kwargs["tools"]
@@ -311,7 +325,7 @@ class TestCreateMissionAgent:
             patch("backend.codegen.mission_agent.build_llm"),
             patch("backend.codegen.mission_agent.create_react_agent") as mock_create,
         ):
-            create_mission_agent(config, tools)
+            create_mission_agent(config, tools, None)
             _, kwargs = mock_create.call_args
             assert eval_tool in kwargs["tools"]
 
@@ -329,7 +343,7 @@ class TestCreateMissionAgent:
             patch("backend.codegen.mission_agent.create_react_agent"),
             pytest.raises(RuntimeError, match="evaluate_progress"),
         ):
-            create_mission_agent(config, tools)
+            create_mission_agent(config, tools, None)
 
     def test_empty_tool_instances_raises(self) -> None:
         config = MagicMock()
@@ -340,7 +354,7 @@ class TestCreateMissionAgent:
             patch("backend.codegen.mission_agent.create_react_agent"),
             pytest.raises(RuntimeError, match="file_write"),
         ):
-            create_mission_agent(config, [])
+            create_mission_agent(config, [], None)
 
 
 # ── run_mission_agent ───────────────────────────────────────────────────────
@@ -613,7 +627,7 @@ class TestExtraPrompt:
 class TestBuildFollowupPrompt:
     def test_uncovered_requirements_highlighted(self) -> None:
         """Uncovered-requirement gaps get their own priority section."""
-        from backend.codegen.mission_agent import _build_followup_prompt
+        from backend.codegen.mission_prompts import build_followup_prompt
 
         gaps = [
             _gap(
@@ -621,18 +635,27 @@ class TestBuildFollowupPrompt:
                 details="no passing traced test",
             ),
         ]
-        out = _build_followup_prompt("ctx", gaps, 2)
+        out = build_followup_prompt("ctx", gaps, 2, {})
         assert "UNCOVERED REQUIREMENTS (1)" in out
         assert "LLR-7: no passing traced test" in out
         assert "OTHER REMAINING GAPS" not in out
 
     def test_other_gaps_rendered_without_uncovered_section(self) -> None:
-        from backend.codegen.mission_agent import _build_followup_prompt
+        from backend.codegen.mission_prompts import build_followup_prompt
 
         gaps = [_gap(kind_name="MISSING_TEST", file_path="tests/test_a.py")]
-        out = _build_followup_prompt("ctx", gaps, 3)
+        out = build_followup_prompt("ctx", gaps, 3, {})
         assert "OTHER REMAINING GAPS (1)" in out
         assert "UNCOVERED REQUIREMENTS" not in out
+
+    def test_regeneration_briefs_are_prepended(self) -> None:
+        from backend.codegen.mission_prompts import build_followup_prompt
+
+        gaps = [_gap(kind_name="MISSING_TEST", file_path="tests/test_a.py")]
+        briefs = {"src/foo.py": "### REGENERATE src/foo.py\nrewrite from scratch"}
+        out = build_followup_prompt("ctx", gaps, 3, briefs)
+        assert "REGENERATE src/foo.py" in out
+        assert out.index("REGENERATE src/foo.py") < out.index("OTHER REMAINING GAPS")
 
 
 class TestScoreBreakdownDetails:
@@ -723,7 +746,7 @@ class TestMissionHistoryBudgetWiring:
                 return_value=sentinel_hook,
             ) as mock_make,
         ):
-            create_mission_agent(config, _required_tools())
+            create_mission_agent(config, _required_tools(), None)
         mock_make.assert_called_once_with(60_000)
         _, kwargs = mock_create.call_args
         assert kwargs["pre_model_hook"] is sentinel_hook
@@ -770,3 +793,260 @@ class TestSlimContext:
         message = mock_log.emit.call_args.args[2]
         assert "tokens" in message
         assert any(ch.isdigit() for ch in message)
+
+
+# ── U10: repair-depth cap + diverse regeneration ────────────────────────────
+
+
+def _failing_gap(file_path: str) -> Gap:
+    from backend.codegen.gap_finder import GapKind
+
+    return Gap(
+        kind=GapKind.FAILING_TESTS, node_id="", file_path=file_path,
+        details="1 failing test(s)",
+        context={"error_summaries": ["test_x: AssertionError: boom"]},
+    )
+
+
+def _design_graph() -> MagicMock:
+    """Graph with one DESIGN (src/foo.py) owning a CONTRACT sibling."""
+    design = _node("D-1", "DESIGN", title="foo", content="design body of foo")
+    design.parent_id = "MOD-1"
+    contract = _node("C-1", "CONTRACT", title="foo api", content="contract text")
+    graph = MagicMock()
+    graph.all_nodes.return_value = [design]
+    graph.children_sync.return_value = [contract]
+    return graph
+
+
+def _regen_config() -> MagicMock:
+    config = MagicMock()
+    config.llm.model_for_phase.return_value = "test"
+    config.llm.options.temperature = 0.8
+    config.llm.regeneration_temperature_bump = 0.3
+    config.llm.mission_token_budget = 60_000
+    return config
+
+
+class TestRepairDepthCap:
+    @pytest.mark.asyncio
+    async def test_regeneration_marked_after_two_persistent_passes(
+        self, tmp_path: Path,
+    ) -> None:
+        """A cluster persisting through K=2 passes is marked REGENERATE in
+        the pass-3 prompt with only contract + design + failing evidence."""
+        config = _regen_config()
+        ws = _ws_state()
+
+        with (
+            patch("backend.codegen.mission_agent.build_mission_context", return_value="ctx"),
+            patch("backend.codegen.mission_agent.create_mission_agent"),
+            patch("backend.codegen.mission_agent.scan_workspace", new_callable=AsyncMock, return_value=ws),
+            patch("backend.codegen.mission_agent.find_gaps", return_value=[_failing_gap("src/foo.py")]),
+            patch("backend.codegen.mission_agent.run_mutation_round", return_value=[]),
+            patch(
+                "backend.codegen.mission_agent._run_agent_iteration",
+                new_callable=AsyncMock, return_value=0,
+            ) as run_iter,
+            patch("backend.codegen.mission_agent.work_queue"),
+            patch("backend.codegen.mission_agent.forge_logger"),
+        ):
+            await run_mission_agent(tmp_path, _design_graph(), config, [])
+
+        prompts = [c.args[1] for c in run_iter.await_args_list]
+        assert len(prompts) == 4  # MAX_MISSION_PASSES exhausted
+        assert "REGENERATE" not in prompts[0]
+        assert "REGENERATE" not in prompts[1]  # 1 repair pass recorded — below cap
+        assert "REGENERATE" in prompts[2]  # cap (2) reached — regenerate
+        assert "src/foo.py" in prompts[2]
+        assert "design body of foo" in prompts[2]
+        assert "contract text" in prompts[2]
+        assert "from scratch" in prompts[2]
+        assert "AssertionError: boom" in prompts[2]
+
+    @pytest.mark.asyncio
+    async def test_regeneration_pass_uses_temperature_bump(
+        self, tmp_path: Path,
+    ) -> None:
+        """Regeneration passes rebuild the agent with base temperature +
+        llm.regeneration_temperature_bump for diverse sampling."""
+        config = _regen_config()
+        ws = _ws_state()
+
+        with (
+            patch("backend.codegen.mission_agent.build_mission_context", return_value="ctx"),
+            patch("backend.codegen.mission_agent.create_mission_agent") as create_mock,
+            patch("backend.codegen.mission_agent.scan_workspace", new_callable=AsyncMock, return_value=ws),
+            patch("backend.codegen.mission_agent.find_gaps", return_value=[_failing_gap("src/foo.py")]),
+            patch("backend.codegen.mission_agent.run_mutation_round", return_value=[]),
+            patch(
+                "backend.codegen.mission_agent._run_agent_iteration",
+                new_callable=AsyncMock, return_value=0,
+            ),
+            patch("backend.codegen.mission_agent.work_queue"),
+            patch("backend.codegen.mission_agent.forge_logger"),
+        ):
+            await run_mission_agent(tmp_path, _design_graph(), config, [])
+
+        temps = [c.args[2] for c in create_mock.call_args_list]
+        assert temps[0] is None  # normal pass: config default
+        assert temps[1] is None
+        assert temps[2] == pytest.approx(1.1)  # 0.8 + 0.3
+        assert temps[3] == pytest.approx(1.1)
+
+    @pytest.mark.asyncio
+    async def test_cluster_resets_when_gap_clears(self, tmp_path: Path) -> None:
+        """A cluster that clears for a pass restarts its repair count."""
+        config = _regen_config()
+        ws = _ws_state()
+
+        # Scans: initial, after pass 1 (present), after pass 2 (cleared),
+        # after pass 3 (present) — never two consecutive persisting passes.
+        scans = [
+            [_failing_gap("src/foo.py")],
+            [_failing_gap("src/foo.py")],
+            [_gap(kind_name="MISSING_TEST", file_path="tests/test_a.py")],
+            [_failing_gap("src/foo.py")],
+            [_failing_gap("src/foo.py")],
+        ]
+
+        with (
+            patch("backend.codegen.mission_agent.build_mission_context", return_value="ctx"),
+            patch("backend.codegen.mission_agent.create_mission_agent"),
+            patch("backend.codegen.mission_agent.scan_workspace", new_callable=AsyncMock, return_value=ws),
+            patch("backend.codegen.mission_agent.find_gaps", side_effect=scans),
+            patch("backend.codegen.mission_agent.run_mutation_round", return_value=[]),
+            patch(
+                "backend.codegen.mission_agent._run_agent_iteration",
+                new_callable=AsyncMock, return_value=0,
+            ) as run_iter,
+            patch("backend.codegen.mission_agent.work_queue"),
+            patch("backend.codegen.mission_agent.forge_logger"),
+        ):
+            await run_mission_agent(tmp_path, _design_graph(), config, [])
+
+        prompts = [c.args[1] for c in run_iter.await_args_list]
+        assert all("REGENERATE" not in p for p in prompts)
+
+
+# ── U10: bounded mutation round (WEAK_CASE) ─────────────────────────────────
+
+
+class TestMutationRoundWiring:
+    @pytest.mark.asyncio
+    async def test_mutation_runs_once_when_failing_tests_clear(
+        self, tmp_path: Path,
+    ) -> None:
+        """After FAILING_TESTS clears, exactly one mutation round runs per
+        completion attempt; WEAK_CASE survivors are dispatched to the next
+        pass and the round is never repeated."""
+        from backend.codegen.gap_finder import GapKind
+
+        config = _regen_config()
+        ws = _ws_state()
+        weak = Gap(
+            kind=GapKind.WEAK_CASE, node_id="", file_path="src/foo.py",
+            details="Surviving mutant at src/foo.py:3 — write a test case this diff fails",
+            context={"diff": "- a == b\n+ a != b"},
+        )
+
+        with (
+            patch("backend.codegen.mission_agent.build_mission_context", return_value="ctx"),
+            patch("backend.codegen.mission_agent.create_mission_agent"),
+            patch("backend.codegen.mission_agent.scan_workspace", new_callable=AsyncMock, return_value=ws),
+            patch("backend.codegen.mission_agent.find_gaps", return_value=[]),
+            patch(
+                "backend.codegen.mission_agent.run_mutation_round",
+                return_value=[weak],
+            ) as mutation_mock,
+            patch(
+                "backend.codegen.mission_agent._run_agent_iteration",
+                new_callable=AsyncMock, return_value=0,
+            ) as run_iter,
+            patch("backend.codegen.mission_agent.work_queue"),
+            patch("backend.codegen.mission_agent.forge_logger"),
+        ):
+            _, stats = await run_mission_agent(tmp_path, _design_graph(), config, [])
+
+        assert mutation_mock.call_count == 1
+        assert stats.mutation_round_completed is True
+        # Pass 2 works the WEAK_CASE gaps; pass 3 never happens because the
+        # (single) mutation round is done and no structural gaps remain.
+        prompts = [c.args[1] for c in run_iter.await_args_list]
+        assert len(prompts) == 2
+        assert "WEAK_CASE" in prompts[1]
+        assert stats.stop_reason == "all_gaps_closed"
+
+    @pytest.mark.asyncio
+    async def test_mutation_skipped_while_failing_tests_remain(
+        self, tmp_path: Path,
+    ) -> None:
+        config = _regen_config()
+        ws = _ws_state()
+
+        with (
+            patch("backend.codegen.mission_agent.build_mission_context", return_value="ctx"),
+            patch("backend.codegen.mission_agent.create_mission_agent"),
+            patch("backend.codegen.mission_agent.scan_workspace", new_callable=AsyncMock, return_value=ws),
+            patch("backend.codegen.mission_agent.find_gaps", return_value=[_failing_gap("src/foo.py")]),
+            patch(
+                "backend.codegen.mission_agent.run_mutation_round", return_value=[],
+            ) as mutation_mock,
+            patch(
+                "backend.codegen.mission_agent._run_agent_iteration",
+                new_callable=AsyncMock, return_value=0,
+            ),
+            patch("backend.codegen.mission_agent.work_queue"),
+            patch("backend.codegen.mission_agent.forge_logger"),
+        ):
+            _, stats = await run_mission_agent(tmp_path, _design_graph(), config, [])
+
+        mutation_mock.assert_not_called()
+        assert stats.mutation_round_completed is False
+
+
+class TestSystemPromptGateRebalance:
+    """U10: the hard gate is requirements coverage; statement/MC-DC
+    percentages are report-only and must not be presented as gates."""
+
+    def test_prompt_states_requirements_coverage_is_the_gate(self) -> None:
+        from backend.codegen.mission_agent import _SYSTEM_PROMPT
+
+        assert "requirements coverage is the hard gate" in _SYSTEM_PROMPT.lower()
+
+    def test_prompt_marks_structural_coverage_report_only(self) -> None:
+        from backend.codegen.mission_agent import _SYSTEM_PROMPT
+
+        assert "report" in _SYSTEM_PROMPT.lower()
+        assert "not gates" in _SYSTEM_PROMPT.lower() or "not a gate" in _SYSTEM_PROMPT.lower()
+
+
+class TestTemperaturePassthrough:
+    def test_create_mission_agent_forwards_temperature(self) -> None:
+        config = MagicMock()
+        config.llm.model_for_phase.return_value = "gpt-4"
+
+        with (
+            patch("backend.codegen.mission_agent.build_llm") as build_mock,
+            patch("backend.codegen.mission_agent.create_react_agent"),
+        ):
+            create_mission_agent(config, _required_tools(), 1.1)
+        assert build_mock.call_args.kwargs["temperature"] == 1.1
+
+    def test_none_temperature_uses_config_default(self) -> None:
+        config = MagicMock()
+        config.llm.model_for_phase.return_value = "gpt-4"
+
+        with (
+            patch("backend.codegen.mission_agent.build_llm") as build_mock,
+            patch("backend.codegen.mission_agent.create_react_agent"),
+        ):
+            create_mission_agent(config, _required_tools(), None)
+        assert build_mock.call_args.kwargs["temperature"] is None
+
+
+class TestRegenTemperatureConfig:
+    def test_llm_config_default_regeneration_bump(self) -> None:
+        from backend.config.models import LLMConfig
+
+        assert LLMConfig().regeneration_temperature_bump == 0.3

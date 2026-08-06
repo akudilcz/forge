@@ -38,7 +38,8 @@ class EvaluateProgressTool(ForgeTool):
     """Run tests, coverage, and gap analysis. Returns score and remaining gaps.
 
     Call this after making changes to check your progress. Returns JSON with:
-    - score (0.0-1.0): minimum across all coverage dimensions
+    - score (0.0-1.0): minimum across tests, LLR traces, and @traces
+      (statement/MC-DC percentages are report-only and do not gate it)
     - gaps: list of remaining issues with fix hints
     - breakdown: per-dimension details (tests, traces, coverage)
 

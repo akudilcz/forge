@@ -162,7 +162,7 @@ class TestRequiredMissionTooling:
         config.llm.keyless = True
 
         with pytest.raises(RuntimeError, match="evaluate_progress"):
-            create_mission_agent(config, [])
+            create_mission_agent(config, [], None)
 
     def test_error_names_every_missing_required_tool(self) -> None:
         config = ForgeConfig()
@@ -170,7 +170,7 @@ class TestRequiredMissionTooling:
         tools: list[Any] = [_NamedTool("file_write")]
 
         with pytest.raises(RuntimeError) as excinfo:
-            create_mission_agent(config, tools)
+            create_mission_agent(config, tools, None)
 
         message = str(excinfo.value)
         assert "evaluate_progress" in message

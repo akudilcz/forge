@@ -98,11 +98,10 @@ class TestGapKindOrdering:
         assert GapKind.SCOPE_CREEP > GapKind.WEAK_TRACE
 
     def test_weak_trace_value(self) -> None:
-        # Shifted from 10 when UNIMPLEMENTED_REQUIREMENT was inserted
-        # before UNCOVERED_REQUIREMENT, then again when
-        # API_SURFACE_MISMATCH (4) and PROHIBITED_CONSTRUCT (5) were
-        # inserted before FAILING_TESTS.
-        assert GapKind.WEAK_TRACE.value == 13
+        # Shifted over time as kinds were inserted (API_SURFACE_MISMATCH,
+        # PROHIBITED_CONSTRUCT, WEAK_CASE) and the report-only coverage
+        # kinds were removed (U10 gate rebalance).
+        assert GapKind.WEAK_TRACE.value == 12
 
     def test_scope_creep_value(self) -> None:
-        assert GapKind.SCOPE_CREEP.value == 14
+        assert GapKind.SCOPE_CREEP.value == 13

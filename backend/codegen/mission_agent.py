@@ -8,6 +8,11 @@ to get gap feedback whenever it wants.
 The graph acts as scoreboard (checking completeness via value function),
 not as project manager (prescribing workflow).
 
+U10 rebalance: repair depth per gap cluster is capped (repair_ledger.py) —
+an exhausted cluster is regenerated from scratch with a temperature bump;
+after FAILING_TESTS clears, one bounded mutation round (mutation.py) turns
+surviving mutants into WEAK_CASE gaps.
+
 Design reference: specs/03-build-pipeline.md
 """
 
@@ -23,7 +28,7 @@ from langgraph.prebuilt import create_react_agent
 
 from backend.agents.factory import build_llm
 from backend.agents.streaming import iter_agent_turns
-from backend.codegen.gap_finder import Gap, find_gaps
+from backend.codegen.gap_finder import Gap, GapKind, find_gaps
 from backend.codegen.mission_context import (  # noqa: F401 — re-exported for tests
     _format_graph_nodes as _format_graph_nodes,
 )
@@ -40,6 +45,18 @@ from backend.codegen.mission_context import (
     build_mission_context as build_mission_context,
 )
 from backend.codegen.mission_history import make_mission_trim_hook
+from backend.codegen.mission_prompts import (  # noqa: F401 — re-exported for tests/tools
+    _SYSTEM_PROMPT as _SYSTEM_PROMPT,
+)
+from backend.codegen.mission_prompts import (
+    build_followup_prompt,
+    build_regeneration_briefs,
+)
+from backend.codegen.mission_prompts import (
+    format_gaps as format_gaps,
+)
+from backend.codegen.mutation import run_mutation_round
+from backend.codegen.repair_ledger import RepairLedger, cluster_keys
 from backend.core.work_queue import work_queue
 from backend.server.forge_logger import forge_logger
 from backend.workspace.result_recorder import is_passed
@@ -71,83 +88,6 @@ _MISSION_TOOLS = frozenset(
     }
 )
 
-_SYSTEM_PROMPT = """\
-You are implementing a DO-178C DAL-B safety-critical software system to
-specification. The full design context is provided below.
-
-TRACEABILITY INVARIANT (the whole point of Phase 12):
-You are done only when ALL FOUR of these hold at the same time:
-  1. Statement coverage = 100% — every source line is exercised.
-  2. MC/DC coverage = 100% — every boolean sub-condition has
-     independently affected the outcome.
-  3. Every LLR is traced — each LLR has at least one passing test with
-     a matching @traces(LLR-…) annotation.
-  4. Every function in src/ has @traces — including __init__, every
-     other dunder (__repr__, __eq__, __enter__, …) and every private
-     helper (_foo). No exemptions.
-
-These are a joint invariant, not four independent thresholds. If a
-function cannot be traced to any LLR, it is not required — inline it
-into its caller or delete it. "Implementation detail of LLR-X" just
-means "traces LLR-X"; there is no separate untraced category. A
-private helper inherits the LLR(s) of whatever public method calls it.
-
-Call evaluate_progress to check your score. Keep working until it
-reports all_gaps_closed: true.
-
-BUILD SYSTEM:
-- Bazel workspace — BUILD files are auto-generated, do not edit them
-- Dependencies via requirements.txt (Bazel pip rules)
-- evaluate_progress: runs ALL tests + full coverage analysis
-- To run a SINGLE test file: shell_exec('bazel test //tests:test_foo')
-  (replace test_foo with the file stem, e.g. test_duplicate_skip)
-- Do NOT use 'python -m pytest' — it runs outside the sandbox and fails
-- Use workspace_doctor if you hit persistent build issues
-
-CONVENTIONS:
-- Source files in src/, test files in tests/ (prefixed test_)
-- Import as: from src.<module> import <Class>
-- FILE LAYOUT IS DECIDED BY THE DESIGNS: one source file per DESIGN at
-  its declared path. Do NOT invent additional modules beyond the DESIGN
-  nodes — no facades, orchestration shims, or split-out helpers. A past
-  build fragmented one module into ten files and lost the public API.
-- API SURFACE: every CONTRACT properties.public_api entry must be
-  importable from the module it names (src/<module>.py) with the exact
-  symbol name and kind. The API_SURFACE_MISMATCH gap enforces this.
-- absolute imports only in src/ — a relative import (from .x import y)
-  breaks top-level importability and is flagged as a gap
-- PROHIBITED CONSTRUCTS: every CONTRACT properties.prohibited_constructs
-  entry is a HARD BAN inside src/ — no calls, imports, or aliased uses
-  of the construct (the PROHIBITED_CONSTRUCT gap enforces this
-  statically). Implement the behaviour yourself; delegating to a banned
-  construct is spec evasion, not implementation. Tests may use anything.
-- @traces("LLR-XXXX") on EVERY function in src/ — no exemptions,
-  including __init__, dunder methods, and private helpers
-- @traces("LLR-XXXX", case="CASE_LLR-XXXX") on test functions
-- conftest.py is infrastructure — do not delete it
-
-Examples of correct annotation coverage:
-
-    class Planner:
-        @traces("LLR-0003")
-        def __init__(self, grid): ...
-
-        @traces("LLR-0003")
-        def plan(self, start, goal): ...
-
-        @traces("LLR-0003")   # helper of plan() → inherits LLR-0003
-        def _reconstruct(self, came_from, node): ...
-
-QUALITY GATE:
-Once all structural gaps close, the system automatically runs quality
-checks. If SCOPE_CREEP gaps appear, address them by removing unrequired
-functions and their tests. Prefer deletion/inlining over inventing an
-LLR to justify existing code. You can also call
-check_trace_quality(file_path) on any source file to get per-function
-verdicts (PASS/WEAK/SCOPE_CREEP) assessing whether each function
-genuinely implements its traced LLR.
-"""
-
 
 @dataclass
 class MissionStats:
@@ -158,10 +98,19 @@ class MissionStats:
     final_score: float = 0.0
     final_gap_count: int = 0
     stop_reason: str = ""
+    # One bounded mutation round per phase-12 completion attempt (U10):
+    # set the first time FAILING_TESTS clears so the round never repeats.
+    mutation_round_completed: bool = False
 
 
 def compute_value(ws_state: WorkspaceState, graph: ProjectGraph) -> float:
-    """Compute a deterministic fitness score from workspace state + graph."""
+    """Compute a deterministic fitness score from workspace state + graph.
+
+    Dimensions mirror the phase-12 hard gate: passing tests, LLR trace
+    coverage, and per-function ``@traces`` coverage. Statement and MC/DC
+    percentages are report-only metrics (U10 gate rebalance — Inozemtseva
+    & Holmes) and deliberately do not gate the score.
+    """
     tests = ws_state.test_results
     test_score = sum(1 for t in tests if is_passed(t.status)) / max(len(tests), 1)
 
@@ -175,40 +124,7 @@ def compute_value(ws_state: WorkspaceState, graph: ProjectGraph) -> float:
     traced_fn = sum(f.traced_functions for f in ws_state.source_files.values())
     deco_score = traced_fn / max(total_fn, 1)
 
-    cov_score = (ws_state.coverage_pct or 0) / 100.0
-    mcdc_score = (ws_state.branch_coverage_pct or 0) / 100.0
-
-    return min(test_score, trace_score, deco_score, cov_score, mcdc_score)
-
-
-def format_gaps(gaps: list[Gap]) -> str:
-    """Render gap list into actionable feedback grouped by category."""
-    if not gaps:
-        return "No gaps remaining — all requirements satisfied."
-
-    by_kind: dict[str, list[Gap]] = {}
-    for g in gaps:
-        by_kind.setdefault(g.kind.name, []).append(g)
-
-    sections: list[str] = []
-    for kind_name, kind_gaps in sorted(by_kind.items()):
-        lines = [f"### {kind_name} ({len(kind_gaps)})"]
-        for g in kind_gaps:
-            parts = []
-            if g.file_path:
-                parts.append(g.file_path)
-            if g.node_id:
-                parts.append(g.node_id)
-            if g.details:
-                parts.append(g.details)
-            lines.append(f"- {' — '.join(parts)}")
-            error_msg = g.context.get("error_message") or g.context.get("error_detail")
-            if error_msg:
-                short = error_msg[:200].replace("\n", " ")
-                lines.append(f"  Error: {short}")
-        sections.append("\n".join(lines))
-
-    return "\n\n".join(sections)
+    return min(test_score, trace_score, deco_score)
 
 
 # Tools without which the mission cannot function: writing files,
@@ -222,8 +138,16 @@ _REQUIRED_MISSION_TOOLS = frozenset({"file_write", "shell_exec", "evaluate_progr
 def create_mission_agent(
     config: ForgeConfig,
     tool_instances: list[Any],
+    temperature: float | None,
 ) -> Any:
     """Create the mission ReAct agent with a lean tool set.
+
+    Args:
+        config: Forge configuration.
+        tool_instances: Candidate tools; filtered to ``_MISSION_TOOLS``.
+        temperature: Explicit sampling temperature for this pass's model
+            (regeneration passes bump it for diversity); ``None`` uses the
+            configured default.
 
     Raises:
         RuntimeError: if the filtered tool set lacks any required mission
@@ -240,7 +164,12 @@ def create_mission_agent(
             f"built (server: lifespan._init_tools; e2e: "
             f"ForgeBuilder._build_tools)."
         )
-    llm = build_llm(config, model=config.llm.model_for_phase(12), cacheable=True)
+    llm = build_llm(
+        config,
+        model=config.llm.model_for_phase(12),
+        temperature=temperature,
+        cacheable=True,
+    )
 
     # History compaction: the mission thread runs 100+ sequential LLM
     # calls, so an unbounded conversation dominates build cost (measured
@@ -267,15 +196,19 @@ async def run_mission_agent(
 ) -> tuple[WorkspaceState, MissionStats]:
     """Run the mission agent with a convergence loop.
 
-    The agent has an evaluate_progress tool to check its own score. Each
-    pass is a single continuous conversation that runs until the agent
-    stops itself or hits LangGraph's ``RECURSION_LIMIT`` tool calls.
+    Each pass is a fresh conversation thread that runs until the agent
+    stops itself or hits LangGraph's ``RECURSION_LIMIT`` tool calls, then
+    the workspace is re-scanned. Between passes (U10):
 
-    After each pass we re-scan gaps. If any remain, a second pass is
-    dispatched with a **targeted** prompt that lists only the remaining
-    gaps (with emphasis on uncovered requirements, since those are the
-    most common convergence failure: the agent writes tests that exercise
-    the behaviour but forgets to ``@traces`` them to the specific LLR).
+    - the repair ledger records which gap clusters persisted; a cluster
+      surviving ``REPAIR_DEPTH_CAP`` passes is marked REGENERATE in the
+      next prompt (contract + design + failing evidence only, rewrite
+      from scratch) and that pass's model gets a temperature bump;
+    - the first time no FAILING_TESTS gap remains, one bounded mutation
+      round runs and surviving mutants join the gap list as WEAK_CASE.
+
+    Regeneration and mutation remediation both count as normal passes
+    within ``MAX_MISSION_PASSES``.
     """
     import time as _time
 
@@ -291,9 +224,9 @@ async def run_mission_agent(
         "to check your score. Keep going until all gaps are closed."
     )
 
-    agent = create_mission_agent(config, tool_instances)
     model = config.llm.model_for_phase(12)
     stats = MissionStats()
+    ledger = RepairLedger()
 
     work_queue.clear_phase(12)
     work_queue.add(
@@ -309,6 +242,8 @@ async def run_mission_agent(
     tool_call_count = 0
 
     for mission_pass in range(1, MAX_MISSION_PASSES + 1):
+        temperature = _pass_temperature(config, ledger)
+        agent = create_mission_agent(config, tool_instances, temperature)
         thread_id = f"mission-{_time.monotonic_ns()}"
         calls = await _run_agent_iteration(
             agent, prompt, model, thread_id, mission_pass,
@@ -317,6 +252,8 @@ async def run_mission_agent(
 
         ws_state = await scan_workspace(workspace)
         gaps = _scan_gaps(ws_state, graph)
+
+        gaps = _maybe_run_mutation_round(workspace, ws_state, gaps, stats)
         if not gaps:
             stats.stop_reason = "all_gaps_closed"
             break
@@ -327,10 +264,13 @@ async def run_mission_agent(
             f"{len(gaps)} gap(s) remaining — re-dispatching with targeted prompt",
         )
 
-        # Build a targeted prompt for the next pass. The uncovered-requirement
-        # case is the most important to call out explicitly, since the usual
-        # failure is "I wrote a test for X but forgot @traces('LLR-X') on it".
-        prompt = _build_followup_prompt(context, gaps, mission_pass + 1)
+        # Record which clusters persisted, then build the next prompt —
+        # exhausted clusters get a REGENERATE brief (context reset).
+        ledger.record_pass(cluster_keys(gaps, ws_state))
+        briefs = build_regeneration_briefs(
+            ledger.regeneration_clusters(), graph, gaps, ws_state,
+        )
+        prompt = build_followup_prompt(context, gaps, mission_pass + 1, briefs)
     else:
         stats.stop_reason = f"max_passes_reached_after_{MAX_MISSION_PASSES}"
 
@@ -353,65 +293,36 @@ async def run_mission_agent(
     return ws_state, stats
 
 
-def _build_followup_prompt(
-    context: str,
-    remaining_gaps: list[Any],
-    next_pass_num: int,
-) -> str:
-    """Build a targeted prompt for a mission pass after gaps remained.
+def _pass_temperature(config: ForgeConfig, ledger: RepairLedger) -> float | None:
+    """Temperature for the next pass: bumped when any cluster regenerates.
 
-    Highlights UNCOVERED_REQUIREMENT gaps separately because they are the
-    most common convergence failure and benefit from an explicit
-    per-LLR directive: "write a test that exercises LLR-X and carries
-    @traces('LLR-X') on its test function".
+    Diverse regeneration wants diverse samples (Olausson et al.); the
+    ``build_llm`` seam takes an explicit per-construction temperature, so
+    the bump applies cleanly to just the regeneration pass's model.
     """
-    uncovered = [
-        g for g in remaining_gaps
-        if g.kind.name == "UNCOVERED_REQUIREMENT"
-    ]
-    other = [g for g in remaining_gaps if g.kind.name != "UNCOVERED_REQUIREMENT"]
+    if not ledger.regeneration_clusters():
+        return None
+    return config.llm.options.temperature + config.llm.regeneration_temperature_bump
 
-    lines: list[str] = [
-        f"## MISSION PASS {next_pass_num} — targeted remediation",
-        "",
-        "The previous pass stopped but gaps remain. Work through the "
-        "specific items below.",
-        "",
-    ]
 
-    if uncovered:
-        lines.extend([
-            f"### UNCOVERED REQUIREMENTS ({len(uncovered)}) — HIGHEST PRIORITY",
-            "",
-            "Each of these LLRs has no passing test function with a matching",
-            "`@traces` decorator. For EACH one, do both of:",
-            "  A) Ensure at least one existing or new test FUNCTION exercises",
-            "     the LLR's behaviour and passes.",
-            "  B) Add `@traces(\"<LLR-ID>\")` (and `case=\"...\"` if a CASE_LLR",
-            "     node exists) to that passing test function.",
-            "",
-            "Just annotating without a meaningful assertion is NOT enough;",
-            "the test function must run and pass for coverage to count.",
-            "",
-        ])
-        for g in uncovered:
-            lines.append(f"- {g.node_id}: {g.details or '(no details)'}")
-        lines.append("")
+def _maybe_run_mutation_round(
+    workspace: Path,
+    ws_state: WorkspaceState,
+    gaps: list[Gap],
+    stats: MissionStats,
+) -> list[Gap]:
+    """Run the single mutation round once FAILING_TESTS has cleared.
 
-    if other:
-        lines.extend([
-            f"### OTHER REMAINING GAPS ({len(other)})",
-            "",
-            format_gaps(other),
-            "",
-        ])
-
-    lines.extend([
-        "After fixing, call evaluate_progress to verify all_gaps_closed is true.",
-        "Only stop when the score reaches 100% and zero gaps remain.",
-    ])
-
-    return f"{context}\n\n" + "\n".join(lines)
+    Bounded to exactly one round per completion attempt via
+    ``stats.mutation_round_completed`` — surviving mutants get one
+    remediation pass and are never re-verified (specs/13 bounds).
+    """
+    if stats.mutation_round_completed:
+        return gaps
+    if any(g.kind is GapKind.FAILING_TESTS for g in gaps):
+        return gaps
+    stats.mutation_round_completed = True
+    return gaps + run_mutation_round(workspace, ws_state.source_files)
 
 
 async def _run_agent_iteration(
@@ -457,7 +368,11 @@ def _scan_gaps(ws_state: WorkspaceState, graph: ProjectGraph) -> list[Gap]:
 
 
 def _score_breakdown(ws_state: WorkspaceState, graph: ProjectGraph) -> str:
-    """Detailed breakdown showing exactly what's missing for 100% coverage."""
+    """Detailed breakdown showing exactly what's missing for completion.
+
+    Statement/MC-DC figures are included for the record (report-only —
+    they do not gate completion).
+    """
     tests = ws_state.test_results
     passed = sum(1 for t in tests if t.status == "passed")
     failed = sum(1 for t in tests if t.status == "failed")
@@ -496,7 +411,7 @@ def _score_breakdown(ws_state: WorkspaceState, graph: ProjectGraph) -> str:
     cov = ws_state.coverage_pct
     mcdc = ws_state.branch_coverage_pct
     if cov is not None:
-        parts.append(f"Statement: {cov:.0f}%")
+        parts.append(f"Statement: {cov:.0f}% (report-only)")
         if cov < 100 and ws_state.uncovered_lines:
             for path, lines in ws_state.uncovered_lines.items():
                 if lines:
@@ -504,6 +419,6 @@ def _score_breakdown(ws_state: WorkspaceState, graph: ProjectGraph) -> str:
                         f"  UNCOVERED in {path}: lines {', '.join(str(ln) for ln in lines[:20])}"
                     )
     if mcdc is not None:
-        parts.append(f"MC/DC: {mcdc:.0f}%")
+        parts.append(f"MC/DC: {mcdc:.0f}% (report-only)")
 
     return "\n".join(parts)

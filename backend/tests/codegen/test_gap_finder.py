@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
+from unittest.mock import patch
 
 import pytest
 
@@ -113,12 +114,21 @@ def test_gap_kind_ordering() -> None:
     assert GapKind.TEST_ENV_BROKEN < GapKind.SYNTAX_ERROR
     assert GapKind.SYNTAX_ERROR < GapKind.MISSING_SOURCE
     assert GapKind.MISSING_SOURCE < GapKind.MISSING_TEST
-    assert GapKind.MISSING_TEST < GapKind.FAILING_TESTS
+    assert GapKind.PROHIBITED_CONSTRUCT < GapKind.WEAK_CASE
+    assert GapKind.WEAK_CASE < GapKind.FAILING_TESTS
     assert GapKind.FAILING_TESTS < GapKind.INVALID_TRACES
     assert GapKind.INVALID_TRACES < GapKind.UNTRACED_FUNCTIONS
-    assert GapKind.UNTRACED_FUNCTIONS < GapKind.LOW_STRUCTURAL_COVERAGE
-    assert GapKind.LOW_STRUCTURAL_COVERAGE < GapKind.UNIMPLEMENTED_REQUIREMENT
+    assert GapKind.UNTRACED_FUNCTIONS < GapKind.UNIMPLEMENTED_REQUIREMENT
     assert GapKind.UNIMPLEMENTED_REQUIREMENT < GapKind.UNCOVERED_REQUIREMENT
+
+
+def test_structural_coverage_kinds_removed() -> None:
+    """U10 gate rebalance: statement/branch coverage percentages are
+    report-only metrics — they no longer exist as blocking gap kinds
+    (Inozemtseva & Holmes: coverage weakly correlates with suite
+    effectiveness)."""
+    assert not hasattr(GapKind, "LOW_STRUCTURAL_COVERAGE")
+    assert not hasattr(GapKind, "LOW_BRANCH_COVERAGE")
 
 
 # ── find_gaps tests ─────────────────────────────────────────────────────────
@@ -369,39 +379,47 @@ def test_gaps_sorted_by_priority() -> None:
     assert kinds == sorted(kinds, key=lambda k: k.value)
 
 
-# ── LOW_STRUCTURAL_COVERAGE ──────────────────────────────────────────────────
+# ── Structural coverage: report-only (U10 gate rebalance) ────────────────────
 
 
-def test_low_structural_coverage_gap() -> None:
-    """Source file with < 100% coverage creates a gap."""
+def test_statement_coverage_below_100_emits_no_gap() -> None:
+    """Statement coverage < 100% is reported, never a blocking gap."""
     graph = _fake_graph([])
     src = _traced_file("src/foo.py")
     gaps = find_gaps(
         {"src/foo.py": src}, {}, [], graph,
         coverage_by_file={"src/foo.py": 75.0},
     )
-    cov = [g for g in gaps if g.kind == GapKind.LOW_STRUCTURAL_COVERAGE]
-    assert len(cov) == 1
-    assert cov[0].context["coverage_pct"] == 75.0
+    assert gaps == []
 
 
-def test_no_coverage_gap_at_100() -> None:
-    """Source file at 100% coverage creates no gap."""
+def test_statement_coverage_shortfall_is_logged_loudly() -> None:
+    """The shortfall is still computed and logged loudly at WARN."""
     graph = _fake_graph([])
     src = _traced_file("src/foo.py")
-    gaps = find_gaps(
-        {"src/foo.py": src}, {}, [], graph,
-        coverage_by_file={"src/foo.py": 100.0},
-    )
-    assert not any(g.kind == GapKind.LOW_STRUCTURAL_COVERAGE for g in gaps)
+    with patch("backend.codegen.gap_finder.forge_logger") as logger_mock:
+        find_gaps(
+            {"src/foo.py": src}, {}, [], graph,
+            coverage_by_file={"src/foo.py": 75.0},
+            uncovered_lines={"src/foo.py": [3, 4]},
+        )
+    warns = [c for c in logger_mock.emit.call_args_list if c.args[0] == "WARN"]
+    assert any("src/foo.py" in c.args[2] and "75" in c.args[2] for c in warns)
+    assert any("report-only" in c.args[2] for c in warns)
 
 
-def test_no_coverage_gap_when_no_data() -> None:
-    """No coverage data → no coverage gaps."""
+def test_no_coverage_warn_at_100() -> None:
+    """Source file at 100% coverage logs no shortfall."""
     graph = _fake_graph([])
     src = _traced_file("src/foo.py")
-    gaps = find_gaps({"src/foo.py": src}, {}, [], graph)
-    assert not any(g.kind == GapKind.LOW_STRUCTURAL_COVERAGE for g in gaps)
+    with patch("backend.codegen.gap_finder.forge_logger") as logger_mock:
+        gaps = find_gaps(
+            {"src/foo.py": src}, {}, [], graph,
+            coverage_by_file={"src/foo.py": 100.0},
+        )
+    assert gaps == []
+    warns = [c for c in logger_mock.emit.call_args_list if c.args[0] == "WARN"]
+    assert not warns
 
 
 # ── UNCOVERED_REQUIREMENT ────────────────────────────────────────────────────
@@ -522,12 +540,11 @@ def test_all_gap_types_visible_together() -> None:
         coverage_by_file={"src/bad.py": 50.0},
     )
     assert any(g.kind == GapKind.SYNTAX_ERROR for g in gaps)
-    assert any(g.kind == GapKind.LOW_STRUCTURAL_COVERAGE for g in gaps)
     assert any(g.kind == GapKind.UNCOVERED_REQUIREMENT for g in gaps)
 
 
-def test_env_broken_and_coverage_gaps_both_visible() -> None:
-    """TEST_ENV_BROKEN and LOW_STRUCTURAL_COVERAGE coexist."""
+def test_env_broken_visible_with_coverage_shortfall() -> None:
+    """TEST_ENV_BROKEN blocks; the coverage shortfall is report-only."""
     graph = _fake_graph([FakeNode("LLR-001", "LLR", title="Auth")])
     src = _traced_file("src/foo.py")
     gaps = find_gaps(
@@ -536,11 +553,10 @@ def test_env_broken_and_coverage_gaps_both_visible() -> None:
         coverage_by_file={"src/foo.py": 80.0},
     )
     assert any(g.kind == GapKind.TEST_ENV_BROKEN for g in gaps)
-    assert any(g.kind == GapKind.LOW_STRUCTURAL_COVERAGE for g in gaps)
 
 
-def test_failing_tests_and_coverage_both_visible() -> None:
-    """FAILING_TESTS and LOW_STRUCTURAL_COVERAGE coexist."""
+def test_failing_tests_block_but_coverage_does_not() -> None:
+    """FAILING_TESTS blocks; the statement shortfall stays report-only."""
     graph = _fake_graph([])
     src = _traced_file("src/foo.py")
     results = [SingleTestResult(
@@ -551,43 +567,42 @@ def test_failing_tests_and_coverage_both_visible() -> None:
         {"src/foo.py": src}, {}, results, graph,
         coverage_by_file={"src/foo.py": 75.0},
     )
-    assert any(g.kind == GapKind.FAILING_TESTS for g in gaps)
-    assert any(g.kind == GapKind.LOW_STRUCTURAL_COVERAGE for g in gaps)
+    assert [g.kind for g in gaps] == [GapKind.FAILING_TESTS]
 
 
-# ── LOW_BRANCH_COVERAGE ──────────────────────────────────────────────────────
+# ── Branch/MC-DC coverage: report-only (U10 gate rebalance) ──────────────────
 
 
-def test_branch_coverage_below_100_creates_gap() -> None:
-    """MC/DC < 100% should produce a LOW_BRANCH_COVERAGE gap."""
+def test_branch_coverage_below_100_emits_no_gap() -> None:
+    """MC/DC < 100% no longer produces a blocking gap."""
     graph = _fake_graph([])
     gaps = find_gaps({}, {}, [], graph, branch_coverage_pct=97.3)
-    branch_gaps = [g for g in gaps if g.kind == GapKind.LOW_BRANCH_COVERAGE]
-    assert len(branch_gaps) == 1
-    assert "97.3%" in branch_gaps[0].details
-    assert "DO-178C" in branch_gaps[0].details
+    assert gaps == []
 
 
-def test_branch_coverage_100_no_gap() -> None:
-    """MC/DC at exactly 100% should not produce a gap."""
+def test_branch_coverage_shortfall_is_logged_loudly() -> None:
     graph = _fake_graph([])
-    gaps = find_gaps({}, {}, [], graph, branch_coverage_pct=100.0)
-    assert not any(g.kind == GapKind.LOW_BRANCH_COVERAGE for g in gaps)
+    with patch("backend.codegen.gap_finder.forge_logger") as logger_mock:
+        find_gaps({}, {}, [], graph, branch_coverage_pct=97.3)
+    warns = [c for c in logger_mock.emit.call_args_list if c.args[0] == "WARN"]
+    assert any("97.3" in c.args[2] and "report-only" in c.args[2] for c in warns)
 
 
-def test_branch_coverage_none_no_gap() -> None:
-    """No branch data (None) should not produce a gap."""
+def test_branch_coverage_100_no_warn() -> None:
     graph = _fake_graph([])
-    gaps = find_gaps({}, {}, [], graph, branch_coverage_pct=None)
-    assert not any(g.kind == GapKind.LOW_BRANCH_COVERAGE for g in gaps)
+    with patch("backend.codegen.gap_finder.forge_logger") as logger_mock:
+        gaps = find_gaps({}, {}, [], graph, branch_coverage_pct=100.0)
+    assert gaps == []
+    assert not [c for c in logger_mock.emit.call_args_list if c.args[0] == "WARN"]
 
 
-def test_branch_coverage_gap_suggests_refactoring() -> None:
-    """The gap details should mention refactoring as a valid approach."""
+def test_branch_coverage_none_no_warn() -> None:
+    """No branch data (None) → nothing to report."""
     graph = _fake_graph([])
-    gaps = find_gaps({}, {}, [], graph, branch_coverage_pct=85.0)
-    branch_gaps = [g for g in gaps if g.kind == GapKind.LOW_BRANCH_COVERAGE]
-    assert "refactor" in branch_gaps[0].details.lower()
+    with patch("backend.codegen.gap_finder.forge_logger") as logger_mock:
+        gaps = find_gaps({}, {}, [], graph, branch_coverage_pct=None)
+    assert gaps == []
+    assert not [c for c in logger_mock.emit.call_args_list if c.args[0] == "WARN"]
 
 
 # ── _fallback_import_check ────────────────────────────────────────────────────
