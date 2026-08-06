@@ -377,14 +377,16 @@ def test_build_ancestor_context_chain(flow: ForgeFlow, mock_deps: MockDeps) -> N
 # ── Single-step mode ──────────────────────────────────────────────────────────
 
 
-def _analyse_gap_once(gap: Gap) -> Any:
-    """Analyser stub: the gap is open on the first scan (collect) and gone on
-    every later scan — so the post-dispatch resolution certificate clears."""
+def _analyse_gap_open_for(gap: Gap, open_scans: int) -> Any:
+    """Analyser stub: the gap is open for the first ``open_scans`` scans and
+    gone on every later scan — so the post-dispatch resolution certificate
+    clears. Phase 2 spends one scan in ``deterministic_parse`` (which skips
+    the doc — not markdown) before the structural loop's collect scan."""
     calls = [0]
 
     def _analyse(graph: Any) -> list[Gap]:
         calls[0] += 1
-        return [gap] if calls[0] == 1 else []
+        return [gap] if calls[0] <= open_scans else []
 
     return _analyse
 
@@ -409,14 +411,18 @@ async def test_single_step_mode(flow: ForgeFlow, mock_deps: MockDeps) -> None:
         description="Document doc.spec has no paragraphs.",
     )
     with patch.object(flow, "_run_agent_task", new=AsyncMock()):
-        with patch.object(flow._analyser, "analyse", side_effect=_analyse_gap_once(gap)):
+        with patch.object(
+            flow._analyser, "analyse", side_effect=_analyse_gap_open_for(gap, 2)
+        ):
             with pytest.raises(_SingleStepDone):
                 await flow._run_phase(2)
 
     # kickoff_async catches _SingleStepDone and sets loop_status=idle
     mock_deps[1].all_nodes.return_value = [doc_node]
     with patch.object(flow, "_run_agent_task", new=AsyncMock()):
-        with patch.object(flow._analyser, "analyse", side_effect=_analyse_gap_once(gap)):
+        with patch.object(
+            flow._analyser, "analyse", side_effect=_analyse_gap_open_for(gap, 2)
+        ):
             await flow.kickoff_async()
 
     assert flow.state.loop_status == "idle"

@@ -311,6 +311,46 @@ def build_design_for_llr(graph: Any, llr_id: str) -> str:
     return f"\n\n{header}:\n" + "\n\n---\n\n".join(lines)
 
 
+def build_contract_records_for_requirement(graph: Any, req_id: str) -> str:
+    """Structured CONTRACT public_api records for the module owning ``req_id``.
+
+    Phase-10 feed (specs/13 CONTRACT records): LLR → parent HLR → owning
+    MODULE (via nodes_tracing_to) → CONTRACT child's ``public_api``; an
+    HLR resolves through itself. Rendered as JSON so the case author can
+    enumerate raises entries and postconditions into cases. Empty when no
+    owning module, contract, or structured records exist.
+    """
+    import json  # noqa: PLC0415
+
+    node = graph.node_sync(req_id)
+    if node is None:
+        return ""
+    hlr_id = node.parent_id if node.node_type == "LLR" else req_id
+    if not hlr_id:
+        return ""
+    module_ids = graph.nodes_tracing_to(hlr_id, source_type="MODULE")
+    parts: list[str] = []
+    for module_id in module_ids:
+        for child in graph.children_sync(module_id):
+            if child.node_type != "CONTRACT":
+                continue
+            props = child.properties or {}
+            if "public_api" not in props or not props["public_api"]:
+                continue
+            rendered = json.dumps(props["public_api"], indent=2)
+            parts.append(
+                f"[CONTRACT {child.node_id}] module={module_id}\n{rendered}"
+            )
+    if not parts:
+        return ""
+    header = (
+        "CONTRACT RECORDS for the module under test — author ONE case per "
+        "raises entry (If <when>, then raises <cls>) and ONE case per "
+        "stated postcondition:"
+    )
+    return f"\n\n{header}\n" + "\n\n---\n\n".join(parts)
+
+
 def build_cases_for_requirement(graph: Any, req_id: str) -> str:
     """Full content of every CASE that traces to ``req_id``."""
     cases = [

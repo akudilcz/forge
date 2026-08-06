@@ -22,7 +22,7 @@ disagree. Enforced on every add/update:
 | Non-empty content at least 50 characters | ARCHITECTURE, MODULE, CONTRACT, DESIGN, SUITE, CASE nodes |
 | Content not identical to a same-type sibling's | All types except PARA (document mirrors) |
 | `trace_to` non-empty and correctly typed (CASE_HLR→HLR, CASE_LLR→LLR) | Test cases |
-| Structured `properties.public_api` present and well-formed (module, symbol, kind, signature per entry); `prohibited_constructs` well-formed when present | CONTRACT |
+| Structured `properties.public_api` present and well-formed (module, symbol, kind, signature per entry; optional per-entry `raises` / `preconditions` / `postconditions` / `invariants` shape-checked when present); `prohibited_constructs` well-formed when present | CONTRACT |
 
 Batched writes are validated as a whole and rejected atomically — a bad
 operation never leaves a batch half-applied.
@@ -72,14 +72,40 @@ CONTRACTs are the coordination boundary between modules, enforced in three
 stages:
 
 1. **Write time** (Phase 6): every CONTRACT must declare a structured
-   `public_api`; malformed declarations are rejected.
+   `public_api`; malformed declarations are rejected. Each entry may
+   additionally carry structured **obligation fields** — `raises` (a list of
+   `{cls, base, when}` records), `preconditions`, `postconditions`, and
+   `invariants` (lists of strings) — shape-checked at write time when
+   present. Function/method entries should carry them whenever the
+   whitepaper states any (prompt-enforced: presence cannot be verified
+   deterministically).
 2. **Design time** (Phase 8): a DESIGN that redefines a public symbol with a
    disagreeing signature raises `CONTRACT_VIOLATION`. Private helpers are
-   never violations — contracts constrain the public surface only.
+   never violations — contracts constrain the public surface only. A
+   deterministic **misplaced-obligation** check also raises
+   `CONTRACT_VIOLATION` when DESIGN text confidently asserts observable
+   behaviour for a public symbol ("raises SomeError" / "returns None"
+   patterns — never prose guesses) that the symbol's CONTRACT record does
+   not carry; the gap says exactly which obligation to move into the
+   contract (or align).
 3. **Code time** (Phase 12): the workspace must actually expose every
    `public_api` entry (`API_SURFACE_MISMATCH`) and must not use any
    contract-banned construct in `src/` (`PROHIBITED_CONSTRUCT`; tests are
-   exempt — bans constrain implementation, not verification).
+   exempt — bans constrain implementation, not verification). For every
+   entry with `raises` records, the **raises gate** verifies statically
+   (AST, no code executed) that each named exception class exists in
+   `src/` with the declared base class and is actually raised in the
+   entry's defining module — a mismatch is an `API_SURFACE_MISMATCH` gap
+   quoting the contract record. Deeper pre/postcondition checking is
+   future work.
+
+**Dividing rule (CONTRACT vs DESIGN):** anything expressible as a
+precondition, postcondition, raises obligation, or invariant is contract
+material and belongs in the structured `public_api` fields; DESIGN holds
+only private structure and algorithm choice. Phase 10 consumes the records:
+case authoring receives the contract record for the symbol under test and
+must encode one case per `raises` entry (If–then EARS shape) and one per
+stated postcondition.
 
 ## Resolution certificates
 

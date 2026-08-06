@@ -371,3 +371,107 @@ def test_title_parent_collision_exempt_types_skip() -> None:
 
 def test_title_parent_collision_no_parent_skips() -> None:
     assert check_title_distinct_from_parent("HLR", "Any Title", None) is None
+
+
+# ── CONTRACT public_api obligation fields (specs/13 U2 — CONTRACT records) ──
+
+
+def _api_entry_with(**extra: object) -> dict[str, object]:
+    entry: dict[str, object] = dict(_api_entry())
+    entry.update(extra)
+    return entry
+
+
+def _raises_rec() -> dict[str, str]:
+    return {
+        "cls": "CyclicGraphError",
+        "base": "ValueError",
+        "when": "the input graph contains a cycle",
+    }
+
+
+def test_contract_obligations_valid_passes() -> None:
+    from backend.analysis.node_invariants import check_contract_public_api
+
+    entry = _api_entry_with(
+        raises=[_raises_rec()],
+        preconditions=["items is a list"],
+        postconditions=["the returned list is sorted ascending"],
+        invariants=["input list is never mutated"],
+    )
+    assert check_contract_public_api("CONTRACT", {"public_api": [entry]}) is None
+
+
+def test_contract_raises_non_list_rejected() -> None:
+    from backend.analysis.node_invariants import check_contract_public_api
+
+    entry = _api_entry_with(raises="CyclicGraphError")
+    msg = check_contract_public_api("CONTRACT", {"public_api": [entry]})
+    assert msg is not None
+    assert "raises" in msg
+    assert "list" in msg
+
+
+def test_contract_raises_entry_not_object_rejected() -> None:
+    from backend.analysis.node_invariants import check_contract_public_api
+
+    entry = _api_entry_with(raises=["CyclicGraphError"])
+    msg = check_contract_public_api("CONTRACT", {"public_api": [entry]})
+    assert msg is not None
+    assert "raises" in msg
+
+
+def test_contract_raises_missing_when_rejected() -> None:
+    from backend.analysis.node_invariants import check_contract_public_api
+
+    rec = _raises_rec()
+    del rec["when"]
+    entry = _api_entry_with(raises=[rec])
+    msg = check_contract_public_api("CONTRACT", {"public_api": [entry]})
+    assert msg is not None
+    assert "when" in msg
+
+
+def test_contract_raises_empty_cls_rejected() -> None:
+    from backend.analysis.node_invariants import check_contract_public_api
+
+    rec = _raises_rec()
+    rec["cls"] = "   "
+    entry = _api_entry_with(raises=[rec])
+    msg = check_contract_public_api("CONTRACT", {"public_api": [entry]})
+    assert msg is not None
+    assert "cls" in msg
+
+
+def test_contract_preconditions_non_list_rejected() -> None:
+    from backend.analysis.node_invariants import check_contract_public_api
+
+    entry = _api_entry_with(preconditions="items is a list")
+    msg = check_contract_public_api("CONTRACT", {"public_api": [entry]})
+    assert msg is not None
+    assert "preconditions" in msg
+
+
+def test_contract_postconditions_non_string_item_rejected() -> None:
+    from backend.analysis.node_invariants import check_contract_public_api
+
+    entry = _api_entry_with(postconditions=["result is sorted", 42])
+    msg = check_contract_public_api("CONTRACT", {"public_api": [entry]})
+    assert msg is not None
+    assert "postconditions" in msg
+
+
+def test_contract_invariants_empty_string_rejected() -> None:
+    from backend.analysis.node_invariants import check_contract_public_api
+
+    entry = _api_entry_with(invariants=["  "])
+    msg = check_contract_public_api("CONTRACT", {"public_api": [entry]})
+    assert msg is not None
+    assert "invariants" in msg
+
+
+def test_contract_entry_without_obligation_fields_still_passes() -> None:
+    """Obligation fields are optional — a bare entry stays valid."""
+    from backend.analysis.node_invariants import check_contract_public_api
+
+    assert check_contract_public_api("CONTRACT", {"public_api": [_api_entry()]}) is None

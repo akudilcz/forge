@@ -52,6 +52,9 @@ from backend.prompting.graph_context import (
     build_cases_for_requirement as build_cases_for_requirement,
 )
 from backend.prompting.graph_context import (
+    build_contract_records_for_requirement as build_contract_records_for_requirement,
+)
+from backend.prompting.graph_context import (
     build_design_for_llr as build_design_for_llr,
 )
 from backend.prompting.graph_context import (
@@ -219,6 +222,13 @@ def build_context_for_gap(graph: Any, gap: Gap) -> str:
         if cases_ctx:
             sections.append(
                 Section(P_EXISTING_PEERS, f"existing_{case_type}_cases", cases_ctx)
+            )
+        # Peer: structured CONTRACT records so cases enumerate raises entries
+        # and postconditions (specs/13 CONTRACT records).
+        records_ctx = build_contract_records_for_requirement(graph, gap.node_id)
+        if records_ctx:
+            sections.append(
+                Section(P_PEER_ARTEFACT, "contract_records", records_ctx)
             )
         # Peer: the DESIGN(s) for this LLR so test steps reference real methods.
         if gap.type == GapType.UNTESTED_LLR:

@@ -2,7 +2,10 @@
 
 FORGE reads the user's specification from a single file on disk and brings it
 into the Project Graph as a DOCUMENT node. This is the entry point for every
-downstream agent.
+downstream agent. Parsing the DOCUMENT into its PARA tree happens in Phase 2
+— deterministic for markdown documents, agent-driven only for documents
+without markdown structure (see
+[03-build-pipeline.md](03-build-pipeline.md) §Phase 2).
 
 ## Trigger
 

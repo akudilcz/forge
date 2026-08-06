@@ -11,7 +11,7 @@ dedicated dashboard per phase via `/phase/:phaseNum`.
 |---|-----------------------|-----------------|--------------------------------------------|---------------|
 | 0 | Create Project        | Human + backend | PROJECT node                               | PROJECT exists |
 | 1 | Ingest Document       | Deterministic   | DOCUMENT node from `forge.md`              | DOCUMENT exists |
-| 2 | Parse Document        | Agent           | PARA tree (paragraph/section nodes)        | No `UNCHUNKED_DOCUMENT` |
+| 2 | Parse Document        | Deterministic (markdown) / Agent (exception) | PARA tree (paragraph/section nodes) | No `UNCHUNKED_DOCUMENT` |
 | 3 | Derive HLRs           | Agent (batch)   | High-level requirements                    | No `UNCOVERED_PARA` |
 | 4 | Create Architecture   | Agent           | ARCHITECTURE node                          | No `UNARCHITECTED` |
 | 5 | Assign Modules        | Agent (batch)   | MODULE nodes owning HLRs                   | No `UNMODULARISED` |
@@ -25,7 +25,9 @@ dedicated dashboard per phase via `/phase/:phaseNum`.
 |13 | Workspace Sync        | Deterministic   | CODE / TEST / RESULT nodes                 | No `UNSYNCED_DESIGN` / `UNSYNCED_TEST` |
 |14 | Build Deliverables    | Deterministic   | `deliverables/` + `deliverables.zip`       | Pack built |
 
-Phases 0, 1, 11, 13, and 14 are deterministic — zero LLM calls. All other
+Phases 0, 1, 11, 13, and 14 are deterministic — zero LLM calls. Phase 2 is
+deterministic for markdown documents (the standard case) and agent-driven
+only for documents without markdown structure. All other
 phases dispatch agents over the Observe-Act loop: the Gap Analyser detects
 typed gaps, an agent resolves them by writing to the graph, and resolution is
 certified by re-analysis (see
@@ -52,11 +54,26 @@ description supplied by the user). Exactly one per workspace.
 node. A missing `forge.md` fails loudly; nothing proceeds without a source
 specification.
 
-**2 — Parse Document.** An agent chunks the DOCUMENT into a nested PARA
-tree mirroring the document's structure. Each PARA carries its own text
+**2 — Parse Document.** The DOCUMENT is chunked into a nested PARA tree
+mirroring the document's structure. Each PARA carries its own text
 verbatim (normative code blocks such as API signatures are kept, never
 summarised) and a paragraph type (functional, rationale, constraint,
 non-functional, heading).
+
+The **primary route is deterministic**: a document *qualifies* when it has
+at least 2 ATX markdown headings outside fenced code blocks (whitepapers
+are markdown, and deterministic header splitting beats LLM chunking on
+structured documents). Qualifying documents are split with zero LLM calls:
+headings become empty heading PARAs nested by level; each paragraph,
+bullet group, and fenced code block under a heading becomes one verbatim
+body PARA whose type is assigned by conservative keyword heuristics
+(normative wording → functional; limit wording → constraint; otherwise
+rationale; code blocks are normative → functional). The **exception route**
+— an LLM chunking agent — runs only for documents that do not qualify
+(plain prose, setext-only markdown). This is a documented primary/exception
+split, not a fallback: the build log states which route ran and why.
+Completion criteria are identical on both routes, and all quality checks
+run on the resulting PARAs either way.
 
 **3 — Derive HLRs.** Every non-heading PARA with real body content receives
 at least one high-level requirement. HLRs are EARS-style "The system
@@ -78,9 +95,16 @@ gap.
 **6 — Write Contracts.** One CONTRACT per MODULE: prose interface spec plus
 a **structured `public_api`** (module, symbol, kind, signature per entry —
 signatures transcribed verbatim from the source document) and optional
-`prohibited_constructs`. A CONTRACT without a well-formed `public_api` is
-rejected at write time. Contracts are the coordination boundary all
-downstream phases are checked against.
+`prohibited_constructs`. Entries carry structured obligation fields —
+`raises` (`{cls, base, when}` records), `preconditions`, `postconditions`,
+`invariants` — transcribed verbatim from the source document wherever it
+states them; the dividing rule is that anything expressible as
+pre/post/raises/invariant is contract material, while DESIGN holds only
+private structure and algorithm choice (see
+[13-quality-and-convergence-guarantees.md](13-quality-and-convergence-guarantees.md)).
+A CONTRACT without a well-formed `public_api` (or with malformed obligation
+fields) is rejected at write time. Contracts are the coordination boundary
+all downstream phases are checked against.
 
 **7 — Derive LLRs.** Each HLR is refined into one or more atomic, testable,
 EARS-form low-level requirements, scoped to the owning MODULE's CONTRACT.
@@ -103,7 +127,10 @@ full system context.
 CASE_LLR (level-specific — an HLR case never satisfies an LLR). Cases carry
 preconditions, steps, expected results, and acceptance criteria, and must
 encode the contract exactly (exact exception classes, exact return values,
-full expected orderings). A coverage check verifies each case actually
+full expected orderings). Case authoring receives the owning module's
+structured CONTRACT records and must encode one case per `raises` entry
+(If–then EARS shape) and one per stated postcondition. A coverage check
+verifies each case actually
 tests what it traces to; absent or unparseable verdicts never remove a
 trace — they leave it unverified with a logged error.
 
@@ -118,7 +145,9 @@ primary context for the Phase 12 agent.
 `src/` (one file per DESIGN), `tests/`, a tracing package, and Bazel/pip
 build scaffolding, then works a prioritised gap list detected by
 deterministic workspace scanning: broken test environment, syntax errors,
-missing sources/tests, API-surface mismatches, prohibited constructs,
+missing sources/tests, API-surface mismatches (including unmet contract
+`raises` obligations — exception class missing, wrong base class, or never
+raised in its defining module), prohibited constructs,
 failing tests, invalid or missing traces, coverage shortfalls,
 unimplemented/uncovered requirements, weak traces, and scope creep. The
 agent runs at most 4 passes (fresh conversation per pass, workspace

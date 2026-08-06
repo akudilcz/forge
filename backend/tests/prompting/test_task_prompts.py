@@ -398,6 +398,7 @@ class TestSpecFidelityPromptPins:
             [],
             {"node_id": "SUITE-0001", "content": "strategy"},
             [],
+            [],
         )
         for phrase in self.CASE_ENCODING_PHRASES:
             assert phrase in prompt, phrase
@@ -446,3 +447,93 @@ class TestSpecFidelityPromptPins:
             "omit",
         ):
             assert phrase in description, phrase
+
+
+# ── U2 CONTRACT records — phase 6 transcription + phase 10 consumption ──────
+
+
+class TestContractRecordPromptPins:
+    """Phase 6 transcribes obligations; phase 10 enumerates them as cases."""
+
+    OBLIGATION_FIELD_PHRASES = (
+        '"raises"',
+        '"cls"',
+        '"base"',
+        '"when"',
+        '"preconditions"',
+        '"postconditions"',
+        '"invariants"',
+    )
+
+    ENUMERATION_PHRASES = (
+        "per raises entry",
+        "per stated postcondition",
+        "If",
+    )
+
+    def test_contract_prompt_requires_obligation_fields(self) -> None:
+        description, _ = _entry(_gap(GapType.UNCONTRACTED, node_id="MODULE-0001"))
+        for phrase in self.OBLIGATION_FIELD_PHRASES:
+            assert phrase in description, phrase
+        assert "verbatim" in description
+
+    def test_contract_prompt_lists_must_capture_categories(self) -> None:
+        description, _ = _entry(_gap(GapType.UNCONTRACTED, node_id="MODULE-0001"))
+        for phrase in TestSpecFidelityPromptPins.MUST_CAPTURE_PHRASES:
+            assert phrase in description, phrase
+
+    def test_contract_prompt_states_dividing_rule(self) -> None:
+        """Anything expressible as pre/post/raises/invariant is contract
+        material; DESIGN holds only private structure + algorithm choice."""
+        description, _ = _entry(_gap(GapType.UNCONTRACTED, node_id="MODULE-0001"))
+        assert "DIVIDING RULE" in description
+        assert "private structure" in description
+        assert "algorithm choice" in description
+
+    def test_test_hlr_requires_obligation_enumeration(self) -> None:
+        description, _ = _entry(_gap(GapType.UNTESTED_HLR, node_id="HLR-0005"))
+        for phrase in self.ENUMERATION_PHRASES:
+            assert phrase in description, phrase
+
+    def test_test_llr_requires_obligation_enumeration(self) -> None:
+        description, _ = _entry(_gap(GapType.UNTESTED_LLR, node_id="LLR-0003"))
+        for phrase in self.ENUMERATION_PHRASES:
+            assert phrase in description, phrase
+
+    def test_batch_phase10_receives_contract_records(self) -> None:
+        from backend.prompting.batch_prompts import build_batch_phase10_prompt
+
+        prompt = build_batch_phase10_prompt(
+            [{"node_id": "HLR-0007", "title": "Cycle error", "content": "shall raise"}],
+            [],
+            {"node_id": "SUITE-0001", "content": "strategy"},
+            [],
+            [{
+                "node_id": "CONTRACT-0001",
+                "module_id": "MODULE-0001",
+                "public_api": [{
+                    "module": "toposort", "symbol": "find_cycle",
+                    "kind": "function",
+                    "signature": "def find_cycle(graph) -> list",
+                    "raises": [{
+                        "cls": "CyclicGraphError", "base": "ValueError",
+                        "when": "the graph is cyclic",
+                    }],
+                }],
+            }],
+        )
+        assert "CONTRACT RECORDS" in prompt
+        assert "CyclicGraphError" in prompt
+        for phrase in self.ENUMERATION_PHRASES:
+            assert phrase in prompt, phrase
+
+    def test_batch_phase10_without_contract_records_omits_block(self) -> None:
+        from backend.prompting.batch_prompts import build_batch_phase10_prompt
+
+        prompt = build_batch_phase10_prompt(
+            [{"node_id": "HLR-0007", "title": "Cycle error", "content": "shall raise"}],
+            [], None, [], [],
+        )
+        # The encoding rules always mention the block by name; the block
+        # itself (with its header) must be absent when no records exist.
+        assert "CONTRACT RECORDS — for the requirement's module" not in prompt

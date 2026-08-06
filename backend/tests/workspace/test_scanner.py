@@ -964,3 +964,30 @@ async def test_scan_workspace_reports_branch_coverage(
     state = await scan_workspace(tmp_path)
     assert state.coverage_pct == 80.0
     assert state.branch_coverage_pct == 70.0
+
+
+def test_analyse_file_collects_class_bases_and_raised_names(tmp_path: Path) -> None:
+    """Class base names and raised exception names become static API facts."""
+    code = (
+        "class CyclicGraphError(ValueError):\n"
+        "    pass\n\n"
+        "def find_cycle(graph):\n"
+        "    raise CyclicGraphError('cycle')\n\n"
+        "def check(x):\n"
+        "    if x is None:\n"
+        "        raise TypeError\n"
+    )
+    f = tmp_path / "toposort.py"
+    f.write_text(code)
+    state = _analyse_file(f, "src/toposort.py")
+    assert state.class_bases["CyclicGraphError"] == ["ValueError"]
+    assert 5 in state.raised_names["CyclicGraphError"]
+    assert 9 in state.raised_names["TypeError"]
+
+
+def test_analyse_file_syntax_error_yields_no_raise_facts(tmp_path: Path) -> None:
+    f = tmp_path / "bad.py"
+    f.write_text("class Broken(\n")
+    state = _analyse_file(f, "src/bad.py")
+    assert state.class_bases == {}
+    assert state.raised_names == {}

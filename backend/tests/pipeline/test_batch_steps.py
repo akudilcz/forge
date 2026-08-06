@@ -227,7 +227,7 @@ def test_phase10_prompt_includes_untested_reqs_and_cases() -> None:
     cases = [{"node_id": "CASE-001", "node_type": "CASE_HLR",
               "trace_to": ["HLR-002"], "title": "Existing coverage"}]
 
-    prompt = build_batch_phase10_prompt(hlrs, llrs, suite, cases)
+    prompt = build_batch_phase10_prompt(hlrs, llrs, suite, cases, [])
 
     assert "HLR-001" in prompt
     assert "LLR-001" in prompt
@@ -242,7 +242,7 @@ def test_phase10_prompt_without_suite_or_cases() -> None:
     """No SUITE and no existing CASEs: blocks are omitted, empty lists say (none)."""
     hlrs = [{"node_id": "HLR-001", "title": "T", "content": "shall"}]
 
-    prompt = build_batch_phase10_prompt(hlrs, [], None, [])
+    prompt = build_batch_phase10_prompt(hlrs, [], None, [], [])
 
     assert "HLR-001" in prompt
     assert "SUITE [" not in prompt

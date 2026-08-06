@@ -60,6 +60,12 @@ class FileState:
     #: Alias-resolved call targets: dotted name -> line numbers
     #: (``t.parse(x)`` under ``import ast as t`` records "ast.parse").
     call_targets: dict[str, list[int]] = field(default_factory=dict)
+    #: Top-level class name -> its base-class expressions (verbatim
+    #: ``ast.unparse`` text). Consumed by the phase-12 raises gate.
+    class_bases: dict[str, list[str]] = field(default_factory=dict)
+    #: Raised exception names (``raise X`` / ``raise X(...)``, dotted where
+    #: written that way) -> line numbers. Consumed by the raises gate.
+    raised_names: dict[str, list[int]] = field(default_factory=dict)
 
 
 @dataclass
@@ -70,6 +76,8 @@ class ApiFacts:
     relative_imports: list[str] = field(default_factory=list)
     imported_modules: dict[str, list[int]] = field(default_factory=dict)
     call_targets: dict[str, list[int]] = field(default_factory=dict)
+    class_bases: dict[str, list[str]] = field(default_factory=dict)
+    raised_names: dict[str, list[int]] = field(default_factory=dict)
 
 
 @dataclass
@@ -106,6 +114,8 @@ def _analyse_file(filepath: Path, rel_path: str) -> FileState:
         relative_imports=facts.relative_imports,
         imported_modules=facts.imported_modules,
         call_targets=facts.call_targets,
+        class_bases=facts.class_bases,
+        raised_names=facts.raised_names,
     )
 
 
@@ -128,6 +138,7 @@ def _collect_api_facts(code: str) -> ApiFacts:
             facts.symbols[node.name] = "function"
         elif isinstance(node, ast.ClassDef):
             facts.symbols[node.name] = "class"
+            facts.class_bases[node.name] = [ast.unparse(b) for b in node.bases]
             for member in node.body:
                 if isinstance(member, ast.FunctionDef | ast.AsyncFunctionDef):
                     facts.symbols[f"{node.name}.{member.name}"] = "method"
@@ -143,7 +154,26 @@ def _collect_api_facts(code: str) -> ApiFacts:
 
     aliases = _collect_imports(tree, facts.imported_modules)
     _collect_call_targets(tree, aliases, facts.call_targets)
+    _collect_raised_names(tree, facts.raised_names)
     return facts
+
+
+def _collect_raised_names(tree: Any, raised: dict[str, list[int]]) -> None:
+    """Record every statically-named raised exception -> line numbers.
+
+    Covers ``raise X`` and ``raise X(...)`` where X is a name or dotted
+    attribute; computed expressions and bare re-raises are skipped.
+    """
+    import ast  # noqa: PLC0415
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Raise) or node.exc is None:
+            continue
+        target = node.exc
+        if isinstance(target, ast.Call):
+            target = target.func
+        if isinstance(target, ast.Name | ast.Attribute):
+            raised.setdefault(ast.unparse(target), []).append(node.lineno)
 
 
 def _collect_imports(tree: Any, imported: dict[str, list[int]]) -> dict[str, str]:

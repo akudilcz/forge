@@ -37,6 +37,29 @@ NORMATIVE_MUST_CAPTURE = (
     "summarise a signature block as 'shall provide function X'.\n"
 )
 
+#: Phase 6 (U2 CONTRACT records): structured obligation fields on each
+#: public_api entry, plus the CONTRACT/DESIGN dividing rule. Referenced by
+#: ``_contract`` so the transcription instructions stay in one place.
+CONTRACT_OBLIGATION_FIELDS = (
+    "OBLIGATION FIELDS — transcribe behavioural obligations verbatim from\n"
+    "the source PARAs into structured fields on EACH function/method entry\n"
+    "whenever the source material states them:\n"
+    '  "raises": [{"cls": "<ExceptionClass>", "base": "<its base class>",\n'
+    '              "when": "<the documented trigger condition>"}],\n'
+    '  "preconditions": ["<each stated input requirement>"],\n'
+    '  "postconditions": ["<each stated result guarantee>"],\n'
+    '  "invariants": ["<each stated always-true property>"]\n'
+    "Omit a field only when the source material states nothing for it. Every\n"
+    "Raises/Returns/pre-/post-condition/invariant sentence in the source\n"
+    "PARAs MUST appear here verbatim — never summarised.\n"
+    f"{NORMATIVE_MUST_CAPTURE}"
+    "DIVIDING RULE (CONTRACT vs DESIGN): anything expressible as a\n"
+    "precondition, postcondition, raises obligation, or invariant is\n"
+    "CONTRACT material and belongs in these structured fields. DESIGN\n"
+    "holds only private structure and algorithm choice — never observable\n"
+    "behaviour.\n"
+)
+
 #: Phase 9/10 counterpart of ``NORMATIVE_MUST_CAPTURE``: how CASEs must
 #: encode those contracts so a wrong implementation cannot pass.
 CASE_CONTRACT_ENCODING = (
@@ -54,12 +77,23 @@ CASE_CONTRACT_ENCODING = (
     "    just membership or edge-free inputs.\n"
     "  • Callable-parameter cases: invoke the callable with the exact arity\n"
     "    the contract states (e.g. one item -> key), so a wrong arity breaks.\n"
+    "  • Contract-record enumeration: when a CONTRACT RECORDS block appears\n"
+    "    in the context, author ONE case per raises entry — EARS shape 'If\n"
+    "    <when>, then <symbol> raises <cls> (caught by except <base>)' — and\n"
+    "    ONE case per stated postcondition, asserting it exactly.\n"
 )
 
 # ── Per-gap-type helpers (each <= 20 lines) ──────────────────────────────────
 
 
 def _doc_chunk(nid: str, ctx: str) -> tuple[str, str]:
+    """LLM chunking prompt — phase 2's exception route.
+
+    Documents with markdown structure (>= 2 ATX headings) never reach this
+    prompt: the ``deterministic_parse`` pipeline step splits them without an
+    LLM call (specs/03 §Phase 2). This agent route remains for documents
+    that do not qualify (plain prose, setext-only markdown).
+    """
     return (
         f"Document '{nid}' needs to be organised into a hierarchical tree of PARA nodes.\n\n"
         f"The full document content is inlined in the context below — you do NOT\n"
@@ -255,6 +289,7 @@ def _contract(nid: str, ctx: str) -> tuple[str, str]:
         f"markers, Callable shapes — never summarise. The write is REJECTED\n"
         f"without a valid non-empty public_api, and phase 12 verifies the\n"
         f"workspace exposes every entry.\n\n"
+        f"{CONTRACT_OBLIGATION_FIELDS}\n"
         f"STEP 5 — implementation prohibitions: if the source material forbids\n"
         f"implementation techniques ('must not use X', 'forbidden', 'without\n"
         f"using'), transcribe each ban into the same properties object:\n"

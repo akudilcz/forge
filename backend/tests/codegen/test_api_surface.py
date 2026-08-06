@@ -10,6 +10,7 @@ entry a deterministic, blocking phase-12 check (specs/03, specs/13).
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock
 
 from backend.codegen.api_surface import check_api_surface
@@ -335,3 +336,110 @@ def test_test_files_exempt_from_prohibitions() -> None:
         _graph_with(_ban_contract("ast")),
     )
     assert all(g.kind != GapKind.PROHIBITED_CONSTRUCT for g in gaps)
+
+
+# ── Raises gate (U2 CONTRACT records — specs/13) ────────────────────────────
+#
+# A public_api entry may declare structured exception obligations:
+#   raises: [{cls, base, when}]
+# The gate verifies each named exception class exists in src/ with the
+# declared base and is actually raised in the entry's defining module.
+
+
+def _raises_entry() -> dict[str, Any]:
+    return {
+        "module": "toposort",
+        "symbol": "find_cycle",
+        "kind": "function",
+        "signature": "def find_cycle(graph) -> list",
+        "raises": [{
+            "cls": "CyclicGraphError",
+            "base": "ValueError",
+            "when": "the graph contains a cycle",
+        }],
+    }
+
+
+def _full_state_from_code(path: str, code: str) -> FileState:
+    facts = _collect_api_facts(code)
+    return FileState(
+        path=path,
+        symbols=facts.symbols,
+        relative_imports=facts.relative_imports,
+        imported_modules=facts.imported_modules,
+        call_targets=facts.call_targets,
+        class_bases=facts.class_bases,
+        raised_names=facts.raised_names,
+    )
+
+
+def _raises_gaps(code: str) -> list[Gap]:
+    contract = MagicMock()
+    contract.node_id = "CONTRACT-0009"
+    contract.node_type = "CONTRACT"
+    contract.properties = {"public_api": [_raises_entry()]}
+    gaps: list[Gap] = []
+    check_api_surface(
+        gaps,
+        {"src/toposort.py": _full_state_from_code("src/toposort.py", code)},
+        _graph_with(contract),
+    )
+    return [g for g in gaps if "CyclicGraphError" in g.details]
+
+
+def test_raises_satisfied_no_gap() -> None:
+    gaps = _raises_gaps(
+        "class CyclicGraphError(ValueError):\n"
+        "    pass\n\n"
+        "def find_cycle(graph):\n"
+        "    raise CyclicGraphError('cycle')\n"
+    )
+    assert gaps == []
+
+
+def test_raises_missing_class_emits_gap() -> None:
+    gaps = _raises_gaps("def find_cycle(graph):\n    return []\n")
+    assert len(gaps) == 1
+    assert gaps[0].kind == GapKind.API_SURFACE_MISMATCH
+    assert "CyclicGraphError" in gaps[0].details
+    assert "ValueError" in gaps[0].details
+    assert "CONTRACT-0009" in gaps[0].details
+
+
+def test_raises_wrong_base_emits_gap() -> None:
+    gaps = _raises_gaps(
+        "class CyclicGraphError(KeyError):\n"
+        "    pass\n\n"
+        "def find_cycle(graph):\n"
+        "    raise CyclicGraphError('cycle')\n"
+    )
+    assert len(gaps) == 1
+    assert "ValueError" in gaps[0].details
+    assert "KeyError" in gaps[0].details
+
+
+def test_raises_never_raised_emits_gap() -> None:
+    gaps = _raises_gaps(
+        "class CyclicGraphError(ValueError):\n"
+        "    pass\n\n"
+        "def find_cycle(graph):\n"
+        "    return []\n"
+    )
+    assert len(gaps) == 1
+    assert "never raised" in gaps[0].details
+    assert "the graph contains a cycle" in gaps[0].details
+
+
+def test_raises_entry_without_raises_key_unaffected() -> None:
+    contract = _contract_node([
+        _entry("toposort", "find_cycle", "function", "def find_cycle(g)"),
+    ])
+    gaps: list[Gap] = []
+    check_api_surface(
+        gaps,
+        {"src/toposort.py": _full_state_from_code(
+            "src/toposort.py", "def find_cycle(g):\n    return []\n",
+        )},
+        _graph_with(contract),
+    )
+    assert gaps == []

@@ -23,6 +23,7 @@ from backend.pipeline.steps import (
     case_trace_coverage,
     combined_quality,
     design_consolidation,
+    deterministic_parse,
     quality_gaps,
     semantic,
     structural,
@@ -44,6 +45,10 @@ _DEFAULT_STEPS: list[StepFn] = [structural, quality_gaps, combined_quality, sema
 # on atomicity + EARS + title match + title specificity in one shot, replacing
 # the former per-node req_quality and title_quality passes.
 PHASE_STEPS: dict[int, list[StepFn]] = {
+    # Phase 2: deterministic markdown → PARA split first (zero LLM calls for
+    # qualifying documents); the structural loop remains the LLM chunking
+    # route for documents without markdown structure (specs/03 §Phase 2).
+    2: [deterministic_parse, structural, quality_gaps, combined_quality, semantic],
     3: [batch_phase3, quality_gaps, combined_quality, semantic],
     5: [batch_phase5, quality_gaps, combined_quality, semantic],
     7: [batch_phase7, quality_gaps, combined_quality, semantic],

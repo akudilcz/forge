@@ -400,6 +400,17 @@ async def batch_phase10(flow: Any, phase: int) -> StepResult:
     all_nodes = flow.graph.all_nodes()
     suite = next((_node_to_dict(n) for n in all_nodes if n.node_type == "SUITE"), None)
     cases = [_node_to_dict(n) for n in all_nodes if n.node_type in ("CASE_HLR", "CASE_LLR")]
+    # Structured CONTRACT records (specs/13): cases must enumerate raises
+    # entries and postconditions, so every contract's public_api is fed in.
+    contract_records = [
+        {
+            "node_id": n.node_id,
+            "module_id": n.parent_id,
+            "public_api": (n.properties or {})["public_api"],
+        }
+        for n in all_nodes
+        if n.node_type == "CONTRACT" and (n.properties or {}).get("public_api")
+    ]
 
     def collect_ids() -> list[str]:
         if not flow._collect_phase_gaps(phase, set()):
@@ -418,7 +429,9 @@ async def batch_phase10(flow: Any, phase: int) -> StepResult:
             _node_to_dict(n) for n in live
             if n.node_type == "LLR" and n.node_id in wanted
         ]
-        return build_batch_phase10_prompt(untested_hlrs, untested_llrs, suite, cases)
+        return build_batch_phase10_prompt(
+            untested_hlrs, untested_llrs, suite, cases, contract_records,
+        )
 
     unresolved = await _run_chunked_batch(
         flow, phase, GapType.UNTESTED_HLR, collect_ids, prompt_for,

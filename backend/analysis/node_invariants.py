@@ -145,6 +145,55 @@ CONTRACT_API_KINDS: frozenset[str] = frozenset({"function", "class", "method"})
 #: Required keys of every public_api entry.
 CONTRACT_API_KEYS: tuple[str, ...] = ("module", "symbol", "kind", "signature")
 
+#: Required keys of every entry in an optional per-symbol ``raises`` list.
+CONTRACT_RAISES_KEYS: tuple[str, ...] = ("cls", "base", "when")
+
+#: Optional per-symbol obligation lists of plain strings.
+CONTRACT_OBLIGATION_LIST_KEYS: tuple[str, ...] = (
+    "preconditions", "postconditions", "invariants",
+)
+
+
+def _check_api_entry_obligations(i: int, entry: Mapping[str, object]) -> str | None:
+    """Shape-check optional obligation fields on one public_api entry.
+
+    ``raises`` (list of {cls, base, when}) and the plain-string lists
+    (``preconditions`` / ``postconditions`` / ``invariants``) are optional
+    — most symbols state none — but malformed declarations are rejected
+    with the exact key that needs fixing (specs/13 CONTRACT records).
+    """
+    fix = "Fix the entry per specs/13 and retry."
+    if "raises" in entry:
+        raises = entry["raises"]
+        if not isinstance(raises, list):
+            return (
+                f"public_api[{i}].raises must be a list of "
+                f"{{cls, base, when}} objects. {fix}"
+            )
+        for j, rec in enumerate(raises):
+            if not isinstance(rec, dict):
+                return f"public_api[{i}].raises[{j}] is not an object. {fix}"
+            for key in CONTRACT_RAISES_KEYS:
+                value = rec.get(key)
+                if not isinstance(value, str) or not value.strip():
+                    return (
+                        f"public_api[{i}].raises[{j}] is missing a "
+                        f"non-empty string {key!r}. {fix}"
+                    )
+    for key in CONTRACT_OBLIGATION_LIST_KEYS:
+        if key not in entry:
+            continue
+        items = entry[key]
+        if not isinstance(items, list):
+            return f"public_api[{i}].{key} must be a list of strings. {fix}"
+        for j, item in enumerate(items):
+            if not isinstance(item, str) or not item.strip():
+                return (
+                    f"public_api[{i}].{key}[{j}] must be a non-empty "
+                    f"string. {fix}"
+                )
+    return None
+
 
 def check_contract_public_api(
     node_type: str, properties: Mapping[str, object],
@@ -180,6 +229,9 @@ def check_contract_public_api(
                 f"public_api[{i}] has kind {entry['kind']!r} — must be one "
                 f"of {sorted(CONTRACT_API_KINDS)}. {fix}"
             )
+        obligation_msg = _check_api_entry_obligations(i, entry)
+        if obligation_msg is not None:
+            return obligation_msg
     return None
 
 

@@ -301,3 +301,59 @@ def test_alignment_legacy_contract_without_public_api_keeps_token_check() -> Non
     assert len(gaps) == 1
     assert gaps[0].type == GapType.CONTRACT_VIOLATION
     assert gaps[0].context["extra_functions"] == ["decompose"]
+
+
+# ── CONTRACT_VIOLATION for misplaced obligations (U2 CONTRACT records) ──────
+
+
+def test_alignment_misplaced_raises_obligation_flagged() -> None:
+    """DESIGN asserts 'raises X' for a public symbol whose CONTRACT record
+    carries no such raises entry — move the obligation to the contract."""
+    graph = _module_with_design(
+        "descendants(graph, node) raises CyclicGraphError when the graph "
+        "is cyclic.",
+        {"public_api": _TOPO_API},
+    )
+    gaps = GapAnalyser()._check_design_contract_alignment(
+        graph, graph.all_nodes(),
+    )
+    assert len(gaps) == 1
+    assert gaps[0].type == GapType.CONTRACT_VIOLATION
+    assert gaps[0].node_id == "DESIGN-1"
+    assert "raises CyclicGraphError" in gaps[0].description
+    assert "descendants" in gaps[0].description
+    assert "Move" in gaps[0].description or "move" in gaps[0].description
+    assert gaps[0].context["misplaced_obligations"] == [
+        {"symbol": "descendants", "obligation": "raises CyclicGraphError"},
+    ]
+
+
+def test_alignment_prose_behaviour_talk_not_flagged() -> None:
+    """Prose that merely discusses behaviour never triggers the
+    misplaced-obligation check — only confident patterns do."""
+    graph = _module_with_design(
+        "descendants(graph, node) raises the recursion depth concern; the "
+        "algorithm uses an explicit stack instead.",
+        {"public_api": _TOPO_API},
+    )
+    gaps = GapAnalyser()._check_design_contract_alignment(
+        graph, graph.all_nodes(),
+    )
+    assert gaps == []
+
+
+def test_alignment_obligation_already_in_contract_not_flagged() -> None:
+    api: list[dict[str, Any]] = [dict(_TOPO_API[0]), dict(_TOPO_API[1])]
+    api[0]["raises"] = [{
+        "cls": "CyclicGraphError", "base": "ValueError",
+        "when": "the graph is cyclic",
+    }]
+    graph = _module_with_design(
+        "descendants(graph, node) raises CyclicGraphError when the graph "
+        "is cyclic.",
+        {"public_api": api},
+    )
+    gaps = GapAnalyser()._check_design_contract_alignment(
+        graph, graph.all_nodes(),
+    )
+    assert gaps == []

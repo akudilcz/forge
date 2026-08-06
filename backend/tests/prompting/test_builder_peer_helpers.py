@@ -162,3 +162,78 @@ def test_build_sibling_paras_context_excludes_self() -> None:
     out = build_sibling_paras_context(graph, "PARA-1")
     assert "sibling rationale" in out
     assert "target paragraph" not in out
+
+
+# ── build_contract_records_for_requirement (U2 CONTRACT records) ────────────
+
+
+def _contract_graph() -> _Graph:
+    hlr = _node("HLR-0001", "HLR", content="The system shall detect cycles.")
+    llr = _node(
+        "LLR-0001", "LLR", parent_id="HLR-0001",
+        content="The system shall raise CyclicGraphError on cycles.",
+    )
+    module = _node(
+        "MODULE-0001", "MODULE", trace_to=["HLR-0001"], content="class plan",
+    )
+    contract = _node(
+        "CONTRACT-0001", "CONTRACT", parent_id="MODULE-0001",
+        content="Public interface.",
+        properties={"public_api": [{
+            "module": "toposort", "symbol": "find_cycle", "kind": "function",
+            "signature": "def find_cycle(graph) -> list",
+            "raises": [{
+                "cls": "CyclicGraphError", "base": "ValueError",
+                "when": "the graph is cyclic",
+            }],
+            "postconditions": ["returned list is a real cycle"],
+        }]},
+    )
+    return _Graph([hlr, llr, module, contract])
+
+
+def test_build_contract_records_for_llr() -> None:
+    from backend.prompting.graph_context import (
+        build_contract_records_for_requirement,
+    )
+
+    ctx = build_contract_records_for_requirement(_contract_graph(), "LLR-0001")
+    assert "CONTRACT RECORDS" in ctx
+    assert "CONTRACT-0001" in ctx
+    assert "find_cycle" in ctx
+    assert "CyclicGraphError" in ctx
+    assert "returned list is a real cycle" in ctx
+
+
+def test_build_contract_records_for_hlr() -> None:
+    from backend.prompting.graph_context import (
+        build_contract_records_for_requirement,
+    )
+
+    ctx = build_contract_records_for_requirement(_contract_graph(), "HLR-0001")
+    assert "CONTRACT RECORDS" in ctx
+    assert "CyclicGraphError" in ctx
+
+
+def test_build_contract_records_absent_module_empty() -> None:
+    from backend.prompting.graph_context import (
+        build_contract_records_for_requirement,
+    )
+
+    graph = _Graph([_node("HLR-0009", "HLR", content="The system shall x.")])
+    assert build_contract_records_for_requirement(graph, "HLR-0009") == ""
+
+
+def test_untested_llr_context_feeds_contract_records() -> None:
+    from backend.analysis.gaps import Gap, GapPriority, GapType
+    from backend.prompting.builder import build_context_for_gap
+
+    gap = Gap(
+        type=GapType.UNTESTED_LLR,
+        priority=GapPriority.TEST_LLR,
+        node_id="LLR-0001",
+        description="untested",
+    )
+    ctx = build_context_for_gap(_contract_graph(), gap)
+    assert "CONTRACT RECORDS" in ctx
+    assert "CyclicGraphError" in ctx

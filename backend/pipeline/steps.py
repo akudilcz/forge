@@ -24,6 +24,55 @@ class StepResult(TypedDict):
     deletions: int
 
 
+# ── Step: deterministic markdown parse (Phase 2 primary route) ───────────────
+
+
+async def deterministic_parse(flow: Any, phase: int) -> StepResult:
+    """Resolve UNCHUNKED_DOCUMENT deterministically for markdown documents.
+
+    Phase 2's primary route (specs/03 §Phase 2): a DOCUMENT with at least
+    ``MIN_QUALIFYING_HEADINGS`` ATX markdown headings is split into its PARA
+    tree with zero LLM calls. Non-qualifying documents are left open for the
+    structural loop's LLM chunking route — a documented primary/exception
+    split, not a fallback. Both outcomes are logged loudly.
+    """
+    from backend.analysis.gaps import GapType  # noqa: PLC0415
+    from backend.graph.parsers.markdown_splitter import (  # noqa: PLC0415
+        MIN_QUALIFYING_HEADINGS,
+        count_markdown_headings,
+        write_para_tree,
+    )
+
+    forge_logger.emit("INFO", "PIPE ", f"Phase {phase} · step: deterministic_parse")
+    for gap in flow._collect_phase_gaps(phase, set()):
+        if gap.type != GapType.UNCHUNKED_DOCUMENT:
+            continue
+        doc = flow.graph.node_sync(gap.node_id)
+        if doc is None:
+            continue
+        headings = count_markdown_headings(doc.content or "")
+        if headings < MIN_QUALIFYING_HEADINGS:
+            forge_logger.decision(
+                "phase2", "llm_chunking",
+                f"{gap.node_id}: {headings} markdown heading(s) < "
+                f"{MIN_QUALIFYING_HEADINGS} — document does not qualify; "
+                "dispatching the LLM chunking route",
+            )
+            continue
+        forge_logger.decision(
+            "phase2", "deterministic_parse",
+            f"{gap.node_id}: {headings} markdown headings >= "
+            f"{MIN_QUALIFYING_HEADINGS} — deterministic header split, no agent",
+        )
+        created = await write_para_tree(flow.graph, doc, "deterministic-parser")
+        forge_logger.emit(
+            "INFO", "PIPE ",
+            f"Phase {phase} · deterministic_parse wrote {len(created)} PARA "
+            f"node(s) under {gap.node_id}",
+        )
+    return StepResult(step_name="deterministic_parse", deletions=0)
+
+
 # ── Step: structural gap resolution ──────────────────────────────────────────
 
 

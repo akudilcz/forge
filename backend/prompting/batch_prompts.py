@@ -6,6 +6,7 @@ nodes so the agent can make a globally optimal assignment in one pass.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from backend.prompting.task_prompts_authoring import (
@@ -247,12 +248,14 @@ def build_batch_phase10_prompt(
     untested_llrs: list[dict[str, Any]],
     suite: dict[str, Any] | None,
     existing_cases: list[dict[str, Any]],
+    contract_records: list[dict[str, Any]],
 ) -> str:
     """Phase 10: write CASE_HLR / CASE_LLR in a single batch.
 
-    Presents all HLRs + LLRs without a test case plus the SUITE strategy and
-    existing CASEs so the agent can emit one ``multi_graph_write`` with every
-    new case in a single tool call.
+    Presents all HLRs + LLRs without a test case plus the SUITE strategy,
+    existing CASEs, and every CONTRACT's structured ``public_api`` records
+    (specs/13) so the agent can enumerate raises entries and postconditions
+    into cases and emit one ``multi_graph_write`` with every new case.
     """
     hlr_lines = _format_node_list(untested_hlrs, ["node_id", "title", "content"])
     llr_lines = _format_node_list(untested_llrs, ["node_id", "parent_id", "title", "content"])
@@ -274,6 +277,20 @@ def build_batch_phase10_prompt(
             f"{_format_node_list(existing_cases, ['node_id', 'node_type', 'trace_to', 'title'])}\n\n"
         )
 
+    records_block = ""
+    if contract_records:
+        rendered = "\n\n".join(
+            f"[{r['node_id']}] module={r['module_id']}\n"
+            f"{json.dumps(r['public_api'], indent=2)}"
+            for r in contract_records
+        )
+        records_block = (
+            "CONTRACT RECORDS — for the requirement's module, author ONE "
+            "case per raises entry (If <when>, then raises <cls>) and ONE "
+            "case per stated postcondition:\n"
+            f"{rendered}\n\n"
+        )
+
     return (
         "You are authoring test cases (CASE_HLR + CASE_LLR) for every untested\n"
         "requirement. Emit the new cases across a small number of "
@@ -282,6 +299,7 @@ def build_batch_phase10_prompt(
         "graph_add_node calls.\n\n"
         f"{suite_block}"
         f"{existing_block}"
+        f"{records_block}"
         f"HLRs NEEDING A CASE_HLR ({len(untested_hlrs)}):\n{hlr_lines}\n\n"
         f"LLRs NEEDING A CASE_LLR ({len(untested_llrs)}):\n{llr_lines}\n\n"
         "For each HLR above, add one CASE_HLR:\n"

@@ -42,9 +42,17 @@ def mock_flow(tmp_path: Path) -> MagicMock:
 
 def test_get_steps_default_for_unknown_phase() -> None:
     """Phases without custom pipelines get the default step list."""
-    steps = get_steps(2)
+    steps = get_steps(4)
     assert len(steps) == len(_DEFAULT_STEPS)
     assert [s.__name__ for s in steps] == [s.__name__ for s in _DEFAULT_STEPS]
+
+
+def test_get_steps_phase_2_deterministic_parse_first() -> None:
+    """Phase 2 runs the deterministic markdown split before any agent work;
+    the structural loop remains as the LLM chunking route (specs/03 §Phase 2)."""
+    names = [s.__name__ for s in get_steps(2)]
+    assert names[0] == "deterministic_parse"
+    assert "structural" in names
 
 
 def test_get_steps_custom_for_phase_10() -> None:
@@ -102,9 +110,9 @@ def test_get_steps_returns_copy() -> None:
     async def _noop_step(flow: Any, phase: int) -> StepResult:
         return StepResult(step_name="noop", deletions=0)
 
-    steps = get_steps(2)
+    steps = get_steps(4)
     steps.append(_noop_step)
-    assert len(get_steps(2)) == len(_DEFAULT_STEPS)
+    assert len(get_steps(4)) == len(_DEFAULT_STEPS)
 
 
 # ── run_phase_pipeline ────────────────────────────────────────────────────────

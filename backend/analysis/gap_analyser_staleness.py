@@ -190,15 +190,17 @@ class CorpusStalenessChecks:
 
         With a structured ``properties.public_api`` (specs/13), a DESIGN
         is flagged ONLY when it declares an annotated signature reusing a
-        public function's name that contradicts the public_api entry —
-        internal helpers the CONTRACT never lists are legitimate design
-        detail, not violations. Contracts without public_api keep the
-        legacy token-subset check (documented fallback for graphs authored
+        public function's name that contradicts the public_api entry, or
+        when it confidently asserts an observable obligation ("raises X" /
+        "returns None") the public symbol's contract record lacks
+        (misplaced obligation — specs/13 dividing rule). Internal helpers
+        the CONTRACT never lists are legitimate design detail, not
+        violations. Contracts without public_api keep the legacy
+        token-subset check (documented fallback for graphs authored
         before specs/13).
         """
         from backend.quality.signature_validator import (  # noqa: PLC0415
             find_design_contract_mismatches,
-            find_public_api_conflicts,
         )
         designs = [n for n in all_nodes if n.node_type == "DESIGN" and n.content]
         if not designs:
@@ -223,9 +225,9 @@ class CorpusStalenessChecks:
             props = contract.properties or {}
             api = props["public_api"] if "public_api" in props else None
             if isinstance(api, list) and api:
-                conflicts = find_public_api_conflicts(api, design.content)
-                if conflicts:
-                    gaps.append(_public_api_conflict_gap(design, contract, conflicts))
+                gap = _structured_alignment_gap(design, contract, api)
+                if gap is not None:
+                    gaps.append(gap)
                 continue
             # Legacy fallback: prose-only CONTRACT (pre-specs/13 graphs).
             extra = find_design_contract_mismatches(contract.content, design.content)
@@ -323,6 +325,65 @@ class CorpusStalenessChecks:
                 )
             )
         return gaps
+
+def _structured_alignment_gap(
+    design: GraphNode,
+    contract: GraphNode,
+    api: list[Any],
+) -> Gap | None:
+    """First structured-contract violation for one DESIGN, or None.
+
+    Signature conflicts take precedence; otherwise misplaced obligations
+    (DESIGN asserting raises/returns behaviour the CONTRACT record lacks —
+    specs/13 dividing rule) are reported. Both share the CONTRACT_VIOLATION
+    ``(type, node)`` gap key, so at most one gap per DESIGN is emitted.
+    """
+    from backend.quality.obligation_validator import (  # noqa: PLC0415
+        find_misplaced_obligations,
+    )
+    from backend.quality.signature_validator import (  # noqa: PLC0415
+        find_public_api_conflicts,
+    )
+    conflicts = find_public_api_conflicts(api, design.content)
+    if conflicts:
+        return _public_api_conflict_gap(design, contract, conflicts)
+    misplaced = find_misplaced_obligations(api, design.content)
+    if misplaced:
+        return _misplaced_obligation_gap(design, contract, misplaced)
+    return None
+
+
+def _misplaced_obligation_gap(
+    design: GraphNode,
+    contract: GraphNode,
+    misplaced: list[Any],
+) -> Gap:
+    """CONTRACT_VIOLATION for observable behaviour asserted only in a DESIGN."""
+    itemised = "; ".join(
+        f"{hit.symbol} — {hit.obligation} (line: {hit.excerpt!r})"
+        for hit in misplaced
+    )
+    return Gap(
+        type=GapType.CONTRACT_VIOLATION,
+        priority=GapPriority.MAINTENANCE,
+        node_id=design.node_id,
+        description=(
+            f"DESIGN {design.node_id} asserts observable behaviour that "
+            f"CONTRACT {contract.node_id}'s public_api record does not "
+            f"carry: {itemised}. Move each obligation into the CONTRACT "
+            f"entry's structured fields (raises / postconditions) or align "
+            f"the DESIGN text — DESIGN holds only private structure and "
+            f"algorithm choice."
+        ),
+        context={
+            "contract_id": contract.node_id,
+            "misplaced_obligations": [
+                {"symbol": hit.symbol, "obligation": hit.obligation}
+                for hit in misplaced
+            ],
+        },
+    )
+
 
 def _public_api_conflict_gap(
     design: GraphNode,
