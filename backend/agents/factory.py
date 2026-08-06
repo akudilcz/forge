@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -138,7 +139,23 @@ class ThrottledChatOpenAI(ChatOpenAI):  # type: ignore[misc]
             with log_context(call_id=call_id, model=self.model_name or None):
                 if args:
                     self._log_call(args[0])
-                async for chunk in super()._astream(*args, **kwargs):
+                stream = super()._astream(*args, **kwargs)
+                try:
+                    first = await anext(stream)
+                except json.JSONDecodeError as exc:
+                    # Malformed body before any chunk arrived: safe to retry
+                    # once (no output was consumed). Mid-stream failures
+                    # still propagate — a retry would duplicate output.
+                    forge_logger.emit(
+                        "WARN", "LLM  ",
+                        f"malformed provider body on stream open ({exc}); retrying once",
+                        model=self.model_name or None, call_id=call_id,
+                    )
+                    stream = super()._astream(*args, **kwargs)
+                    first = await anext(stream)
+                except StopAsyncIteration:
+                    first = None
+                async for chunk in _prepend(first, stream):
                     last_chunk = chunk
                     usage = getattr(chunk, "usage_metadata", None)
                     if usage:
@@ -208,7 +225,19 @@ class ThrottledChatOpenAI(ChatOpenAI):  # type: ignore[misc]
             with log_context(call_id=call_id, model=self.model_name or None):
                 if args:
                     self._log_call(args[0])
-                result = await super()._agenerate(*args, **kwargs)
+                try:
+                    result = await super()._agenerate(*args, **kwargs)
+                except json.JSONDecodeError as exc:
+                    # Provider returned a 200 with a malformed body — the
+                    # openai client does not retry these. One bounded retry
+                    # at this seam covers every call site (live evidence:
+                    # dedup judge and case_trace_check both crashed on it).
+                    forge_logger.emit(
+                        "WARN", "LLM  ",
+                        f"malformed provider body ({exc}); retrying once",
+                        model=self.model_name or None, call_id=call_id,
+                    )
+                    result = await super()._agenerate(*args, **kwargs)
             dur = int((time.monotonic() - t0) * 1000)
             gens = getattr(result, "generations", None) or []
             message = gens[0].message if gens else None
@@ -271,6 +300,14 @@ class ThrottledChatOpenAI(ChatOpenAI):  # type: ignore[misc]
                 error=error_text,
             )
             raise
+
+
+async def _prepend(first: Any, rest: Any) -> Any:
+    """Yield ``first`` (unless None) then every item of async iterator ``rest``."""
+    if first is not None:
+        yield first
+    async for item in rest:
+        yield item
 
 
 def _extract_thinking(message_or_chunk: Any) -> str | None:

@@ -1,11 +1,14 @@
 """Tests for AgentFactory and AgentPool."""
 
+import json
 from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from langchain_core.messages import HumanMessage
+from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
 from backend.agents import factory as factory_mod
@@ -428,3 +431,46 @@ def test_create_agent_for_gap_builds_whitelisted_agent() -> None:
     mock_registry.get_tools_for_gap.assert_called_once_with(GapType.UNCOVERED_PARA)
     mock_registry.get_tools_for_role.assert_not_called()
     assert mock_cra.call_args[1]["tools"] is gap_tools
+
+
+class TestTransportJsonRetry:
+    """A malformed provider body (json.JSONDecodeError from the openai client)
+    is retried exactly once at the transport seam — every call site is
+    covered without per-caller handling. Live evidence: two builds crashed
+    at different call sites (dedup judge, case_trace_check) on the same
+    flaky-body error class."""
+
+    @staticmethod
+    def _good_result() -> SimpleNamespace:
+        message = SimpleNamespace(
+            content="ok", tool_calls=[], usage_metadata={}, response_metadata={},
+        )
+        return SimpleNamespace(generations=[SimpleNamespace(message=message)])
+
+    @pytest.mark.asyncio
+    async def test_agenerate_retries_malformed_body_once(self) -> None:
+        llm = _make_llm()
+        good = self._good_result()
+        calls = {"n": 0}
+
+        async def flaky(*args: object, **kwargs: object) -> object:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise json.JSONDecodeError("Expecting value", "garbage-body", 0)
+            return good
+
+        with patch.object(ChatOpenAI, "_agenerate", new=flaky):
+            result = await llm._agenerate([HumanMessage(content="hi")])
+        assert result is good
+        assert calls["n"] == 2
+
+    @pytest.mark.asyncio
+    async def test_agenerate_double_malformed_body_raises(self) -> None:
+        llm = _make_llm()
+
+        async def always_bad(*args: object, **kwargs: object) -> object:
+            raise json.JSONDecodeError("Expecting value", "garbage-body", 0)
+
+        with patch.object(ChatOpenAI, "_agenerate", new=always_bad), \
+                pytest.raises(json.JSONDecodeError):
+            await llm._agenerate([HumanMessage(content="hi")])
