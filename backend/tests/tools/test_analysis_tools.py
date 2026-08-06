@@ -152,3 +152,22 @@ def test_check_atomicity_llm_failure_is_not_a_pass() -> None:
     with patch("backend.tools.analysis._litellm_call", return_value="no json here"):
         result = tool._execute(requirement_content="The system shall do a thing.")
     assert result["atomic"] is None
+
+
+def test_derive_tool_output_keys_match_persisted_property_names() -> None:
+    """U4 round-trip contract: the keys the derive tool emits are exactly the
+    property names the authoring prompts instruct agents to persist and the
+    write-time shape checks validate (specs/13)."""
+    from backend.analysis.requirement_marking import (
+        DERIVED_KEY,
+        DERIVED_RATIONALE_KEY,
+        VERIFICATION_METHOD_KEY,
+        VERIFICATION_METHODS,
+    )
+    from backend.tools.analysis import _DERIVE_PROMPT
+
+    for key in (VERIFICATION_METHOD_KEY, DERIVED_KEY, DERIVED_RATIONALE_KEY):
+        assert key in _DERIVE_PROMPT, key
+    # The prompt constrains the method to the four standard values.
+    for method in VERIFICATION_METHODS:
+        assert method in _DERIVE_PROMPT, method

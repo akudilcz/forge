@@ -134,19 +134,41 @@ def build_all_peers_context(graph: Any, node_id: str, node_type: str) -> str:
     return f"ALL {node_type} REQUIREMENTS (check for semantic duplicates):\n" + "\n".join(lines)
 
 
+def _requirement_marking_suffix(node: Any) -> str:
+    """U4 annotation for a requirement header line (specs/13).
+
+    Renders ``verification_method`` and derived status (+ rationale) from
+    the node's properties so phase-10 case authoring can honour the
+    verification method. Empty when the node carries neither marking.
+    """
+    props = node.properties or {}
+    parts: list[str] = []
+    if "verification_method" in props:
+        parts.append(f"verification_method={props['verification_method']}")
+    if "derived" in props and props["derived"] is True:
+        parts.append("derived=true")
+        if "derived_rationale" in props:
+            parts.append(f"derived_rationale={props['derived_rationale']!r}")
+    return f" {' '.join(parts)}" if parts else ""
+
+
 def _build_shallow_req_context(graph: Any, node_id: str) -> str:
     """Build minimal context for UNTESTED gaps: requirement + its parent only.
 
     Avoids walking up to DOCUMENT (which can be 20k+ chars) since the agent
     only needs the requirement text and its parent HLR/PARA for test case
-    authoring.
+    authoring. The requirement header carries its ``verification_method``
+    and derived status when persisted (U4, specs/13).
     """
     parts: list[str] = []
     node = graph.node_sync(node_id)
     if node is None:
         return ""
     if node.content:
-        parts.append(f"[{node.node_type.upper()} {node.node_id}]\n{node.content}")
+        marking = _requirement_marking_suffix(node)
+        parts.append(
+            f"[{node.node_type.upper()} {node.node_id}]{marking}\n{node.content}"
+        )
     # Include the parent (HLR for LLR, PARA for HLR) but stop there
     if node.parent_id:
         parent = graph.node_sync(node.parent_id)

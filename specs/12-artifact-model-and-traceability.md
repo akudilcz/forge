@@ -103,6 +103,11 @@ pipeline. Guarantees:
 
 - **Only content changes propagate.** Metadata, title, or trace edits to a
   parent never cascade staleness onto children.
+- **Derived requirements are exempt.** An HLR/LLR validly marked
+  `derived: true` (with `derived_rationale`) legitimately lacks tight
+  parent-text provenance and is never flagged `STALE_NODE`; a derived
+  marking missing its rationale is a loud `INADEQUATE_CONTENT` gap instead
+  (see [13-quality-and-convergence-guarantees.md](13-quality-and-convergence-guarantees.md)).
 - **CONTRACT changes** additionally stale all sibling DESIGNs in the module.
 - Propagation stops at RESULT nodes; workspace-reference types (CODE, TEST,
   RESULT) are exempt — their validity is governed by the workspace-sync

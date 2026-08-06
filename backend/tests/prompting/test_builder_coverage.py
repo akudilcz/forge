@@ -252,3 +252,27 @@ def test_uncovered_para_without_siblings_has_no_sibling_section() -> None:
     para = _node("PARA-1", "PARA", parent_id="DOC-1", content="Behaviour text.")
     ctx = build_context_for_gap(_Graph([doc, para]), _gap("PARA-1", GapType.UNCOVERED_PARA))
     assert "SIBLING PARAGRAPHS" not in ctx
+
+
+# ── U4: shallow context carries verification_method + derived status ─────────
+
+
+def test_shallow_context_annotates_verification_and_derived() -> None:
+    hlr = _node("HLR-1", "HLR", content="Parent requirement.")
+    llr = _node(
+        "LLR-1", "LLR", parent_id="HLR-1", content="The system shall merge.",
+        properties={"verification_method": "analysis", "derived": True,
+                    "derived_rationale": "Design necessity."},
+    )
+    ctx = _build_shallow_req_context(_Graph([hlr, llr]), "LLR-1")
+    assert "verification_method=analysis" in ctx
+    assert "derived=true" in ctx
+    assert "Design necessity." in ctx
+
+
+def test_shallow_context_without_marking_has_no_annotation() -> None:
+    hlr = _node("HLR-1", "HLR", content="Parent requirement.")
+    llr = _node("LLR-1", "LLR", parent_id="HLR-1", content="The system shall merge.")
+    ctx = _build_shallow_req_context(_Graph([hlr, llr]), "LLR-1")
+    assert "verification_method" not in ctx
+    assert "derived" not in ctx

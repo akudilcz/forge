@@ -79,12 +79,17 @@ def test_get_steps_custom_for_phase_3() -> None:
     assert "combined_quality" in names
 
 
-def test_get_steps_batch_for_phase_5() -> None:
-    """Phase 5 uses batch_phase5."""
+def test_get_steps_phase_5_verification_residual_only() -> None:
+    """U7: allocation is a phase-4 authoring output, so phase 5 has NO batch
+    authoring step. It runs the default pipeline: the structural step is the
+    deterministic every-HLR-lands check (UNMODULARISED analyser gap) plus
+    per-gap dispatch for residual unassigned HLRs only, followed by the
+    usual quality/semantic steps (specs/03 Phase 5)."""
     steps = get_steps(5)
     names = [s.__name__ for s in steps]
-    assert "batch_phase5" in names
-    assert "structural" not in names
+    assert "batch_phase5" not in names
+    assert names[0] == "structural"
+    assert names == [s.__name__ for s in _DEFAULT_STEPS]
 
 
 def test_get_steps_phase_13_records_results_after_sync() -> None:

@@ -11,7 +11,6 @@ from backend.pipeline.batch_steps import (
     _node_to_dict,
     _run_batch_agent,
     batch_phase3,
-    batch_phase5,
     batch_phase8,
     batch_phase10,
 )
@@ -19,7 +18,6 @@ from backend.prompting.batch_prompts import (
     _format_node_list,
     _format_para_list,
     build_batch_phase3_prompt,
-    build_batch_phase5_prompt,
     build_batch_phase7_prompt,
     build_batch_phase8_prompt,
     build_batch_phase10_prompt,
@@ -82,15 +80,6 @@ def test_phase3_prompt_includes_all_paras_and_hlrs() -> None:
     assert "PARA-002" in prompt
     assert "HLR-001" in prompt
     assert "derive_requirement" in prompt
-
-
-def test_phase5_prompt_includes_hlrs_and_modules() -> None:
-    hlrs = [{"node_id": "HLR-001", "title": "Test", "content": "shall..."}]
-    mods = [{"node_id": "MOD-001", "title": "Engine", "trace_to": ["HLR-002"]}]
-    arch = {"node_id": "ARCH-001", "content": "Architecture doc"}
-    prompt = build_batch_phase5_prompt(hlrs, mods, arch)
-    assert "HLR-001" in prompt
-    assert "MOD-001" in prompt
 
 
 def test_phase7_prompt_includes_hlrs_and_llrs() -> None:
@@ -205,14 +194,6 @@ async def test_batch_phase3_retries_on_unresolved_gaps() -> None:
     await batch_phase3(flow, 3)
     # Agent called twice (attempts 1 and 2)
     assert flow.pool.get_agent_for_gap.call_count == 2
-
-
-@pytest.mark.asyncio
-async def test_batch_phase5_no_gaps_returns_early() -> None:
-    flow = _make_flow(gaps=[])
-    result = await batch_phase5(flow, 5)
-    assert result["step_name"] == "batch_phase5"
-    flow.pool.get_agent_for_gap.assert_not_called()
 
 
 # ── build_batch_phase10_prompt ──────────────────────────────────────────────
@@ -398,29 +379,6 @@ async def test_batch_phase10_skips_agent_when_all_requirements_tested() -> None:
         result = await batch_phase10(flow, 10)
     mock_run.assert_not_awaited()
     assert result["step_name"] == "batch_phase10"
-
-
-# ── batch_phase5 happy path ─────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_batch_phase5_invokes_agent() -> None:
-    from backend.analysis.gaps import Gap, GapPriority, GapType
-
-    hlr = _mock_node("HLR-1", "HLR", title="T", content="The system shall...")
-    mod = _mock_node("MOD-1", "MODULE", title="Engine", content="class plan")
-    arch = _mock_node("ARCH-1", "ARCHITECTURE", content="architecture doc")
-    con = _mock_node("CON-1", "CONTRACT", content="interface spec")
-
-    gap = Gap(type=GapType.UNMODULARISED, priority=GapPriority.MODULARISATION,
-              node_id="HLR-1", description="test")
-
-    flow = _make_flow(nodes=[hlr, mod, arch, con], gaps=[gap])
-    flow._collect_phase_gaps.side_effect = [[gap], []]
-
-    result = await batch_phase5(flow, 5)
-    assert result["step_name"] == "batch_phase5"
-    flow.pool.get_agent_for_gap.assert_called_once_with(GapType.UNMODULARISED)
 
 
 # ── batch_phase8 exception fallback ─────────────────────────────────────────
@@ -717,52 +675,6 @@ async def test_batch_phase3_small_set_single_call_unchanged() -> None:
     assert mock_run.await_count == 1
     assert result["step_name"] == "batch_phase3"
     flow._run_structural_loop.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_batch_phase5_chunks_unassigned_hlrs() -> None:
-    """Phase 5 chunks its unassigned-HLR list; 25 HLRs, chunk 10 → 3 calls."""
-    from backend.analysis.gaps import Gap, GapPriority, GapType
-
-    hlrs = [
-        _mock_node(f"HLR-{i:04d}", "HLR", title=f"T{i}", content=f"The system shall {i}.")
-        for i in range(25)
-    ]
-    mod = _mock_node("MOD-1", "MODULE", title="Engine", content="class plan")
-    flow = _make_flow(nodes=[*hlrs, mod])
-    flow.config.llm.batch_author_chunk_size = 10
-    pending = {h.node_id for h in hlrs}
-
-    def collect(phase: int, skipped: set[str]) -> list[Gap]:
-        return [
-            Gap(type=GapType.UNMODULARISED, priority=GapPriority.MODULARISATION,
-                node_id=hid, description="unassigned")
-            for hid in sorted(pending)
-        ]
-
-    flow._collect_phase_gaps.side_effect = collect
-    batch_sizes: list[int] = []
-
-    def fake_build(unassigned: list[dict[str, Any]], *args: Any, **kwargs: Any) -> str:
-        batch_sizes.append(len(unassigned))
-        fake_build.last_ids = [h["node_id"] for h in unassigned]  # type: ignore[attr-defined]
-        return "PROMPT"
-
-    async def fake_agent(*args: Any, **kwargs: Any) -> int:
-        pending.difference_update(fake_build.last_ids)  # type: ignore[attr-defined]
-        return 1
-
-    with (
-        patch("backend.pipeline.batch_steps.build_batch_phase5_prompt", side_effect=fake_build),
-        patch(
-            "backend.pipeline.batch_steps._run_batch_agent",
-            new_callable=AsyncMock, side_effect=fake_agent,
-        ),
-    ):
-        result = await batch_phase5(flow, 5)
-
-    assert result["step_name"] == "batch_phase5"
-    assert batch_sizes == [10, 10, 5]
 
 
 @pytest.mark.asyncio

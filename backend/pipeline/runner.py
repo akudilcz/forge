@@ -13,7 +13,6 @@ from typing import Any
 
 from backend.pipeline.batch_steps import (
     batch_phase3,
-    batch_phase5,
     batch_phase7,
     batch_phase8,
     batch_phase10,
@@ -40,17 +39,26 @@ StepFn = Callable[[Any, int], Awaitable[StepResult]]
 _DEFAULT_STEPS: list[StepFn] = [structural, quality_gaps, combined_quality, semantic]
 
 # Per-phase step overrides.
-# Phases 3, 5, 7, 8 use batch authoring (one prompt writes multiple nodes).
+# Phases 3, 7, 8 use batch authoring (one prompt writes multiple nodes).
 # ``combined_quality`` is a single LLM call that judges every authored node
 # on atomicity + EARS + title match + title specificity in one shot, replacing
 # the former per-node req_quality and title_quality passes.
+#
+# Phase 5 deliberately has NO entry (U7, specs/03 Phase 5): HLR→MODULE
+# allocation is authored in phase 4 as part of architecture creation, so
+# phase 5 runs the default pipeline — the ``structural`` step is the
+# deterministic every-HLR-lands verification (the UNMODULARISED analyser
+# gap) plus per-gap dispatch for residual unassigned HLRs only. Fusing at
+# the registry level preserves the phase identity: phase_store rows, resume,
+# and completion criteria still key on phase number 5, and a resumed
+# old-shape graph (MODULEs present, HLRs unassigned) completes through the
+# same residual route.
 PHASE_STEPS: dict[int, list[StepFn]] = {
     # Phase 2: deterministic markdown → PARA split first (zero LLM calls for
     # qualifying documents); the structural loop remains the LLM chunking
     # route for documents without markdown structure (specs/03 §Phase 2).
     2: [deterministic_parse, structural, quality_gaps, combined_quality, semantic],
     3: [batch_phase3, quality_gaps, combined_quality, semantic],
-    5: [batch_phase5, quality_gaps, combined_quality, semantic],
     7: [batch_phase7, quality_gaps, combined_quality, semantic],
     8: [batch_phase8, quality_gaps, combined_quality, semantic, design_consolidation],
     10: [batch_phase10, quality_gaps, combined_quality, semantic, case_trace_coverage],

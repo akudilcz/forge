@@ -640,3 +640,100 @@ def test_add_para_with_invalid_marking_rejected() -> None:
     assert result.startswith("ERROR")
     assert "non_normative_rationale" in result
     assert graph.added == []
+
+
+# ── derived + verification_method markings (U4 — specs/13) ───────────────────
+
+
+def test_add_hlr_with_derived_and_method_accepted() -> None:
+    graph = _para_graph()
+    tool = GraphWriteTool(graph=graph)
+    result = tool._execute(
+        operation="add_node", node_type="HLR", parent_id="PARA-0001",
+        title="Bound Queue Growth",
+        content="The system shall bound queue growth.",
+        properties='{"derived": true, '
+                   '"derived_rationale": "Emerges from design necessity.", '
+                   '"verification_method": "analysis"}',
+    )
+    assert result.startswith("OK")
+    assert len(graph.added) == 1
+
+
+def test_add_hlr_derived_without_rationale_rejected() -> None:
+    graph = _para_graph()
+    tool = GraphWriteTool(graph=graph)
+    result = tool._execute(
+        operation="add_node", node_type="HLR", parent_id="PARA-0001",
+        title="Bound Queue Growth",
+        content="The system shall bound queue growth.",
+        properties='{"derived": true}',
+    )
+    assert result.startswith("ERROR")
+    assert "derived_rationale" in result
+    assert graph.added == []
+
+
+def test_add_hlr_bad_verification_method_rejected() -> None:
+    graph = _para_graph()
+    tool = GraphWriteTool(graph=graph)
+    result = tool._execute(
+        operation="add_node", node_type="HLR", parent_id="PARA-0001",
+        title="Bound Queue Growth",
+        content="The system shall bound queue growth.",
+        properties='{"verification_method": "review"}',
+    )
+    assert result.startswith("ERROR")
+    assert "inspection" in result
+    assert "demonstration" in result
+    assert graph.added == []
+
+
+def test_add_non_requirement_with_derived_marking_rejected() -> None:
+    graph = _para_graph()
+    tool = GraphWriteTool(graph=graph)
+    result = tool._execute(
+        operation="add_node", node_type="PARA", parent_id="DOC-0001",
+        title="Scene Setting Prose", content="Background story.",
+        properties='{"derived": true, '
+                   '"derived_rationale": "Design necessity."}',
+    )
+    assert result.startswith("ERROR")
+    assert "HLR" in result
+    assert graph.added == []
+
+
+def test_update_hlr_derived_marking_validated_on_merged_bag() -> None:
+    """A rationale supplied in a second call satisfies the invariant
+    together with the already-stored derived flag."""
+    graph = _StubGraph([
+        _n("PARA-0001", "PARA", title="Input Handling", content="Paragraph."),
+        _n("HLR-0001", "HLR", parent_id="PARA-0001",
+           title="Bound Queue Growth",
+           content="The system shall bound queue growth.",
+           properties={"derived": True,
+                       "derived_rationale": "Design necessity."}),
+    ])
+    tool = GraphWriteTool(graph=graph)
+    result = tool._execute(
+        operation="update_node", node_id="HLR-0001",
+        properties='{"derived_rationale": "Sharper design-necessity wording."}',
+    )
+    assert result.startswith("OK")
+
+
+def test_update_hlr_dropping_rationale_shape_rejected() -> None:
+    graph = _StubGraph([
+        _n("PARA-0001", "PARA", title="Input Handling", content="Paragraph."),
+        _n("HLR-0001", "HLR", parent_id="PARA-0001",
+           title="Bound Queue Growth",
+           content="The system shall bound queue growth."),
+    ])
+    tool = GraphWriteTool(graph=graph)
+    result = tool._execute(
+        operation="update_node", node_id="HLR-0001",
+        properties='{"derived": true}',
+    )
+    assert result.startswith("ERROR")
+    assert "derived_rationale" in result
+    assert graph.updated == []

@@ -13,8 +13,8 @@ dedicated dashboard per phase via `/phase/:phaseNum`.
 | 1 | Ingest Document       | Deterministic   | DOCUMENT node from `forge.md`              | DOCUMENT exists |
 | 2 | Parse Document        | Deterministic (markdown) / Agent (exception) | PARA tree (paragraph/section nodes) | No `UNCHUNKED_DOCUMENT` |
 | 3 | Derive HLRs           | Agent (batch)   | High-level requirements + non-normative PARA classifications | No `UNCOVERED_PARA` |
-| 4 | Create Architecture   | Agent           | ARCHITECTURE node                          | No `UNARCHITECTED` |
-| 5 | Assign Modules        | Agent (batch)   | MODULE nodes owning HLRs                   | No `UNMODULARISED` |
+| 4 | Create Architecture   | Agent           | ARCHITECTURE node + MODULE nodes with HLR allocations | No `UNARCHITECTED` |
+| 5 | Verify Module Allocation | Deterministic check + Agent (residual per-gap) | Trace links for residual unassigned HLRs | No `UNMODULARISED` |
 | 6 | Write Contracts       | Agent           | One CONTRACT per MODULE                    | No `UNCONTRACTED` |
 | 7 | Derive LLRs           | Agent (batch)   | Low-level requirements                     | No `UNREFINED_HLR` |
 | 8 | Create Designs        | Agent (batch)   | DESIGN specs per module                    | No `UNDESIGNED` |
@@ -39,7 +39,7 @@ detailed requirements are elaborated in Phase 7.
 Within every agent-driven phase, quality runs **inline**: after structural
 work, the phase runs deterministic quality checks, batched LLM quality
 judging, and semantic duplicate removal over the node types it created.
-Phases whose gaps are interdependent (3, 5, 7, 8, 10) use batch dispatch —
+Phases whose gaps are interdependent (3, 7, 8, 10) use batch dispatch —
 the agent sees all gaps and all existing target nodes at once, in chunks of
 `llm.batch_author_chunk_size` (default 20); anything a batch cannot close
 falls back to one-at-a-time dispatch, so no structural gap is ever left
@@ -93,20 +93,40 @@ exactly like a new HLR does. A marking with a missing or invalid rationale
 is a loud `INADEQUATE_CONTENT` gap, never a silent exemption.
 
 HLRs are EARS-style "The system shall …" statements (enforced at write
-time) with a verification method (test, analysis, review, or demo);
-requirements inferred rather than stated are marked derived, with
-rationale. Normative details — exact exception types, return-value
+time) with a verification method persisted as
+`properties.verification_method` — one of the four standard methods:
+test, analysis, inspection, or demonstration (shape-checked at write
+time; optional on legacy graphs). Requirements inferred rather than
+stated — emerging from design necessity with no direct parent-text
+provenance (DO-178C derived requirements) — are persisted with
+`properties.derived: true` plus a mandatory `derived_rationale`; the
+`derive_requirement` tool emits these fields and the authoring prompts
+instruct the agent to persist them. Normative details — exact exception types, return-value
 contracts, ordering and tie-break rules — must be captured, not
 paraphrased away.
 
 **4 — Create Architecture.** A single ARCHITECTURE node decomposing the
-system: module inventory, interfaces, cross-cutting concerns, rationale.
-Traces to the HLRs it addresses.
+system — module inventory, interfaces, cross-cutting concerns, rationale —
+tracing to the HLRs it addresses, **plus the MODULE nodes under it, each
+created with its HLR allocation**. Requirements and architecture co-evolve
+(Twin Peaks), so allocation is an *output of architecture authoring*, not a
+separate hand-off phase: the authoring prompt receives every HLR and each
+MODULE must be written with `trace_to` listing the HLRs it covers, such
+that every HLR lands in exactly one MODULE's `trace_to` (no overlap, no
+omissions).
 
-**5 — Assign Modules.** MODULE nodes under the ARCHITECTURE, each with a
-responsibility statement and traces to the HLRs it owns. Complete when every
-HLR is owned by at least one MODULE; a MODULE tracing to nothing is itself a
-gap.
+**5 — Verify Module Allocation.** Verification and residual repair only —
+this phase authors nothing in the normal flow. A deterministic
+every-HLR-lands check (the `UNMODULARISED` analyser gap) verifies the
+allocation emitted by phase 4; per-gap agent dispatch runs *only* for
+residual unassigned HLRs (bounded by the structural loop's circuit
+breaker), appending each to the best-fitting MODULE's `trace_to` or —
+exceptionally — creating a new MODULE when none fits. Revising the phase-4
+allocation here is normal Twin Peaks flow, not an error. Complete when
+every HLR is owned by at least one MODULE; a MODULE tracing to nothing is
+itself a gap. Resumed builds whose graph predates allocation-at-authoring
+(ARCHITECTURE + MODULEs present, HLRs unassigned) complete through the
+same residual route.
 
 **6 — Write Contracts.** One CONTRACT per MODULE: prose interface spec plus
 a **structured `public_api`** (module, symbol, kind, signature per entry —
@@ -126,6 +146,10 @@ all downstream phases are checked against.
 EARS-form low-level requirements, scoped to the owning MODULE's CONTRACT.
 This phase carries the highest quality bar, including a decomposition-
 completeness check (do the LLRs jointly cover the HLR, given the contract?).
+LLRs carry the same persisted `verification_method` / `derived` (+
+`derived_rationale`) properties as HLRs, shape-checked at write time — an
+LLR that exists for design necessity rather than direct HLR text is marked
+derived, with rationale.
 
 **8 — Create Designs.** DESIGN specs per MODULE (class names, method
 signatures, responsibilities), each tracing to the LLRs it implements.
@@ -145,7 +169,11 @@ preconditions, steps, expected results, and acceptance criteria, and must
 encode the contract exactly (exact exception classes, exact return values,
 full expected orderings). Case authoring receives the owning module's
 structured CONTRACT records and must encode one case per `raises` entry
-(If–then EARS shape) and one per stated postcondition. A coverage check
+(If–then EARS shape) and one per stated postcondition. Case authoring
+also receives each requirement's `verification_method` and derived status:
+a test-method requirement needs an executable case, while analysis /
+inspection / demonstration methods get a case documenting that obligation
+and the evidence that discharges it. A coverage check
 verifies each case actually
 tests what it traces to; absent or unparseable verdicts never remove a
 trace — they leave it unverified with a logged error.

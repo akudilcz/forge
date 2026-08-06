@@ -31,6 +31,10 @@ from backend.analysis.node_invariants import (
     check_title,
     check_title_distinct_from_parent,
 )
+from backend.analysis.requirement_marking import (
+    check_derived_marking,
+    check_verification_method,
+)
 from backend.graph.models import GraphNode
 
 
@@ -83,6 +87,8 @@ def validate_add_node(
         check_contract_public_api(node_type, properties),
         check_contract_prohibited(node_type, properties),
         check_non_normative_marking(node_type, properties),
+        check_derived_marking(node_type, properties),
+        check_verification_method(node_type, properties),
     ):
         if msg is not None:
             return f"ERROR: {msg}"
@@ -123,9 +129,13 @@ def validate_update_node(
     node_type = existing.node_type
     if properties is not None:
         merged: dict[str, object] = {**existing.properties, **properties}
-        msg = check_non_normative_marking(node_type, merged)
-        if msg is not None:
-            return f"ERROR: {msg}"
+        for msg in (
+            check_non_normative_marking(node_type, merged),
+            check_derived_marking(node_type, merged),
+            check_verification_method(node_type, merged),
+        ):
+            if msg is not None:
+                return f"ERROR: {msg}"
     if title is not None:
         msg = check_title(node_type, title)
         if msg is not None:

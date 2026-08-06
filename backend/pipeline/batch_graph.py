@@ -25,6 +25,7 @@ def _node_to_dict(node: Any) -> dict[str, Any]:
         "content": node.content or "",
         "parent_id": node.parent_id or "",
         "trace_to": node.trace_to or [],
+        "properties": node.properties or {},
     }
 
 

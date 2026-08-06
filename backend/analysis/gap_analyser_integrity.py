@@ -23,6 +23,12 @@ from backend.analysis.node_invariants import (
     normalise_content,
     normalise_title,
 )
+from backend.analysis.requirement_marking import (
+    DERIVED_KEY,
+    DERIVED_RATIONALE_KEY,
+    check_derived_marking,
+    is_marked_derived,
+)
 from backend.graph.models import GraphNode, NodeType
 from backend.graph.provenance import DERIVED_FROM_HASH, provenance_hash
 from backend.server.forge_logger import forge_logger
@@ -87,6 +93,12 @@ class NodeIntegrityChecks:
         Workspace-sync nodes (CODE, TEST, RESULT) are skipped — their
         parents are routinely updated with metadata (line_traces, trace
         coverage) that does not invalidate the child content.
+
+        Derived requirements (specs/13 U4): an HLR/LLR validly marked
+        ``derived: true`` legitimately lacks tight parent-text
+        provenance, so it is exempt from the hash comparison — but a
+        derived marking missing its rationale is a loud
+        ``INADEQUATE_CONTENT`` gap, never a silent exemption.
         """
         if not node.parent_id:
             return []
@@ -96,6 +108,9 @@ class NodeIntegrityChecks:
         if not parent:
             return []
         props = node.properties or {}
+        derived_verdict = self._derived_marking_gaps(node, props)
+        if derived_verdict is not None:
+            return derived_verdict
         if DERIVED_FROM_HASH not in props:
             forge_logger.emit(
                 "WARNING", "GAP  ",
@@ -127,6 +142,36 @@ class NodeIntegrityChecks:
                 )
             ]
         return []
+
+    def _derived_marking_gaps(
+        self, node: GraphNode, props: dict[str, Any],
+    ) -> list[Gap] | None:
+        """Staleness verdict for a derived-requirement marking, if any.
+
+        Returns ``None`` when the node carries no derived marking (normal
+        staleness applies), ``[]`` when validly marked ``derived: true``
+        (exempt — it legitimately lacks tight parent-text provenance),
+        or a loud ``INADEQUATE_CONTENT`` gap when the marking is invalid
+        (e.g. ``derived: true`` with no ``derived_rationale``).
+        """
+        if DERIVED_KEY not in props and DERIVED_RATIONALE_KEY not in props:
+            return None
+        msg = check_derived_marking(node.node_type, props)
+        if msg is not None:
+            return [
+                Gap(
+                    type=GapType.INADEQUATE_CONTENT,
+                    priority=GapPriority.MAINTENANCE,
+                    node_id=node.node_id,
+                    description=(
+                        f"{node.node_type} {node.node_id} has an invalid "
+                        f"derived-requirement marking: {msg}"
+                    ),
+                )
+            ]
+        if is_marked_derived(props):
+            return []
+        return None
 
     def _check_orphan(self, graph: Any, node: GraphNode) -> list[Gap]:
         """ORPHAN_NODE: parent missing, or parent exists but is the wrong type."""

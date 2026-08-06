@@ -1248,15 +1248,6 @@ class TestBatchPhaseNoGapsEarlyExit:
         assert result["deletions"] == 0
 
     @pytest.mark.asyncio
-    async def test_batch_phase5_no_gaps(self) -> None:
-        from backend.pipeline.batch_steps import batch_phase5
-
-        flow = _make_flow(gaps=[])
-        result = await batch_phase5(flow, 5)
-        assert result["step_name"] == "batch_phase5"
-        assert result["deletions"] == 0
-
-    @pytest.mark.asyncio
     async def test_batch_phase7_no_gaps(self) -> None:
         from backend.pipeline.batch_steps import batch_phase7
 
@@ -1306,34 +1297,6 @@ class TestBatchPhaseExceptionFallback:
             result = await batch_phase3(flow, 3)
         mock_fb.assert_awaited_once()
         assert result["step_name"] == "structural"
-
-    @pytest.mark.asyncio
-    async def test_batch_phase5_exception_falls_back(self) -> None:
-        from backend.pipeline.batch_steps import batch_phase5
-
-        hlr = _mock_node("HLR-1", "HLR", content="text")
-        gap = Gap(
-            type=GapType.UNMODULARISED,
-            priority=GapPriority.MODULARISATION,
-            node_id="HLR-1",
-            description="test",
-        )
-        flow = _make_flow(nodes=[hlr], gaps=[gap])
-
-        with (
-            patch(
-                "backend.pipeline.batch_steps._run_batch_agent",
-                new_callable=AsyncMock,
-                side_effect=RuntimeError("boom"),
-            ),
-            patch(
-                "backend.pipeline.batch_steps._fallback_structural",
-                new_callable=AsyncMock,
-                return_value={"step_name": "structural", "deletions": 0},
-            ) as mock_fb,
-        ):
-            await batch_phase5(flow, 5)
-        mock_fb.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_batch_phase7_exception_falls_back(self) -> None:

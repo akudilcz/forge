@@ -13,6 +13,7 @@ from backend.prompting.task_prompts_authoring import (
     CASE_CONTRACT_ENCODING,
     EARS_PATTERNS,
     NORMATIVE_MUST_CAPTURE,
+    REQUIREMENT_PROVENANCE_FIELDS,
 )
 
 
@@ -53,9 +54,13 @@ def build_batch_phase3_prompt(
         "       graph_reparent_node(node_id=<hlr_id>, parent_id=<para_id>)\n"
         "  B) Create a new HLR using derive_requirement to generate the text:\n"
         "       derive_requirement(parent_content=<PARA content text>, level=hlr)\n"
-        "     Then persist:\n"
+        "     Then persist the text AND the tool's verification_method /\n"
+        "     derived / derived_rationale outputs:\n"
         "       graph_add_node(node_type=HLR, parent_id=<para_id>,\n"
-        "         content=<derived text>, title='3-5 words')\n"
+        "         content=<derived req_text>, title='3-5 words',\n"
+        "         properties='{\"verification_method\": \"<tool output>\",\n"
+        "                      \"derived\": <tool output>,\n"
+        "                      \"derived_rationale\": \"<tool output, when derived>\"}')\n"
         "  C) Classify a genuinely NON-NORMATIVE paragraph instead of forcing\n"
         "     an HLR onto it:\n"
         "       graph_update_node(node_id=<para_id>,\n"
@@ -80,6 +85,7 @@ def build_batch_phase3_prompt(
         "- Each HLR content must be a single ATOMIC sentence in one of the\n"
         "  EARS patterns. One testable obligation per HLR.\n"
         f"{EARS_PATTERNS}"
+        f"{REQUIREMENT_PROVENANCE_FIELDS}"
         "- A PARA may contain SEVERAL obligations — create one HLR per\n"
         "  obligation, never a single summary HLR for the paragraph.\n"
         f"{NORMATIVE_MUST_CAPTURE}"
@@ -88,51 +94,6 @@ def build_batch_phase3_prompt(
     )
 
     return static + dynamic
-
-
-def build_batch_phase5_prompt(
-    unassigned_hlrs: list[dict[str, Any]],
-    modules: list[dict[str, Any]],
-    architecture: dict[str, Any] | None,
-    contracts: list[dict[str, Any]] | None = None,
-) -> str:
-    """Phase 5: assign HLRs to MODULEs.
-
-    Includes MODULE content in full (responsibilities + class plan are the
-    real signal) and any CONTRACTs that already exist (responsibilities are
-    sharper in contracts). ARCHITECTURE content is included in full — no
-    truncation, the packer drops whole sections if over budget.
-    """
-    contracts = contracts or []
-    hlr_lines = _format_node_list(unassigned_hlrs, ["node_id", "title", "content"])
-    mod_lines = _format_node_list(modules, ["node_id", "title", "trace_to", "content"])
-    ctr_lines = _format_node_list(
-        contracts, ["node_id", "parent_id", "title", "content"]
-    )
-    arch_block = ""
-    if architecture:
-        arch_block = (
-            f"\nARCHITECTURE [{architecture['node_id']}]:\n"
-            f"{architecture.get('content', '')}\n"
-        )
-
-    return (
-        "You are assigning HLRs to MODULEs.\n\n"
-        f"UNASSIGNED HLRs ({len(unassigned_hlrs)} — no MODULE traces to them):\n"
-        f"{hlr_lines}\n\n"
-        f"EXISTING MODULEs with full content ({len(modules)}):\n"
-        f"{mod_lines}\n\n"
-        f"EXISTING CONTRACTs — authoritative responsibility statements "
-        f"({len(contracts)}):\n"
-        f"{ctr_lines}\n"
-        f"{arch_block}\n"
-        "FOR EACH unassigned HLR above:\n"
-        "  graph_add_traces(node_id=<module_id>, trace_to=[<hlr_id>])\n\n"
-        "Only create a NEW MODULE when no existing MODULE is a semantically\n"
-        "good fit for the HLR's concern. Use CONTRACT responsibilities and\n"
-        "MODULE content (not just titles) to judge fit.\n"
-        "Work through ALL unassigned HLRs before stopping."
-    )
 
 
 def build_batch_phase7_prompt(
@@ -190,6 +151,7 @@ def build_batch_phase7_prompt(
         "- Do NOT move an LLR if it is the ONLY child of its current parent.\n"
         "- Each LLR must be ATOMIC — ONE obligation in one EARS pattern.\n"
         f"{EARS_PATTERNS}"
+        f"{REQUIREMENT_PROVENANCE_FIELDS}"
         "- Create one LLR per distinct obligation. Do NOT under-decompose.\n"
         "- Align LLRs to CONTRACT signatures where they exist.\n"
         "- Work through ALL HLRs before stopping."
@@ -278,9 +240,21 @@ def build_batch_phase10_prompt(
     existing CASEs, and every CONTRACT's structured ``public_api`` records
     (specs/13) so the agent can enumerate raises entries and postconditions
     into cases and emit one ``multi_graph_write`` with every new case.
+
+    Each requirement line carries its ``verification_method`` and derived
+    status (U4, specs/13) so the author can honour the method — Test
+    needs an executable case; Analysis / Inspection / Demonstration get
+    a case documenting the obligation.
     """
-    hlr_lines = _format_node_list(untested_hlrs, ["node_id", "title", "content"])
-    llr_lines = _format_node_list(untested_llrs, ["node_id", "parent_id", "title", "content"])
+    marking = ["verification_method", "derived", "derived_rationale"]
+    hlr_lines = _format_node_list(
+        [_flatten_requirement_marking(n) for n in untested_hlrs],
+        ["node_id", "title", *marking, "content"],
+    )
+    llr_lines = _format_node_list(
+        [_flatten_requirement_marking(n) for n in untested_llrs],
+        ["node_id", "parent_id", "title", *marking, "content"],
+    )
 
     suite_block = ""
     suite_id = ""
@@ -343,6 +317,24 @@ def build_batch_phase10_prompt(
         "- Titles must be distinct, concrete 3-5 word noun phrases.\n"
         f"{CASE_CONTRACT_ENCODING}"
     )
+
+
+def _flatten_requirement_marking(node: dict[str, Any]) -> dict[str, Any]:
+    """Copy U4 marking properties up to top-level keys for line rendering.
+
+    ``_format_node_list`` reads flat fields, so ``verification_method`` /
+    ``derived`` / ``derived_rationale`` are lifted out of ``properties``
+    when present. Node dicts without a ``properties`` key pass through
+    unchanged (legacy callers).
+    """
+    if "properties" not in node:
+        return node
+    props = node["properties"] or {}
+    flat = dict(node)
+    for key in ("verification_method", "derived", "derived_rationale"):
+        if key in props:
+            flat[key] = props[key]
+    return flat
 
 
 def _format_para_list(paras: list[dict[str, Any]]) -> str:

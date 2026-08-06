@@ -82,3 +82,93 @@ def test_wording_repair_system_prompt_teaches_real_patterns() -> None:
     for template in _TEMPLATES:
         assert template in WORDING_REPAIR_SYSTEM_PROMPT, template
     assert "AFTER the shall-clause" not in WORDING_REPAIR_SYSTEM_PROMPT
+
+
+# ── U4: derived-requirement + verification-method prompt pins (specs/13) ─────
+
+
+def _assert_provenance_instructions(text: str) -> None:
+    from backend.prompting.task_prompts_authoring import (
+        REQUIREMENT_PROVENANCE_FIELDS,
+    )
+
+    assert REQUIREMENT_PROVENANCE_FIELDS in text
+    # The four standard methods (IEEE 29148) are all named.
+    for method in ("Test", "Analysis", "Inspection", "Demonstration"):
+        assert method in REQUIREMENT_PROVENANCE_FIELDS, method
+    # Derivation instruction: derived + rationale for design-necessity reqs.
+    assert "derived_rationale" in REQUIREMENT_PROVENANCE_FIELDS
+    assert "design necessity" in REQUIREMENT_PROVENANCE_FIELDS
+
+
+def test_para_hlr_prompt_instructs_provenance_properties() -> None:
+    description, _ = _para_hlr("PARA-0001", "")
+    _assert_provenance_instructions(description)
+
+
+def test_llr_prompt_instructs_provenance_properties() -> None:
+    description, _ = _llr("HLR-0001", "")
+    _assert_provenance_instructions(description)
+
+
+def test_batch_phase3_prompt_instructs_provenance_properties() -> None:
+    prompt = build_batch_phase3_prompt(
+        [{"node_id": "PARA-0001", "content": "The system must sort."}], [], [],
+    )
+    _assert_provenance_instructions(prompt)
+    # The derive tool's outputs must be persisted, not discarded.
+    assert "verification_method" in prompt
+    assert "derived" in prompt
+
+
+def test_batch_phase7_prompt_instructs_provenance_properties() -> None:
+    prompt = build_batch_phase7_prompt(
+        [{"node_id": "HLR-0001", "title": "Sort", "content": "The system shall sort."}],
+        [], [],
+    )
+    _assert_provenance_instructions(prompt)
+
+
+def test_case_contract_encoding_states_verification_method_rule() -> None:
+    from backend.prompting.task_prompts_authoring import CASE_CONTRACT_ENCODING
+
+    assert "verification_method" in CASE_CONTRACT_ENCODING
+    assert "executable" in CASE_CONTRACT_ENCODING.lower()
+    for method in ("analysis", "inspection", "demonstration"):
+        assert method in CASE_CONTRACT_ENCODING, method
+
+
+def test_batch_phase10_prompt_renders_requirement_marking() -> None:
+    from backend.prompting.batch_prompts import build_batch_phase10_prompt
+
+    prompt = build_batch_phase10_prompt(
+        untested_hlrs=[{
+            "node_id": "HLR-0001", "title": "Sort", "content": "The system shall sort.",
+            "properties": {"verification_method": "analysis", "derived": True,
+                           "derived_rationale": "Design necessity."},
+        }],
+        untested_llrs=[{
+            "node_id": "LLR-0001", "title": "Merge", "content": "The system shall merge.",
+            "properties": {"verification_method": "test"},
+        }],
+        suite={"node_id": "SUITE-0001", "content": "strategy"},
+        existing_cases=[],
+        contract_records=[],
+    )
+    assert "verification_method=analysis" in prompt
+    assert "derived=True" in prompt
+    assert "verification_method=test" in prompt
+
+
+def test_batch_phase10_prompt_without_properties_still_renders() -> None:
+    from backend.prompting.batch_prompts import build_batch_phase10_prompt
+
+    prompt = build_batch_phase10_prompt(
+        untested_hlrs=[{"node_id": "HLR-0001", "title": "Sort",
+                        "content": "The system shall sort."}],
+        untested_llrs=[],
+        suite=None,
+        existing_cases=[],
+        contract_records=[],
+    )
+    assert "HLR-0001" in prompt

@@ -30,6 +30,28 @@ EARS_PATTERNS = (
     "'shall' per requirement.\n"
 )
 
+#: U4 (specs/13): properties persisted on every authored HLR/LLR so what
+#: derivation decides — verifiability (IEEE 29148) and derived status
+#: (DO-178C) — is kept, not discarded. Embedded in every phase 3/7 prompt
+#: that authors requirements; the write tools shape-check both properties.
+REQUIREMENT_PROVENANCE_FIELDS = (
+    "REQUIREMENT PROPERTIES — persist on every HLR/LLR you create:\n"
+    "  • verification_method: how the requirement will be verified —\n"
+    "    exactly ONE of the four standard methods: Test / Analysis /\n"
+    "    Inspection / Demonstration.\n"
+    "      properties='{\"verification_method\": \"test\"}'\n"
+    "  • derived: set \"derived\": true PLUS a non-empty\n"
+    "    \"derived_rationale\" ONLY when the requirement has NO direct\n"
+    "    provenance in the parent text — it emerges from design necessity\n"
+    "    rather than restating a stated obligation (a DO-178C derived\n"
+    "    requirement). A requirement that restates parent text omits both\n"
+    "    keys. derived: true without a rationale is REJECTED at write\n"
+    "    time.\n"
+    "  When derive_requirement produced the text, persist its\n"
+    "  verification_method / derived / derived_rationale outputs verbatim\n"
+    "  in the same properties object.\n"
+)
+
 #: Contract categories that live builds repeatedly dropped between whitepaper
 #: and graph (topological_sort e2e: CyclicGraphError's ValueError base class,
 #: `find_cycle -> ... | None`, and the tie_breaker key-function arity all
@@ -102,6 +124,11 @@ CASE_CONTRACT_ENCODING = (
     "    in the context, author ONE case per raises entry — EARS shape 'If\n"
     "    <when>, then <symbol> raises <cls> (caught by except <base>)' — and\n"
     "    ONE case per stated postcondition, asserting it exactly.\n"
+    "  • Verification method: when the requirement states a\n"
+    "    verification_method, honour it — 'test' needs an EXECUTABLE case\n"
+    "    (concrete steps a pytest test can implement directly);\n"
+    "    'analysis' / 'inspection' / 'demonstration' get a case DOCUMENTING\n"
+    "    that obligation and the evidence that discharges it.\n"
 )
 
 # ── Per-gap-type helpers (each <= 20 lines) ──────────────────────────────────
@@ -229,6 +256,7 @@ def _para_hlr(nid: str, ctx: str) -> tuple[str, str]:
         f"    Atomicity test: if the sentence contains 'and' linking two verbs\n"
         f"    or outcomes, split into separate HLRs.\n"
         f"{EARS_PATTERNS}"
+        f"{REQUIREMENT_PROVENANCE_FIELDS}"
         f"  Leave node_id empty — auto-assigns a HLR-NNNN ID.\n"
         f"  NEVER create placeholder HLRs like 'Handle PARA-XXXX Content'.\n"
         f"  When calling derive_requirement (once per obligation), pass the\n"
@@ -278,6 +306,12 @@ def _architect(nid: str, ctx: str) -> tuple[str, str]:
         f"Parent: the ARCHITECTURE node_id returned in Step 2. Leave node_id empty.\n"
         f"trace_to: list the HLR node_ids this module covers. Every HLR must be\n"
         f"traced by exactly ONE module (no overlap, no omissions).\n"
+        f"ALLOCATION HAPPENS HERE, at MODULE creation (requirements and\n"
+        f"architecture co-evolve — Twin Peaks). Every HLR from Step 1 must land\n"
+        f"in exactly one MODULE's trace_to as part of this authoring pass.\n"
+        f"Phase 5 does NOT author allocations — it only VERIFIES that every HLR\n"
+        f"landed and repairs residual unassigned HLRs one at a time. Do not\n"
+        f"defer any HLR's assignment.\n"
         f"content MUST include ONLY:\n"
         f"  • Responsibilities and scope (what the module does)\n"
         f"  • Class plan — the implementation classes, their names, and the\n"
@@ -372,7 +406,8 @@ def _llr(nid: str, ctx: str) -> tuple[str, str]:
         f"  Each LLR content MUST be a single ATOMIC sentence in one of the\n"
         f"  EARS patterns below. ATOMIC means ONE testable obligation — never\n"
         f"  bundle two obligations with 'and'/semicolons.\n"
-        f"{EARS_PATTERNS}\n"
+        f"{EARS_PATTERNS}"
+        f"{REQUIREMENT_PROVENANCE_FIELDS}\n"
         f"STRICT RULES: Do NOT call graph_read. Do NOT call derive_requirement.\n"
         f"Do NOT create MODULEs or CONTRACTs."
         f"{ctx}",

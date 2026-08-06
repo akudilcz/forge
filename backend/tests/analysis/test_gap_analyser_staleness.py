@@ -105,6 +105,59 @@ def test_unstamped_node_is_not_flagged_but_logged_loud() -> None:
     assert logger.emit.call_args.args[0] == "WARNING"
 
 
+def test_derived_requirement_exempt_from_staleness() -> None:
+    """U4 (specs/13): a requirement validly marked derived: true legitimately
+    lacks tight parent-text provenance — a parent content change never
+    produces STALE_NODE for it."""
+    parent = _node("PARA-1", "PARA", content="NEW paragraph body")
+    child = _node(
+        "HLR-1", "HLR", parent_id="PARA-1",
+        content="The system shall bound queue growth.",
+        properties={
+            DERIVED_FROM_HASH: provenance_hash("OLD paragraph body"),
+            "derived": True,
+            "derived_rationale": "Emerges from design necessity, not stated text.",
+        },
+    )
+    gaps = GapAnalyser()._check_staleness(_Graph([parent, child]), child)
+    assert gaps == []
+
+
+def test_derived_true_missing_rationale_is_loud_inadequate_content() -> None:
+    """A derived marking without its rationale is never a silent exemption:
+    the analyser reports INADEQUATE_CONTENT naming derived_rationale."""
+    parent = _node("PARA-1", "PARA", content="NEW paragraph body")
+    child = _node(
+        "HLR-1", "HLR", parent_id="PARA-1",
+        content="The system shall bound queue growth.",
+        properties={
+            DERIVED_FROM_HASH: provenance_hash("OLD paragraph body"),
+            "derived": True,
+        },
+    )
+    gaps = GapAnalyser()._check_staleness(_Graph([parent, child]), child)
+    assert len(gaps) == 1
+    assert gaps[0].type == GapType.INADEQUATE_CONTENT
+    assert gaps[0].node_id == "HLR-1"
+    assert "derived_rationale" in gaps[0].description
+
+
+def test_derived_false_stays_in_normal_staleness_regime() -> None:
+    """derived: false is not an exemption — hash mismatch still stales."""
+    parent = _node("PARA-1", "PARA", content="NEW paragraph body")
+    child = _node(
+        "HLR-1", "HLR", parent_id="PARA-1",
+        content="The system shall bound queue growth.",
+        properties={
+            DERIVED_FROM_HASH: provenance_hash("OLD paragraph body"),
+            "derived": False,
+        },
+    )
+    gaps = GapAnalyser()._check_staleness(_Graph([parent, child]), child)
+    assert len(gaps) == 1
+    assert gaps[0].type == GapType.STALE_NODE
+
+
 def test_workspace_sync_types_skip_staleness() -> None:
     parent = _node("DESIGN-1", "DESIGN", content="new design body")
     child = _node(

@@ -256,6 +256,20 @@ class TestPhasePromptSpotChecks:
         assert "ARCHITECTURE" in expected_output
         assert "MODULE" in expected_output
 
+    def test_architect_emits_module_allocations_at_creation(self) -> None:
+        """U7: allocation is an output of architecture authoring — each MODULE
+        is written WITH trace_to of the HLRs it covers, every HLR lands in
+        exactly one MODULE's trace_to, and phase 5 only verifies."""
+        gap = _gap(GapType.UNARCHITECTED, node_id="PROJECT-0001")
+        description, _ = _entry(gap)
+        assert "trace_to: list the HLR node_ids this module covers" in description
+        assert "exactly ONE module" in description
+        assert "no overlap, no omissions" in description
+        # Phase 5 is verification + residual-only; authoring must not defer
+        # allocation to it (Twin Peaks: req/arch co-evolve here, in phase 4).
+        assert "Phase 5 does NOT author" in description
+        assert "only VERIFIES" in description
+
     def test_contract_creates_contract_under_the_module(self) -> None:
         gap = _gap(GapType.UNCONTRACTED, node_id="MODULE-0002")
         description, expected_output = _entry(gap)

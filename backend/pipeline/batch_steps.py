@@ -16,8 +16,10 @@ Each batch step therefore chunks its item list to
 3. Items still unresolved after a chunk's attempts exhaust are stragglers;
    the step falls back to individual per-gap structural dispatch for them.
 
-Used by phases 3, 5, 7, 8 (naturally chunked per MODULE) and 10. Other
-phases use the per-gap structural loop.
+Used by phases 3, 7, 8 (naturally chunked per MODULE) and 10. Other phases
+use the per-gap structural loop. Phase 5 has no batch step (U7, specs/03):
+HLR→MODULE allocation is authored in phase 4, and phase 5 only verifies it,
+dispatching residual unassigned HLRs through the structural loop.
 """
 
 from __future__ import annotations
@@ -50,7 +52,6 @@ from backend.pipeline.phase_context import phase_context
 from backend.pipeline.steps import StepResult
 from backend.prompting.batch_prompts import (
     build_batch_phase3_prompt,
-    build_batch_phase5_prompt,
     build_batch_phase7_prompt,
     build_batch_phase8_prompt,
     build_batch_phase10_prompt,
@@ -316,42 +317,6 @@ async def batch_phase3(flow: Any, phase: int) -> StepResult:
     if unresolved:
         result = await _fallback_structural(flow, phase)
     _track_new_nodes(flow, "HLR", before_ids)
-    return result
-
-
-# ── Phase 5: UNMODULARISED ──────────────────────────────────────────────────
-
-
-async def batch_phase5(flow: Any, phase: int) -> StepResult:
-    """Chunk-assign HLRs to MODULEs with per-chunk retry.
-
-    Static context (MODULEs + CONTRACTs + ARCHITECTURE) is snapshotted once
-    and shared across chunk calls; only the unassigned-HLR list varies.
-    Stragglers fall through to per-gap structural dispatch.
-    """
-    forge_logger.emit("INFO", "BATCH", f"Phase {phase} · batch: UNMODULARISED")
-    before_ids = _snapshot_node_ids(flow, "MODULE")
-
-    all_nodes = flow.graph.all_nodes()
-    modules = [_node_to_dict(n) for n in all_nodes if n.node_type == "MODULE"]
-    contracts = [_node_to_dict(n) for n in all_nodes if n.node_type == "CONTRACT"]
-    arch = next((n for n in all_nodes if n.node_type == "ARCHITECTURE"), None)
-    arch_dict = _node_to_dict(arch) if arch else None
-
-    def prompt_for(ids: list[str]) -> str:
-        return build_batch_phase5_prompt(
-            _node_dicts_for_ids(flow, ids), modules, arch_dict, contracts,
-        )
-
-    unresolved = await _run_chunked_batch(
-        flow, phase, GapType.UNMODULARISED,
-        _gap_ids_collector(flow, phase), prompt_for,
-    )
-
-    result = StepResult(step_name="batch_phase5", deletions=0)
-    if unresolved:
-        result = await _fallback_structural(flow, phase)
-    _track_new_nodes(flow, "MODULE", before_ids)
     return result
 
 

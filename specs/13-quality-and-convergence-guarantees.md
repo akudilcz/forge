@@ -23,6 +23,8 @@ disagree. Enforced on every add/update:
 | Content not identical to a same-type sibling's | All types except PARA (document mirrors) |
 | `trace_to` non-empty and correctly typed (CASE_HLR→HLR, CASE_LLR→LLR) | Test cases |
 | `properties.non_normative` marking well-formed: allowed on PARA nodes only; `non_normative: true` requires a `non_normative_rationale` naming a documented reason kind (`background/context`, `duplicate-of-<PARA-id>`, `example/illustration`, `meta/document-structure`) | PARA |
+| `properties.derived` marking well-formed: allowed on requirement nodes only; boolean; `derived: true` requires a non-empty `derived_rationale` explaining the design necessity the requirement emerged from (a DO-178C derived requirement) | HLR, LLR |
+| `properties.verification_method`, when present, names one of the four standard methods (IEEE 29148): `test`, `analysis`, `inspection`, `demonstration` (case-insensitive). Optional — legacy graphs carry none; allowed on requirement nodes only | HLR, LLR |
 | Structured `properties.public_api` present and well-formed (module, symbol, kind, signature per entry; optional per-entry `raises` / `preconditions` / `postconditions` / `invariants` shape-checked when present); `prohibited_constructs` well-formed when present | CONTRACT |
 
 Batched writes are validated as a whole and rejected atomically — a bad
@@ -41,6 +43,34 @@ coverage gap. Heading and empty PARAs remain exempt as before. This
 replaces the old one-HLR-per-paragraph quota, which manufactured
 near-duplicate requirements (a recognised requirements defect class) that
 the duplicate-removal machinery then had to delete.
+
+## Derived requirements and verification methods
+
+What derivation decides is persisted, never discarded. The
+`derive_requirement` tool returns `req_text`, `verification_method`,
+`derived`, and `derived_rationale`; the authoring prompts (per-gap and
+batch, phases 3 and 7) instruct the agent to persist the last three as
+node properties, and to mark `derived: true` plus a rationale itself
+whenever a requirement has no direct provenance in the parent text — it
+emerges from design necessity rather than restating a stated obligation
+(the DO-178C derived-requirement concept).
+
+Consequences the analyser guarantees:
+
+- **Staleness exemption.** A requirement validly marked `derived: true`
+  is exempt from parent-content-hash staleness (`STALE_NODE`) — it
+  legitimately lacks tight parent-text provenance, so a parent edit is
+  not evidence it is out of date.
+- **A derived marking without its rationale is a loud gap.** The
+  exemption is never silent: `derived: true` with a missing or invalid
+  `derived_rationale` (or a marking on a non-requirement node) is
+  reported as `INADEQUATE_CONTENT` naming the exact property to fix —
+  and the node stays in the normal staleness regime until fixed.
+- **Phase 10 consumes the method.** Case authoring receives each
+  requirement's `verification_method` and derived status: a
+  `test`-method requirement needs an executable case, while `analysis`
+  / `inspection` / `demonstration` requirements get a case documenting
+  that obligation and the evidence that discharges it.
 
 ## LLM quality judging
 
