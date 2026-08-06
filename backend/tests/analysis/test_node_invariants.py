@@ -16,6 +16,7 @@ from backend.analysis.node_invariants import (
     check_sibling_content_unique,
     check_sibling_title_unique,
     check_title,
+    check_title_distinct_from_parent,
     normalise_content,
     normalise_title,
 )
@@ -312,3 +313,61 @@ def test_prohibited_constructs_non_contract_skipped() -> None:
     from backend.analysis.node_invariants import check_contract_prohibited
 
     assert check_contract_prohibited("MODULE", {"prohibited_constructs": "x"}) is None
+
+
+# ── PARA exemption from byte-identical sibling content ───────────────────────
+
+
+def test_para_siblings_may_share_identical_content() -> None:
+    """PARAs mirror the document: sections may repeat identical text and
+    heading PARAs are empty by design (live gap: topological_sort r3,
+    PARA-0010/0011/0013 vs PARA-0008 — empty section headings)."""
+    sib = _n("PARA-0008", "PARA", parent_id="DOC-1", title="Derived Queries",
+             content="Repeated sentence from the whitepaper.")
+    msg = check_sibling_content_unique(
+        "PARA", "Repeated sentence from the whitepaper.", "PARA-0010", [sib],
+    )
+    assert msg is None
+
+
+def test_non_para_siblings_still_rejected_for_identical_content() -> None:
+    sib = _n("LLR-0001", "LLR", parent_id="HLR-1", title="A",
+             content="The system shall do X.")
+    msg = check_sibling_content_unique(
+        "LLR", "the system shall do x.", "LLR-0002", [sib],
+    )
+    assert msg is not None
+    assert "LLR-0001" in msg
+
+
+# ── check_title_distinct_from_parent ─────────────────────────────────────────
+
+
+def test_title_distinct_from_parent_ok() -> None:
+    parent = _n("HLR-0077", "HLR", title="Return Descendant Set")
+    assert check_title_distinct_from_parent(
+        "LLR", "Compute Descendant Closure", parent,
+    ) is None
+
+
+def test_title_colliding_with_parent_rejected() -> None:
+    """Live gap (topological_sort r3): LLR-0073 titled identically to its
+    parent HLR-0077 — write path must reject, matching the analyser's
+    TITLE_COLLIDES_WITH_PARENT check."""
+    parent = _n("HLR-0077", "HLR", title="Return Descendant Set")
+    msg = check_title_distinct_from_parent(
+        "LLR", "  return descendant set ", parent,
+    )
+    assert msg is not None
+    assert "HLR-0077" in msg
+    assert "narrower" in msg or "distinct" in msg
+
+
+def test_title_parent_collision_exempt_types_skip() -> None:
+    parent = _n("PROJ-0001", "PROJECT", title="Same Title")
+    for ntype in ("PROJECT", "DOCUMENT", "RESULT", "RECORD"):
+        assert check_title_distinct_from_parent(ntype, "Same Title", parent) is None
+
+
+def test_title_parent_collision_no_parent_skips() -> None:
+    assert check_title_distinct_from_parent("HLR", "Any Title", None) is None

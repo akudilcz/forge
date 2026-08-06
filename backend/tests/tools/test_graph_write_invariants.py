@@ -460,3 +460,88 @@ def test_add_contract_with_malformed_public_api_rejected() -> None:
     assert result.startswith("ERROR")
     assert "public_api" in result
     assert graph.added == []
+
+
+# ── title collision with parent (TITLE_COLLIDES_WITH_PARENT at write time) ───
+
+
+def test_add_node_title_colliding_with_parent_rejected() -> None:
+    """Live gap (topological_sort r3): LLR-0073 was written with the same
+    title as its parent HLR-0077 — the write path must reject it."""
+    graph = _StubGraph([
+        _n("PARA-0001", "PARA", title="Public API", content="Section text."),
+        _n("HLR-0077", "HLR", parent_id="PARA-0001",
+           title="Return Descendant Set",
+           content="The system shall return the descendant set."),
+    ])
+    tool = GraphWriteTool(graph=graph)
+    result = tool._execute(
+        operation="add_node", node_type="LLR", parent_id="HLR-0077",
+        title="Return Descendant Set",
+        content="The system shall return the transitive descendant closure.",
+    )
+    assert result.startswith("ERROR")
+    assert "HLR-0077" in result
+    assert graph.added == []
+
+
+def test_update_node_retitle_to_parent_title_rejected() -> None:
+    graph = _StubGraph([
+        _n("HLR-0077", "HLR", title="Return Descendant Set",
+           content="The system shall return the descendant set."),
+        _n("LLR-0073", "LLR", parent_id="HLR-0077", title="Descendant Closure",
+           content="The system shall return the transitive closure."),
+    ])
+    tool = GraphWriteTool(graph=graph)
+    result = tool._execute(
+        operation="update_node", node_id="LLR-0073",
+        title="return descendant set",
+    )
+    assert result.startswith("ERROR")
+    assert "HLR-0077" in result
+    assert graph.updated == []
+
+
+def test_multi_graph_write_rejects_child_titled_as_pending_parent() -> None:
+    """Parent created earlier in the same batch: the batch prevalidation
+    must see the pending parent's title, not only the live graph."""
+    graph = _StubGraph([
+        _n("DOC-0001", "DOCUMENT", content="doc body"),
+        _n("PARA-0001", "PARA", parent_id="DOC-0001",
+           title="Graph Queries", content="Section text."),
+    ])
+    tool = MultiGraphWriteTool(graph=graph)
+    import json as _json
+    ops = _json.dumps([
+        {
+            "operation": "add_node", "node_type": "HLR", "node_id": "HLR-0001",
+            "parent_id": "PARA-0001", "title": "Return Descendant Set",
+            "content": "The system shall return the descendant set.",
+        },
+        {
+            "operation": "add_node", "node_type": "LLR", "node_id": "LLR-0001",
+            "parent_id": "HLR-0001", "title": "Return Descendant Set",
+            "content": "The system shall return the transitive closure.",
+        },
+    ])
+    result = tool._execute(operations=ops)
+    assert "0/2 operations succeeded" in result
+    assert "HLR-0001" in result
+    assert graph.added == []
+
+
+def test_add_para_with_identical_sibling_content_accepted() -> None:
+    """PARAs are exempt from byte-identical sibling rejection — a document
+    may repeat the same sentence in two sections (design/01 §3.5/§3.6)."""
+    graph = _StubGraph([
+        _n("DOC-0001", "DOCUMENT", content="doc body"),
+        _n("PARA-0001", "PARA", parent_id="DOC-0001",
+           title="Determinism Property", content="Output is deterministic."),
+    ])
+    tool = GraphWriteTool(graph=graph)
+    result = tool._execute(
+        operation="add_node", node_type="PARA", parent_id="DOC-0001",
+        title="Ordering Validity", content="Output is deterministic.",
+    )
+    assert result.startswith("OK")
+    assert len(graph.added) == 1

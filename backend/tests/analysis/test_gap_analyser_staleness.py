@@ -227,3 +227,77 @@ def test_stale_code_codegen_error_surfaces() -> None:
     gaps = GapAnalyser()._check_stale_code([design])
     assert len(gaps) == 1
     assert "parser exploded" in gaps[0].context["codegen_error"]
+
+
+# ── CONTRACT_VIOLATION vs structured public_api (design/16, design/18) ───────
+
+_TOPO_API = [
+    {
+        "module": "toposort", "symbol": "descendants", "kind": "function",
+        "signature": (
+            "descendants(graph: Mapping[Any, Iterable[Any]], node: Any) "
+            "-> set[Any]"
+        ),
+    },
+    {
+        "module": "toposort", "symbol": "CyclicGraphError", "kind": "class",
+        "signature": "class CyclicGraphError(ValueError)",
+    },
+]
+
+
+def _module_with_design(design_content: str, contract_props: dict[str, Any]) -> _Graph:
+    module = _node("MODULE-1", "MODULE", content="Module body.")
+    contract = _node(
+        "CONTRACT-1", "CONTRACT", parent_id="MODULE-1",
+        content="Public interface: descendants(graph, node).",
+        properties=contract_props,
+    )
+    design = _node(
+        "DESIGN-1", "DESIGN", parent_id="MODULE-1", content=design_content,
+    )
+    return _Graph([module, contract, design])
+
+
+def test_alignment_internal_helpers_not_flagged_with_public_api() -> None:
+    """Live gaps (topological_sort r3, DESIGN-0001..0006): internal methods
+    of private classes are NOT contract violations once the CONTRACT carries
+    structured public_api."""
+    graph = _module_with_design(
+        "class _Graph (internal): in_degree(node: Any) -> int; "
+        "successors(node: Any) -> list[Any]; decompose(x: int) -> list[Any].",
+        {"public_api": _TOPO_API},
+    )
+    gaps = GapAnalyser()._check_design_contract_alignment(
+        graph, graph.all_nodes(),
+    )
+    assert gaps == []
+
+
+def test_alignment_public_api_signature_conflict_flagged() -> None:
+    graph = _module_with_design(
+        "descendants(node: Any) -> set[Any] is the only entry point.",
+        {"public_api": _TOPO_API},
+    )
+    gaps = GapAnalyser()._check_design_contract_alignment(
+        graph, graph.all_nodes(),
+    )
+    assert len(gaps) == 1
+    assert gaps[0].type == GapType.CONTRACT_VIOLATION
+    assert gaps[0].node_id == "DESIGN-1"
+    assert gaps[0].context["conflicting_functions"] == ["descendants"]
+
+
+def test_alignment_legacy_contract_without_public_api_keeps_token_check() -> None:
+    """Contracts authored before design/16 keep the older token-subset
+    behaviour (documented fallback)."""
+    graph = _module_with_design(
+        "Provides decompose(component) plus descendants(graph, node).",
+        {},
+    )
+    gaps = GapAnalyser()._check_design_contract_alignment(
+        graph, graph.all_nodes(),
+    )
+    assert len(gaps) == 1
+    assert gaps[0].type == GapType.CONTRACT_VIOLATION
+    assert gaps[0].context["extra_functions"] == ["decompose"]

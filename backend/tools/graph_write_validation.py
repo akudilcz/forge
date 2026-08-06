@@ -28,6 +28,7 @@ from backend.analysis.node_invariants import (
     check_sibling_content_unique,
     check_sibling_title_unique,
     check_title,
+    check_title_distinct_from_parent,
 )
 from backend.graph.models import GraphNode
 
@@ -85,6 +86,11 @@ def validate_add_node(
             return f"ERROR: {msg}"
 
     if parent_id:
+        msg = check_title_distinct_from_parent(
+            node_type, title, _resolver(graph)(parent_id)
+        )
+        if msg is not None:
+            return f"ERROR: {msg}"
         siblings = _siblings(graph, parent_id, node_id)
         if siblings is not None:
             for msg in (
@@ -118,6 +124,12 @@ def validate_update_node(
             if msg is not None:
                 return f"ERROR: {msg}"
     if existing.parent_id:
+        if title is not None:
+            msg = check_title_distinct_from_parent(
+                node_type, title, _resolver(graph)(existing.parent_id)
+            )
+            if msg is not None:
+                return f"ERROR: {msg}"
         siblings = _siblings(graph, existing.parent_id, existing.node_id)
         if siblings is not None:
             if title is not None:

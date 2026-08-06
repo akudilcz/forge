@@ -120,7 +120,7 @@ Quality gaps that surface on PARA nodes during this phase:
 | `ORPHAN_NODE` | Deterministic | PARA parent missing or wrong type |
 | `EMPTY_CONTENT` | Deterministic | PARA with no content (non-heading) |
 | `UNTITLED_NODE` | Deterministic | Missing or too-long title |
-| `DUPLICATE_NODE` | Deterministic + LLM | Exact-hash or semantic duplicate among sibling PARAs |
+| `DUPLICATE_NODE` | LLM only | Semantic duplicate among sibling PARAs (double-confirmed). PARAs are **exempt** from the exact-hash duplicate scan and from deterministic deletion: they mirror the source document, whose sections may legitimately repeat identical text, and heading PARAs are empty by design — deleting one would reparent its child sections and flatten the document tree |
 
 These are handled inline by the same phase agent -- the Document Specialist
 already has the domain context to decide whether to fix, merge, or delete.

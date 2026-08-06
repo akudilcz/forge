@@ -660,3 +660,19 @@ class TestUntestedLlr:
         untested = [g for g in gaps if g.type == GapType.UNTESTED_LLR]
         assert len(untested) == 1
         assert untested[0].node_id == "LLR-001"
+
+
+def test_identical_para_siblings_are_not_duplicates(analyser: GapAnalyser) -> None:
+    """PARAs are document mirrors — byte-identical siblings are legitimate
+    (empty heading sections, repeated whitepaper sentences). Live gaps:
+    topological_sort r3 PARA-0010/0011/0013 vs PARA-0008."""
+    nodes = [
+        GraphNode(node_id="PARA-0008", node_type=NodeType.PARA.value,
+                  title="Derived Queries", content="", parent_id="DOCUMENT-0001"),
+        GraphNode(node_id="PARA-0010", node_type=NodeType.PARA.value,
+                  title="Correctness Properties", content="", parent_id="DOCUMENT-0001"),
+        GraphNode(node_id="PARA-0011", node_type=NodeType.PARA.value,
+                  title="Failure Modes Edge Cases", content="", parent_id="DOCUMENT-0001"),
+    ]
+    gaps = analyser._check_duplicate_siblings(nodes)
+    assert [g for g in gaps if g.type == GapType.DUPLICATE_NODE] == []

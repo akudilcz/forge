@@ -19,6 +19,7 @@ from backend.analysis.node_invariants import (
     check_case_trace_targets,
     check_requirement_wording,
     check_title,
+    check_title_distinct_from_parent,
     normalise_content,
     normalise_title,
 )
@@ -263,10 +264,17 @@ class NodeIntegrityChecks:
         Groups nodes by (parent_id, node_type). Within each group, nodes whose
         content hashes match are duplicates — the lowest node_id is kept; extras
         get an INCONSISTENT_CONTENT gap so the Quality Auditor can delete them.
+
+        PARA nodes are exempt (design/01 §3.5): they mirror the source
+        document, whose sections may legitimately repeat identical text,
+        and heading PARAs are empty by design — deleting one reparents its
+        child sections and flattens the document tree.
         """
         gaps: list[Gap] = []
         by_parent_type: dict[tuple[str | None, str], list[GraphNode]] = defaultdict(list)
         for node in all_nodes:
+            if node.node_type == NodeType.PARA.value:
+                continue
             key = (node.parent_id, node.node_type)
             by_parent_type[key].append(node)
 
@@ -386,22 +394,17 @@ class NodeIntegrityChecks:
         A child whose title is identical (case/whitespace-insensitive) to its
         parent's signals that the child has not narrowed scope — a common
         drift pattern when agents mirror parent labels instead of describing
-        the specific obligation.
+        the specific obligation. Delegates to the shared write-time invariant
+        in ``backend/analysis/node_invariants.py`` (also enforced by the
+        write tools) so the two layers can never diverge.
         """
-        skip_types = {
-            NodeType.PROJECT.value,
-            NodeType.DOCUMENT.value,
-            NodeType.RESULT.value,
-            NodeType.RECORD.value,
-        }
-        if node.node_type in skip_types or not node.parent_id:
+        if not node.parent_id:
             return []
         parent = graph.node_sync(node.parent_id)
         if parent is None:
             return []
-        my_title = (node.title or "").strip().lower()
-        parent_title = (parent.title or "").strip().lower()
-        if not my_title or not parent_title or my_title != parent_title:
+        msg = check_title_distinct_from_parent(node.node_type, node.title or "", parent)
+        if msg is None:
             return []
         return [
             Gap(

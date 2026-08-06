@@ -51,6 +51,17 @@ async def try_resolve_exact_duplicate(flow: Any, gap: Gap) -> bool:
     graph = flow.graph
 
     dup = graph.node_sync(gap.node_id)
+    if dup is not None and dup.node_type == "PARA":
+        # PARAs mirror document structure: deleting one reparents its child
+        # sections onto the document root and flattens the tree. Never
+        # resolved deterministically (design/01 §3.5); the LLM path with
+        # double confirmation owns any semantic PARA merge.
+        forge_logger.emit(
+            "INFO", "DEDUP",
+            f"Refusing deterministic deletion of PARA {gap.node_id} — "
+            f"document-mirror nodes are exempt from byte-identical dedup",
+        )
+        return False
     if dup is None:
         forge_logger.emit(
             "INFO", "DEDUP",

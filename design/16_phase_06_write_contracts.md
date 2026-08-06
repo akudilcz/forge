@@ -82,6 +82,10 @@ Enforcement is split by what each layer can see:
   valid, non-empty `public_api` is rejected with an actionable `ERROR:` —
   the analyser cannot read the whitepaper, so presence + shape are the
   write-time invariant.
+- **Phase 8+** (`CONTRACT_VIOLATION`, design/01 §3 and design/18): the gap
+  analyser checks each DESIGN's declared signatures against `public_api` —
+  a DESIGN may only be flagged when it contradicts a `public_api` function
+  signature; internal helpers are never violations.
 - **Phase 12** (API-surface gate, design/22): each entry is verified against
   the actual workspace — see "API-surface gate".
 

@@ -81,7 +81,7 @@ Per-MODULE batch context:
 | STALE_NODE | DESIGN's provenance hash mismatches parent MODULE content. |
 | EMPTY_CONTENT | DESIGN body is blank or trivially short. |
 | INADEQUATE_CONTENT | Missing class name, method signatures, or responsibilities. |
-| CONTRACT_VIOLATION | DESIGN contradicts the MODULE's CONTRACT obligations. |
+| CONTRACT_VIOLATION | DESIGN contradicts the CONTRACT's `properties.public_api` surface: it declares an annotated signature reusing a public function's name whose parameter names (and stated return type, when both sides state one) disagree with the `public_api` entry. Internal helpers a DESIGN declares (methods of private classes, underscore names) are **not** violations — the CONTRACT lists only the public surface. Legacy contracts without `public_api` fall back to the older token-subset check against the CONTRACT text. |
 | CROSS_MODULE_COUPLING | DESIGN references internals of another MODULE. |
 | INCONSISTENT_CONTENT | Two DESIGNs under the same MODULE overlap or conflict. |
 

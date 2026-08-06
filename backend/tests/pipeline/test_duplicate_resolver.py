@@ -265,3 +265,21 @@ async def test_dispatch_still_dispatches_near_identical() -> None:
     assert out == ""
     pool.get_agent_for_gap.assert_called_once()
     assert graph.deleted == []
+
+
+@pytest.mark.asyncio
+async def test_para_nodes_never_deterministically_deleted() -> None:
+    """PARAs mirror document structure — deleting one reparents its child
+    sections and flattens the document, so the resolver must refuse and
+    leave PARA gaps to the LLM path (design/01 §7.4)."""
+    canonical = _node("PARA-0008", "DOCUMENT-0001", "")
+    dup = _node("PARA-0010", "DOCUMENT-0001", "")
+    canonical.node_type = "PARA"
+    dup.node_type = "PARA"
+    graph = _FakeGraph([canonical, dup])
+    resolved = await try_resolve_exact_duplicate(
+        _flow(graph), _dup_gap("PARA-0010", "PARA-0008"),
+    )
+    assert resolved is False
+    assert graph.deleted == []
+    assert "PARA-0010" in graph.nodes

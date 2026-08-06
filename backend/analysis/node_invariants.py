@@ -219,6 +219,31 @@ def check_contract_prohibited(
     return None
 
 
+def check_title_distinct_from_parent(
+    node_type: str,
+    title: str,
+    parent: GraphNode | None,
+) -> str | None:
+    """A child's title must not duplicate its parent's title.
+
+    An identical title (case/whitespace-insensitive) means the child has
+    not narrowed scope — the drift pattern the analyser reports as
+    ``TITLE_COLLIDES_WITH_PARENT``. Shared by the write tools and the
+    analyser so the two can never diverge.
+    """
+    if node_type in TITLE_EXEMPT_TYPES or parent is None:
+        return None
+    child_key = normalise_title(title)
+    parent_key = normalise_title(parent.title or "")
+    if not child_key or not parent_key or child_key != parent_key:
+        return None
+    return (
+        f"title {title.strip()!r} is identical to parent {parent.node_id}'s "
+        f"({parent.node_type}) title. Choose a title reflecting this node's "
+        f"narrower scope and retry."
+    )
+
+
 # ── Sibling uniqueness checks ────────────────────────────────────────────────
 
 
@@ -252,7 +277,15 @@ def check_sibling_content_unique(
     node_id: str,
     siblings: Iterable[GraphNode],
 ) -> str | None:
-    """Same-type siblings must not carry identical (normalised) content."""
+    """Same-type siblings must not carry identical (normalised) content.
+
+    PARA nodes are exempt (design/01 §3.5/§3.6): they mirror the source
+    document, whose identity is position + title — a whitepaper may
+    legitimately repeat a sentence in two sections, and heading PARAs are
+    empty by design.
+    """
+    if node_type == NodeType.PARA.value:
+        return None
     key = normalise_content(content)
     if not key:
         return None  # EMPTY_CONTENT is a separate concern

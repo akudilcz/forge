@@ -118,6 +118,7 @@ def _prevalidate_batch(graph: object, ops: list[dict[str, Any]]) -> list[str]:
     from backend.analysis.node_invariants import (
         check_sibling_content_unique,
         check_sibling_title_unique,
+        check_title_distinct_from_parent,
     )
     from backend.graph.models import GraphNode
     from backend.tools.graph_write_parsing import _parse_json_obj, _parse_trace_to
@@ -145,8 +146,12 @@ def _prevalidate_batch(graph: object, ops: list[dict[str, Any]]) -> list[str]:
                 props,
             )
             if err is None and parent_id:
+                pending_parent = next(
+                    (p for p in pending if p.node_id == parent_id), None
+                )
                 in_batch = [p for p in pending if p.parent_id == parent_id]
                 for msg in (
+                    check_title_distinct_from_parent(node_type, title, pending_parent),
                     check_sibling_title_unique(node_type, title, node_id, in_batch),
                     check_sibling_content_unique(node_type, content, node_id, in_batch),
                 ):
