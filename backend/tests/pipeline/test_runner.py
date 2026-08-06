@@ -56,11 +56,23 @@ def test_get_steps_phase_2_deterministic_parse_first() -> None:
 
 
 def test_get_steps_custom_for_phase_10() -> None:
-    """Phase 10 batches CASE authoring and runs case_trace_coverage after."""
+    """U9: phase 10 authors the SUITE first when missing (suite_authoring
+    guard), batches CASE authoring, verifies traces, and gates on the
+    independent oracle check (specs/03 Phases 9-10)."""
     steps = get_steps(10)
     names = [s.__name__ for s in steps]
+    assert names[0] == "suite_authoring"
     assert "batch_phase10" in names
     assert "case_trace_coverage" in names
+    assert names[-1] == "oracle_check"
+    assert names.index("batch_phase10") < names.index("case_trace_coverage")
+
+
+def test_get_steps_phase_9_dispatch_only() -> None:
+    """U9: phase 9 keeps only the per-gap dispatch of its single UNSUITED
+    gap — the SUITE's quality/semantic boundary belongs to phase 10
+    (specs/03 Phases 9-10)."""
+    assert [s.__name__ for s in get_steps(9)] == ["structural"]
 
 
 def test_get_steps_phase_8_verification_only() -> None:

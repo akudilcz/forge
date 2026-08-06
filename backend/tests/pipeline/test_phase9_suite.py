@@ -1,8 +1,9 @@
 """Phase 9 (Write Test Strategy) — offline pipeline tests with a scripted agent.
 
-Phase 9 runs the default pipeline (structural loop → per-gap dispatch) driven
+Phase 9 runs the structural loop only (U9, specs/03 Phases 9-10) driven
 by the single UNSUITED gap on the PROJECT; the Test Engineer answers it by
-writing the SUITE node. Following ``test_phase_contracts_llm.py``, the only
+writing the SUITE node, and the SUITE's quality/semantic boundary belongs
+to phase 10. Following ``test_phase_contracts_llm.py``, the only
 LLM seam — ``backend.pipeline.dispatch.run_agent_task`` — is patched with a
 scripted agent while gap analysis, dispatch routing, the quality steps, and a
 real ``ProjectGraph`` on SQLite all stay live. The tests assert the machinery,
@@ -332,18 +333,16 @@ class TestPhase09Routing:
         assert GAP_AGENT_MAPPING[GapType.UNSUITED] is AgentRole.TEST_ENGINEER
         assert GAP_AGENT_MAPPING[GapType.STALE_SUITE] is AgentRole.TEST_ENGINEER
 
-    def test_phase_9_produces_only_suite_nodes(self) -> None:
-        assert PHASE_TO_NODE_TYPES[9] == ["SUITE"]
+    def test_suite_quality_boundary_is_phase_10s(self) -> None:
+        """U9: SUITE nodes are judged inside phase 10's merged quality
+        boundary — phase 9 owns no node types of its own."""
+        assert 9 not in PHASE_TO_NODE_TYPES
+        assert "SUITE" in PHASE_TO_NODE_TYPES[10]
 
-    def test_phase_9_runs_the_default_pipeline(self) -> None:
+    def test_phase_9_runs_the_unsuited_dispatch_only(self) -> None:
         from backend.pipeline.runner import get_steps
 
-        assert [s.__name__ for s in get_steps(9)] == [
-            "structural",
-            "quality_gaps",
-            "combined_quality",
-            "semantic",
-        ]
+        assert [s.__name__ for s in get_steps(9)] == ["structural"]
 
 
 # ── Phase 9 postconditions under real pipeline machinery ─────────────────────

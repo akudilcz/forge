@@ -18,8 +18,8 @@ dedicated dashboard per phase via `/phase/:phaseNum`.
 | 6 | Write Contracts       | Agent           | One CONTRACT per MODULE                    | No `UNCONTRACTED` |
 | 7 | Author Implementable Spec | Agent (fused batch per MODULE) | Low-level requirements + DESIGN specs, authored together | No `UNREFINED_HLR` |
 | 8 | Verify Design Coverage | Deterministic consolidation + check + Agent (residual per-gap) | Merged DESIGNs; trace links / residual DESIGNs for leftover LLRs | No `UNDESIGNED` |
-| 9 | Write Test Strategy   | Agent           | SUITE node                                 | No `UNSUITED` |
-|10 | Write Test Cases      | Agent (batch)   | CASE_HLR / CASE_LLR nodes                  | No `UNTESTED_HLR` / `UNTESTED_LLR` |
+| 9 | Write Test Strategy   | Agent (single dispatch) | SUITE node                         | No `UNSUITED` |
+|10 | Write Test Cases      | Agent (batch) + independent oracle judge | CASE_HLR / CASE_LLR nodes, oracle-validated | No `UNTESTED_HLR` / `UNTESTED_LLR` |
 |11 | Render Documentation  | Deterministic   | 8 Markdown docs in `workspace/docs/`       | Render returns |
 |12 | Generate Code         | Mission agent   | `src/`, `tests/`, build files, coverage    | Coverage gate (below) |
 |13 | Workspace Sync        | Deterministic   | CODE / TEST / RESULT nodes                 | No `UNSYNCED_DESIGN` / `UNSYNCED_TEST` |
@@ -39,6 +39,8 @@ detailed requirements are elaborated in Phase 7.
 Within every agent-driven phase, quality runs **inline**: after structural
 work, the phase runs deterministic quality checks, batched LLM quality
 judging, and semantic duplicate removal over the node types it created.
+(Exception: phase 9 is a single dispatch whose SUITE is judged inside
+phase 10's merged boundary — see Phases 9-10.)
 Phases whose gaps are interdependent (3, 7, 10) use batch dispatch —
 the agent sees all gaps and all existing target nodes at once, in chunks of
 `llm.batch_author_chunk_size` (default 20); anything a batch cannot close
@@ -189,24 +191,50 @@ build interrupted mid-phase-8 (LLRs authored, DESIGNs missing) completes 8
 through the residual per-gap route; a fully authored graph passes 8 with
 zero dispatches. Complete when every LLR is covered by a DESIGN.
 
-**9 — Write Test Strategy.** A single SUITE node: test types, coverage
-targets, environment, and per-module verification approach, authored with
-full system context.
+**9 — Write Test Strategy (merged into phase 10's boundary).** A single
+SUITE node: test types, coverage targets, environment, and per-module
+verification approach, authored with full system context by one per-gap
+dispatch of the `UNSUITED` gap. That dispatch is *all* phase 9 runs.
+Rationale for the merge: nothing downstream ever **executes** SUITE prose —
+the SUITE is *structured input* to case authoring (its content sits in the
+phase-10 batch prompt's static prefix and its id parents every CASE) — so a
+standalone quality/semantic boundary for one node paid a full pipeline pass
+for an artifact whose only consumer is the next phase. The SUITE is judged
+inside phase 10's merged quality boundary instead (it is a phase-10 node
+type in the quality phase map). Phase number 9 and its completion
+criterion (no `UNSUITED`) are preserved for the phase store, resume, and
+the auditor — a resumed old-shape graph whose SUITE already exists passes
+phase 9 with zero dispatches.
 
-**10 — Write Test Cases.** Every HLR gets a CASE_HLR and every LLR a
-CASE_LLR (level-specific — an HLR case never satisfies an LLR). Cases carry
-preconditions, steps, expected results, and acceptance criteria, and must
-encode the contract exactly (exact exception classes, exact return values,
-full expected orderings). Case authoring receives the owning module's
-structured CONTRACT records and must encode one case per `raises` entry
-(If–then EARS shape) and one per stated postcondition. Case authoring
-also receives each requirement's `verification_method` and derived status:
-a test-method requirement needs an executable case, while analysis /
-inspection / demonstration methods get a case documenting that obligation
-and the evidence that discharges it. A coverage check
-verifies each case actually
-tests what it traces to; absent or unparseable verdicts never remove a
-trace — they leave it unverified with a logged error.
+**10 — Write Test Cases.** The phase opens with a **suite-first guard**: if
+no SUITE exists (a build resumed directly at phase 10, or a SUITE deleted
+mid-cycle), the residual `UNSUITED` gap is dispatched before any CASE is
+authored; a guard that still produces no SUITE fails loudly — CASEs are
+never authored without their strategy parent. Then every HLR gets a
+CASE_HLR and every LLR a CASE_LLR (level-specific — an HLR case never
+satisfies an LLR). Cases carry preconditions, steps, expected results, and
+acceptance criteria, and must encode the contract exactly (exact exception
+classes, exact return values, full expected orderings). Case authoring
+receives the SUITE strategy and the owning module's structured CONTRACT
+records and must encode one case per `raises` entry (If–then EARS shape)
+and one per stated postcondition. Case authoring also receives each
+requirement's `verification_method` and derived status: a test-method
+requirement needs an executable case, while analysis / inspection /
+demonstration methods get a case documenting that obligation and the
+evidence that discharges it.
+
+Two verification passes close the phase. A coverage check verifies each
+case actually tests what it traces to; absent or unparseable verdicts never
+remove a trace — they leave it unverified with a logged error. Then an
+**independent oracle validation** judges every CASE against its traced
+requirement text and the owning module's CONTRACT record — the dominant
+failure mode of LLM-authored tests is a wrong *oracle* (an expected outcome
+the requirement never states), which would silently steer phase 12 toward a
+wrong implementation. A failed oracle becomes a repair gap dispatched
+before the phase completes; an unjudged CASE fails the step loudly. Axes,
+caching, and gate semantics:
+[13-quality-and-convergence-guarantees.md](13-quality-and-convergence-guarantees.md)
+§Oracle validation.
 
 **11 — Render Documentation.** Deterministic render of the graph into eight
 Markdown files in `workspace/docs/`: `03-HLR`, `04-Architecture`,

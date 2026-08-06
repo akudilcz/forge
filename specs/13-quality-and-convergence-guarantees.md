@@ -96,6 +96,48 @@ calls, one verdict per node per axis:
   cached: a repaired node is always re-judged. The cache is in-memory only;
   a restart costs at most one re-judging sweep.
 
+## Oracle validation — independent CASE-oracle judging (phase 10)
+
+Most LLM test-generation errors are wrong **oracles**: the case exercises
+the right topic but asserts an outcome the requirement never states, so a
+wrong implementation passes and the defect silently steers code generation.
+Phase 10 therefore ends with an independent judge (`oracle_check`) that
+validates every CASE against its traced requirement text and the owning
+module's CONTRACT record (CASE_HLR: the MODULE whose `trace_to` owns the
+HLR; CASE_LLR: via the LLR's parent HLR), on three axes:
+
+- **OUTCOME** — the expected outcome actually *follows from the traced
+  requirement text* — judged against the text, never against what a typical
+  implementation would plausibly do (the plausible-but-wrong oracle is the
+  failure this axis exists to catch).
+- **CONTRACT** — where the CONTRACT record states exception or return
+  semantics for the symbol under test, the case encodes them exactly
+  (exception class and base class, exact return values); a record stating
+  no applicable obligation passes.
+- **DISCRIMINATES** — the case names a *concrete discriminating input*:
+  real data a specific wrong implementation would fail on. The authoring
+  prompts already demand this (contract-encoding rules); the judge verifies
+  it is real, not boilerplate.
+
+Mechanics mirror the combined quality judge:
+
+- **Chunking**: cases are judged in chunks of `llm.quality_judge_batch_size`
+  (default 25) so large phases never exceed the model's output limit.
+- **A missing verdict is never a pass**: cases without a full verdict are
+  re-asked exactly once; anything still unjudged raises
+  `UnjudgedQualityError` and the step fails loudly. Verdicts naming
+  hallucinated case ids are discarded with a logged warning.
+- **Verdict caching**: a PASS is sticky per (case, hash of case + traced
+  requirement text + contract record) — an edit to *any* of the three
+  rotates the key and forces a re-judgement. A FAIL is never cached.
+- **Gate semantics**: oracle quality *gates* phase 10 completion. A failed
+  axis emits one `INCONSISTENT_CONTENT` repair gap on the CASE (existing
+  taxonomy; the gap carries the judge's per-axis findings, and its repair
+  prompt orders a requirement-faithful rewrite), dispatched before the
+  phase completes. This is deliberately stricter than duplicate removal:
+  keeping an unjudged node is safe, but an unvalidated oracle is live
+  evidence phase 12 will code against — silence never passes.
+
 ## Duplicate removal — deletion safety
 
 Requirement text is never destroyed on a single model opinion:

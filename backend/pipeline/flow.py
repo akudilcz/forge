@@ -92,6 +92,10 @@ class ForgeFlow(SpecialPhaseHandlers):
         # node must be re-judged. Flow-scoped, rebuilt on restart: worst case
         # after a restart is one full re-judging sweep (specs/12 §7.4).
         self._quality_verdict_cache: dict[tuple[str, str], str] = {}
+        # Sticky oracle PASS verdicts (U9, specs/13 §Oracle validation),
+        # keyed by (case_id, hash of case+requirement+contract evidence).
+        # FAIL is never cached — a repaired case must be re-judged.
+        self._oracle_verdict_cache: dict[tuple[str, str], str] = {}
 
     # ── Public interface ─────────────────────────────────────────────────────
 

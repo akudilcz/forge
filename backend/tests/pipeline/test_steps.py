@@ -147,3 +147,226 @@ def test_phase2_pipeline_runs_deterministic_parse_before_structural() -> None:
     assert "deterministic_parse" in names
     assert "structural" in names, "LLM chunking route must remain for prose docs"
     assert names.index("deterministic_parse") < names.index("structural")
+
+
+# ── Phase 10 · suite_authoring guard (U9) ────────────────────────────────────
+
+
+from types import SimpleNamespace  # noqa: E402
+from unittest.mock import patch  # noqa: E402
+
+from backend.analysis.gaps import Gap, GapPriority  # noqa: E402
+from backend.pipeline.steps import oracle_check, suite_authoring  # noqa: E402
+from backend.quality.oracle_check import OracleItem, oracle_pass_key  # noqa: E402
+
+
+def _simple_node(node_id: str, node_type: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        node_id=node_id, node_type=node_type, content="x", parent_id=None,
+        trace_to=[], properties={},
+    )
+
+
+def _fake_graph(nodes: list[SimpleNamespace]) -> MagicMock:
+    g = MagicMock()
+    g.all_nodes.return_value = nodes
+    g.node_sync.side_effect = lambda nid: next(
+        (n for n in nodes if n.node_id == nid), None
+    )
+    return g
+
+
+def _unsuited_gap() -> Gap:
+    return Gap(
+        type=GapType.UNSUITED, priority=GapPriority.TEST_SUITE,
+        node_id="PROJECT-0001", description="no SUITE",
+    )
+
+
+@pytest.mark.asyncio
+async def test_suite_authoring_is_a_noop_when_suite_exists() -> None:
+    flow = MagicMock()
+    flow.graph = _fake_graph([_simple_node("SUITE-0001", "SUITE")])
+    flow._dispatch = AsyncMock()
+
+    result = await suite_authoring(flow, 10)
+
+    assert result["step_name"] == "suite_authoring"
+    flow._dispatch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_suite_authoring_dispatches_unsuited_when_suite_missing() -> None:
+    nodes: list[SimpleNamespace] = [_simple_node("PROJECT-0001", "PROJECT")]
+    flow = MagicMock()
+    flow.graph = _fake_graph(nodes)
+    flow._collect_phase_gaps = MagicMock(return_value=[_unsuited_gap()])
+
+    async def dispatch(gap: Gap, attempt: int = 1) -> str:
+        nodes.append(_simple_node("SUITE-0001", "SUITE"))
+        return "ok"
+
+    flow._dispatch = AsyncMock(side_effect=dispatch)
+    result = await suite_authoring(flow, 10)
+
+    assert result["step_name"] == "suite_authoring"
+    flow._dispatch.assert_awaited_once()
+    # The guard collects the PHASE 9 gap (UNSUITED belongs to phase 9).
+    assert flow._collect_phase_gaps.call_args.args[0] == 9
+
+
+@pytest.mark.asyncio
+async def test_suite_authoring_raises_loudly_when_no_suite_results() -> None:
+    """No silent fallback: authoring CASEs without a SUITE parent is never
+    an acceptable degraded mode."""
+    flow = MagicMock()
+    flow.graph = _fake_graph([_simple_node("PROJECT-0001", "PROJECT")])
+    flow._collect_phase_gaps = MagicMock(return_value=[_unsuited_gap()])
+    flow._dispatch = AsyncMock(return_value="claims ok, writes nothing")
+
+    with pytest.raises(RuntimeError, match="SUITE"):
+        await suite_authoring(flow, 10)
+
+
+# ── Phase 10 · oracle_check step (U9) ────────────────────────────────────────
+
+
+def _oracle_item(node_id: str) -> OracleItem:
+    return OracleItem(
+        node_id=node_id,
+        case_content=f"content of {node_id}",
+        requirement_block="[HLR-0001] The system shall parse.",
+        contract_block="(no contract record)",
+    )
+
+
+def _oracle_flow(items: list[OracleItem]) -> MagicMock:
+    flow = MagicMock()
+    flow.graph = _fake_graph(
+        [_simple_node(i.node_id, "CASE_HLR") for i in items]
+    )
+    flow._oracle_verdict_cache = {}
+    flow._dispatch = AsyncMock()
+    flow.config.llm.quality_judge_batch_size = 25
+    return flow
+
+
+class _CheckerFactory:
+    """Stands in for create_oracle_checker; scripts per-chunk gap results."""
+
+    def __init__(self, gaps_per_call: list[list[Gap]]) -> None:
+        self._results = list(gaps_per_call)
+        self.built = 0
+        self.chunks: list[list[OracleItem]] = []
+
+    def __call__(self, llm: Any) -> Any:
+        self.built += 1
+
+        async def check(items: list[OracleItem]) -> list[Gap]:
+            self.chunks.append(list(items))
+            return self._results.pop(0)
+
+        return check
+
+
+@pytest.mark.asyncio
+async def test_oracle_check_stamps_sticky_pass_and_skips_next_cycle() -> None:
+    items = [_oracle_item("CASE_HLR-0001"), _oracle_item("CASE_HLR-0002")]
+    flow = _oracle_flow(items)
+    factory = _CheckerFactory([[]])
+
+    with (
+        patch("backend.quality.oracle_check.collect_oracle_items", return_value=items),
+        patch("backend.quality.oracle_check.create_oracle_checker", factory),
+        patch("backend.agents.factory.build_llm", return_value=MagicMock()),
+    ):
+        result = await oracle_check(flow, 10)
+        assert result["step_name"] == "oracle_check"
+        assert flow._oracle_verdict_cache == {
+            oracle_pass_key(items[0]): "PASS",
+            oracle_pass_key(items[1]): "PASS",
+        }
+
+        # Second cycle: everything cached — the judge is never rebuilt.
+        await oracle_check(flow, 10)
+    assert factory.built == 1
+    flow._dispatch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_oracle_check_dispatches_fail_gap_and_never_caches_it() -> None:
+    items = [_oracle_item("CASE_HLR-0001"), _oracle_item("CASE_HLR-0002")]
+    flow = _oracle_flow(items)
+    fail_gap = Gap(
+        type=GapType.INCONSISTENT_CONTENT, priority=GapPriority.MAINTENANCE,
+        node_id="CASE_HLR-0001", description="wrong oracle",
+        context={"oracle_failures": [{"axis": "OUTCOME", "reason": "wrong"}]},
+    )
+    factory = _CheckerFactory([[fail_gap]])
+
+    with (
+        patch("backend.quality.oracle_check.collect_oracle_items", return_value=items),
+        patch("backend.quality.oracle_check.create_oracle_checker", factory),
+        patch("backend.agents.factory.build_llm", return_value=MagicMock()),
+    ):
+        await oracle_check(flow, 10)
+
+    flow._dispatch.assert_awaited_once_with(fail_gap)
+    assert oracle_pass_key(items[0]) not in flow._oracle_verdict_cache
+    assert flow._oracle_verdict_cache[oracle_pass_key(items[1])] == "PASS"
+
+
+@pytest.mark.asyncio
+async def test_oracle_check_chunks_by_quality_judge_batch_size() -> None:
+    items = [_oracle_item(f"CASE_HLR-000{i}") for i in range(1, 4)]
+    flow = _oracle_flow(items)
+    flow.config.llm.quality_judge_batch_size = 2
+    factory = _CheckerFactory([[], []])
+
+    with (
+        patch("backend.quality.oracle_check.collect_oracle_items", return_value=items),
+        patch("backend.quality.oracle_check.create_oracle_checker", factory),
+        patch("backend.agents.factory.build_llm", return_value=MagicMock()),
+    ):
+        await oracle_check(flow, 10)
+
+    assert [len(c) for c in factory.chunks] == [2, 1]
+
+
+@pytest.mark.asyncio
+async def test_oracle_check_unjudged_error_propagates() -> None:
+    """Oracle quality GATES completion: an unjudged CASE fails the step
+    loudly (UnjudgedQualityError) — unlike dedup, silence never passes."""
+    from backend.quality.combined_check import UnjudgedQualityError
+
+    items = [_oracle_item("CASE_HLR-0001")]
+    flow = _oracle_flow(items)
+
+    def factory(llm: Any) -> Any:
+        async def check(chunk: list[OracleItem]) -> list[Gap]:
+            raise UnjudgedQualityError({"CASE_HLR-0001": {"OUTCOME"}})
+
+        return check
+
+    with (
+        patch("backend.quality.oracle_check.collect_oracle_items", return_value=items),
+        patch("backend.quality.oracle_check.create_oracle_checker", factory),
+        patch("backend.agents.factory.build_llm", return_value=MagicMock()),
+        pytest.raises(UnjudgedQualityError),
+    ):
+        await oracle_check(flow, 10)
+
+
+@pytest.mark.asyncio
+async def test_oracle_check_with_no_cases_makes_no_llm_calls() -> None:
+    flow = _oracle_flow([])
+    factory = _CheckerFactory([])
+
+    with (
+        patch("backend.quality.oracle_check.collect_oracle_items", return_value=[]),
+        patch("backend.quality.oracle_check.create_oracle_checker", factory),
+    ):
+        result = await oracle_check(flow, 10)
+
+    assert result["deletions"] == 0
+    assert factory.built == 0

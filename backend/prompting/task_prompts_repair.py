@@ -249,6 +249,8 @@ def _duplicate_node(nid: str, ctx: str, gap: Gap | None = None) -> tuple[str, st
 
 
 def _inconsistent_content(nid: str, ctx: str, gap: Gap | None = None) -> tuple[str, str]:
+    if gap is not None and "oracle_failures" in gap.context:
+        return _oracle_repair(nid, ctx, gap)
     ref_note = (
         (
             "The context below is the parent node — the PRIMARY REFERENCE. "
@@ -269,6 +271,34 @@ def _inconsistent_content(nid: str, ctx: str, gap: Gap | None = None) -> tuple[s
         f"  • true duplicate of another sibling — graph_delete_node.\n"
         f"{ctx}",
         f"Node '{nid}' reviewed — updated, deleted, or confirmed consistent.",
+    )
+
+
+def _oracle_repair(nid: str, ctx: str, gap: Gap) -> tuple[str, str]:
+    """Repair route for a CASE that failed independent oracle validation
+    (U9, specs/13 §Oracle validation). The gap context carries the judge's
+    per-axis findings, so the agent fixes the actual oracle defect instead
+    of running the generic parent-consistency drill."""
+    findings = "\n".join(
+        f"  • {f['axis']}: {f['reason']}" for f in gap.context["oracle_failures"]
+    )
+    return (
+        f"Test case '{nid}' failed independent ORACLE validation — its "
+        f"expected outcome does not hold up against the traced requirement "
+        f"and contract:\n{findings}\n\n"
+        f"STEP 1: graph_read(operation=node, node_id={nid}) — read the case "
+        f"and note its trace_to requirement id(s).\n"
+        f"STEP 2: graph_read the traced requirement(s) — the oracle must "
+        f"follow from THEIR text, never from what an implementation "
+        f"plausibly does.\n"
+        f"STEP 3: rewrite the case content via graph_update_node so that:\n"
+        f"  • the expected outcome follows directly from the requirement text;\n"
+        f"  • contracted exception/return semantics are encoded exactly "
+        f"(exception class AND base class, exact return values);\n"
+        f"  • a concrete discriminating input is named — real data a "
+        f"specific wrong implementation would fail on, not boilerplate.\n"
+        f"{ctx}",
+        f"Test case '{nid}' rewritten with a requirement-faithful oracle.",
     )
 
 

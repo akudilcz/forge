@@ -22,9 +22,11 @@ from backend.pipeline.steps import (
     combined_quality,
     design_consolidation,
     deterministic_parse,
+    oracle_check,
     quality_gaps,
     semantic,
     structural,
+    suite_authoring,
 )
 from backend.server.forge_logger import forge_logger
 from backend.workspace.result_recorder import record_results_step
@@ -69,7 +71,27 @@ PHASE_STEPS: dict[int, list[StepFn]] = {
     3: [batch_phase3, quality_gaps, combined_quality, semantic],
     7: [batch_phase7, quality_gaps, combined_quality, semantic],
     8: [design_consolidation, structural, quality_gaps, combined_quality, semantic],
-    10: [batch_phase10, quality_gaps, combined_quality, semantic, case_trace_coverage],
+    # Phase 9 is merged into phase 10 at the registry level (U9, specs/03
+    # Phases 9-10): nothing downstream ever *executes* SUITE prose — the
+    # SUITE is structured input to case authoring — so phase 9 keeps only
+    # the per-gap dispatch of its single UNSUITED gap. Its quality/semantic
+    # boundary is phase 10's (SUITE is a phase-10 node type in phase_map).
+    # Phase number 9 and its completion criterion (no UNSUITED) are
+    # preserved for phase_store/resume/auditor.
+    9: [structural],
+    # Phase 10 opens with the suite_authoring guard (a resumed graph missing
+    # its SUITE authors it before any CASE exists), batches CASE authoring
+    # with the SUITE in the static prefix, then gates completion on the
+    # independent CASE-oracle validation (specs/13 §Oracle validation).
+    10: [
+        suite_authoring,
+        batch_phase10,
+        quality_gaps,
+        combined_quality,
+        semantic,
+        case_trace_coverage,
+        oracle_check,
+    ],
     # RESULT recording runs after sync so every RESULT has a TEST parent
     # (specs/03); the step also heals misparented RESULTs on resume.
     13: [workspace_sync, record_results_step],

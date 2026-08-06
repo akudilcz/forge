@@ -234,11 +234,21 @@ def build_batch_phase10_prompt(
     (specs/13) so the agent can enumerate raises entries and postconditions
     into cases and emit one ``multi_graph_write`` with every new case.
 
+    The SUITE is REQUIRED structured input (U9, specs/03 Phases 9-10): its
+    content anchors the static prefix and its id parents every new CASE.
+    Building the prompt without one raises — a degraded prompt with an
+    empty parent id is never acceptable.
+
     Each requirement line carries its ``verification_method`` and derived
     status (U4, specs/13) so the author can honour the method — Test
     needs an executable case; Analysis / Inspection / Demonstration get
     a case documenting the obligation.
     """
+    if not suite:
+        raise ValueError(
+            "build_batch_phase10_prompt requires the SUITE node — case "
+            "authoring without its strategy parent is a missing precondition"
+        )
     marking = ["verification_method", "derived", "derived_rationale"]
     hlr_lines = _format_node_list(
         [_flatten_requirement_marking(n) for n in untested_hlrs],
@@ -249,14 +259,11 @@ def build_batch_phase10_prompt(
         ["node_id", "parent_id", "title", *marking, "content"],
     )
 
-    suite_block = ""
-    suite_id = ""
-    if suite:
-        suite_id = suite.get("node_id", "")
-        suite_block = (
-            f"SUITE [{suite_id}] — test strategy (parent for every new CASE):\n"
-            f"{suite.get('content', '')}\n\n"
-        )
+    suite_id = suite["node_id"]
+    suite_block = (
+        f"SUITE [{suite_id}] — test strategy (parent for every new CASE):\n"
+        f"{suite['content']}\n\n"
+    )
 
     existing_block = ""
     if existing_cases:

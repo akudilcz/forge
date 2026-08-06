@@ -442,6 +442,17 @@ async def batch_phase10(flow: Any, phase: int) -> StepResult:
         hlr_ids, llr_ids = _untested_requirement_ids(flow)
         return hlr_ids + llr_ids
 
+    # U9 (specs/03 Phases 9-10): the SUITE is a required structured input to
+    # case authoring — its content sits in the static prefix and every new
+    # CASE parents under it. Authoring with no SUITE is a missing
+    # precondition (the suite_authoring guard runs first), never a silent
+    # batch under an empty parent id.
+    if suite is None and collect_ids():
+        raise RuntimeError(
+            "Phase 10 has untested requirements but no SUITE node — "
+            "suite_authoring must resolve UNSUITED before CASE authoring"
+        )
+
     def prompt_for(ids: list[str]) -> str:
         wanted = set(ids)
         live = flow.graph.all_nodes()
@@ -466,7 +477,10 @@ async def batch_phase10(flow: Any, phase: int) -> StepResult:
     if unresolved:
         result = await _fallback_structural(flow, phase)
     new_cases = (_snapshot_node_ids(flow, "CASE_HLR") | _snapshot_node_ids(flow, "CASE_LLR")) - before_cases
-    flow._batch_new_node_ids = new_cases
+    # U9: the SUITE participates in phase 10's merged quality boundary, so
+    # the restriction handed to combined_quality/semantic must never exempt
+    # it — track it alongside the newly authored CASEs.
+    flow._batch_new_node_ids = new_cases | _snapshot_node_ids(flow, "SUITE")
     return result
 
 

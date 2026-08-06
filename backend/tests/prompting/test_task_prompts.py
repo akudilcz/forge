@@ -546,7 +546,7 @@ class TestContractRecordPromptPins:
 
         prompt = build_batch_phase10_prompt(
             [{"node_id": "HLR-0007", "title": "Cycle error", "content": "shall raise"}],
-            [], None, [], [],
+            [], {"node_id": "SUITE-0001", "content": "strategy"}, [], [],
         )
         # The encoding rules always mention the block by name; the block
         # itself (with its header) must be absent when no records exist.
@@ -574,3 +574,37 @@ def test_para_hlr_warns_against_near_duplicate_hlrs() -> None:
     assert "near-duplicate" in description
     assert "defect" in description.lower()
     assert "duplicate-of-<PARA-id>" in description
+
+
+# ── U9: oracle-failure repair route on INCONSISTENT_CONTENT ─────────────────
+
+
+def test_oracle_failure_gap_gets_oracle_repair_prompt() -> None:
+    """An INCONSISTENT_CONTENT gap carrying oracle findings routes to the
+    oracle repair prompt — the agent sees the judge's per-axis reasons and
+    the three fix obligations, not the generic parent-consistency drill."""
+    gap = _gap(
+        GapType.INCONSISTENT_CONTENT,
+        node_id="CASE_HLR-0004",
+        context={
+            "oracle_failures": [
+                {"axis": "OUTCOME", "reason": "asserts sorted output the HLR never states"},
+                {"axis": "DISCRIMINATES", "reason": "no concrete input named"},
+            ]
+        },
+    )
+    description, expected = _entry(gap)
+    assert "ORACLE" in description
+    assert "asserts sorted output the HLR never states" in description
+    assert "no concrete input named" in description
+    assert "graph_update_node" in description
+    assert "discriminating" in description.lower()
+    assert "requirement-faithful" in expected
+
+
+def test_plain_inconsistent_content_keeps_consistency_drill() -> None:
+    """Without oracle findings, INCONSISTENT_CONTENT keeps its existing
+    parent-consistency repair route — taxonomy stable, prompts split."""
+    description, _ = _entry(_gap(GapType.INCONSISTENT_CONTENT))
+    assert "check_consistency" in description
+    assert "ORACLE" not in description

@@ -7,7 +7,10 @@ sites remain stable.
 
 from __future__ import annotations
 
-# Phase in which each node type is created.
+# Phase in which each node type's quality boundary runs. SUITE maps to 10
+# (U9, specs/03 Phases 9-10): phase 9 is the UNSUITED dispatch only, and the
+# SUITE is judged inside phase 10's merged quality/semantic boundary. Listed
+# after the CASE types so CASE_HLR stays PHASE_TO_NODE_TYPES[10][0].
 NODE_TYPE_TO_PHASE: dict[str, int] = {
     "PARA": 2,
     "HLR": 3,
@@ -16,9 +19,9 @@ NODE_TYPE_TO_PHASE: dict[str, int] = {
     "CONTRACT": 6,
     "LLR": 7,
     "DESIGN": 8,
-    "SUITE": 9,
     "CASE_HLR": 10,
     "CASE_LLR": 10,
+    "SUITE": 10,
     "CODE": 13,
     "TEST": 13,
 }

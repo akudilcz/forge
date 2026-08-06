@@ -338,6 +338,9 @@ def scripted(graph: ProjectGraph, flow: ForgeFlow) -> Iterator[ScriptedAgent]:
     async def _all_traces_valid(only_ids: Any) -> int:
         return 0
 
+    async def _all_oracles_pass(items: Any) -> list[Any]:
+        return []
+
     async def _no_consolidation(**kwargs: Any) -> int:
         return 0
 
@@ -359,6 +362,10 @@ def scripted(graph: ProjectGraph, flow: ForgeFlow) -> Iterator[ScriptedAgent]:
         patch(
             "backend.quality.case_trace_check.create_case_trace_checker",
             return_value=_all_traces_valid,
+        ),
+        patch(
+            "backend.quality.oracle_check.create_oracle_checker",
+            return_value=_all_oracles_pass,
         ),
         patch(
             "backend.quality.design_consolidation.create_design_consolidator",

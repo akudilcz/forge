@@ -217,7 +217,7 @@ def test_batch_phase10_prompt_without_properties_still_renders() -> None:
         untested_hlrs=[{"node_id": "HLR-0001", "title": "Sort",
                         "content": "The system shall sort."}],
         untested_llrs=[],
-        suite=None,
+        suite={"node_id": "SUITE-0001", "content": "strategy"},
         existing_cases=[],
         contract_records=[],
     )

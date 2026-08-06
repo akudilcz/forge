@@ -237,14 +237,25 @@ def test_phase10_prompt_includes_untested_reqs_and_cases() -> None:
     assert "multi_graph_write" in prompt
 
 
-def test_phase10_prompt_without_suite_or_cases() -> None:
-    """No SUITE and no existing CASEs: blocks are omitted, empty lists say (none)."""
+def test_phase10_prompt_requires_the_suite() -> None:
+    """U9: the SUITE is structured input to case authoring — building the
+    batch prompt without it is a missing precondition, never a degraded
+    prompt with an empty parent id."""
     hlrs = [{"node_id": "HLR-001", "title": "T", "content": "shall"}]
 
-    prompt = build_batch_phase10_prompt(hlrs, [], None, [], [])
+    with pytest.raises(ValueError, match="SUITE"):
+        build_batch_phase10_prompt(hlrs, [], None, [], [])
+
+
+def test_phase10_prompt_without_cases_says_none() -> None:
+    """No existing CASEs: the block is omitted, empty lists say (none)."""
+    hlrs = [{"node_id": "HLR-001", "title": "T", "content": "shall"}]
+    suite = {"node_id": "SUITE-001", "content": "risk-based strategy"}
+
+    prompt = build_batch_phase10_prompt(hlrs, [], suite, [], [])
 
     assert "HLR-001" in prompt
-    assert "SUITE [" not in prompt
+    assert "SUITE [SUITE-001]" in prompt
     assert "EXISTING CASES" not in prompt
     assert "(none)" in prompt  # empty LLR list
 
@@ -306,10 +317,11 @@ async def test_batch_phase10_passes_union_allow_gap_types() -> None:
     from backend.analysis.gaps import Gap, GapPriority, GapType
 
     hlr = _mock_node("HLR-1", "HLR", content="shall")
+    suite = _mock_node("SUITE-1", "SUITE", content="strategy")
     gap = Gap(type=GapType.UNTESTED_HLR, priority=GapPriority.TEST_HLR,
               node_id="HLR-1", description="test")
 
-    flow = _make_flow(nodes=[hlr], gaps=[gap])
+    flow = _make_flow(nodes=[hlr, suite], gaps=[gap])
     flow._collect_phase_gaps.side_effect = [[gap], []]
 
     with patch(
@@ -348,7 +360,10 @@ async def test_batch_phase10_tracks_new_case_node_ids() -> None:
     ):
         await batch_phase10(flow, 10)
 
-    assert flow._batch_new_node_ids == {"CASE-NEW"}
+    # U9: the SUITE participates in phase 10's merged quality boundary, so
+    # the batch restriction handed to combined_quality/semantic must never
+    # exempt it — it is tracked alongside the newly authored CASEs.
+    assert flow._batch_new_node_ids == {"CASE-NEW", "SUITE-1"}
 
 
 @pytest.mark.asyncio
@@ -356,9 +371,10 @@ async def test_batch_phase10_exception_falls_back_to_structural() -> None:
     from backend.analysis.gaps import Gap, GapPriority, GapType
 
     hlr = _mock_node("HLR-1", "HLR", content="shall")
+    suite = _mock_node("SUITE-1", "SUITE", content="strategy")
     gap = Gap(type=GapType.UNTESTED_HLR, priority=GapPriority.TEST_HLR,
               node_id="HLR-1", description="test")
-    flow = _make_flow(nodes=[hlr], gaps=[gap])
+    flow = _make_flow(nodes=[hlr, suite], gaps=[gap])
 
     with (
         patch(
@@ -397,6 +413,22 @@ async def test_batch_phase10_skips_agent_when_all_requirements_tested() -> None:
         result = await batch_phase10(flow, 10)
     mock_run.assert_not_awaited()
     assert result["step_name"] == "batch_phase10"
+
+
+@pytest.mark.asyncio
+async def test_batch_phase10_raises_loudly_without_a_suite() -> None:
+    """U9: authoring CASEs with no SUITE in the graph is a missing
+    precondition (suite_authoring must have run) — never a silent batch
+    under an empty parent id."""
+    from backend.analysis.gaps import Gap, GapPriority, GapType
+
+    hlr = _mock_node("HLR-1", "HLR", content="shall")
+    gap = Gap(type=GapType.UNTESTED_HLR, priority=GapPriority.TEST_HLR,
+              node_id="HLR-1", description="test")
+    flow = _make_flow(nodes=[hlr], gaps=[gap])
+
+    with pytest.raises(RuntimeError, match="SUITE"):
+        await batch_phase10(flow, 10)
 
 
 # ── batch_phase7 fused pass (U8) ────────────────────────────────────────────
@@ -883,7 +915,10 @@ async def test_batch_phase10_chunks_untested_requirements() -> None:
 
     assert result["step_name"] == "batch_phase10"
     assert batch_sizes == [10, 10, 5]
-    assert len(flow._batch_new_node_ids) == 25
+    # 25 new CASEs plus the SUITE — U9: the SUITE participates in phase 10's
+    # merged quality boundary, so the batch restriction never exempts it.
+    assert len(flow._batch_new_node_ids) == 26
+    assert "SUITE-1" in flow._batch_new_node_ids
 
 
 def test_llm_config_batch_author_chunk_size_default() -> None:

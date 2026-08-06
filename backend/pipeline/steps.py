@@ -164,6 +164,62 @@ async def design_consolidation(flow: Any, phase: int) -> StepResult:
     return StepResult(step_name="design_consolidation", deletions=deleted)
 
 
+# ── Step: SUITE-first authoring guard (Phase 10, U9) ─────────────────────────
+
+
+async def suite_authoring(flow: Any, phase: int) -> StepResult:
+    """Ensure the SUITE exists before any CASE is authored (specs/03 Phases 9-10).
+
+    Phase 9's single UNSUITED dispatch normally authors the SUITE, but a
+    build resumed directly at phase 10 (or a graph whose SUITE was deleted
+    mid-cycle) must never author CASEs without their strategy parent — the
+    SUITE content is structured input to the batch prompt's static prefix.
+    When a SUITE exists this step is a logged no-op; when it is missing, the
+    residual UNSUITED gap (phase 9's) is resolved via normal per-gap
+    dispatch. A dispatch that still leaves no SUITE raises loudly — an empty
+    CASE parent is never an acceptable degraded mode.
+    """
+    from backend.analysis.gaps import GapType  # noqa: PLC0415
+
+    forge_logger.emit("INFO", "PIPE ", f"Phase {phase} · step: suite_authoring")
+    if any(n.node_type == "SUITE" for n in flow.graph.all_nodes()):
+        forge_logger.emit(
+            "INFO", "PIPE ",
+            f"Phase {phase} · suite_authoring: SUITE present — nothing to author",
+        )
+        return StepResult(step_name="suite_authoring", deletions=0)
+
+    # UNSUITED belongs to phase 9 (GAP_TYPE_TO_PHASE) — collect it there.
+    gaps = [
+        g for g in flow._collect_phase_gaps(9, set())
+        if g.type == GapType.UNSUITED
+    ]
+    if not gaps:
+        # No SUITE and no UNSUITED gap: the analyser demands nothing (e.g.
+        # a graph with no PROJECT). Nothing to author here; batch_phase10's
+        # own precondition still guards actual CASE authoring.
+        forge_logger.emit(
+            "INFO", "PIPE ",
+            f"Phase {phase} · suite_authoring: no SUITE and no UNSUITED gap "
+            f"— nothing demanded",
+        )
+        return StepResult(step_name="suite_authoring", deletions=0)
+    for gap in gaps:
+        forge_logger.emit(
+            "WARN", "PIPE ",
+            f"Phase {phase} · suite_authoring: no SUITE on resume — "
+            f"dispatching residual {gap.type.value} on {gap.node_id}",
+        )
+        await flow._dispatch(gap)
+
+    if not any(n.node_type == "SUITE" for n in flow.graph.all_nodes()):
+        raise RuntimeError(
+            "Phase 10 cannot author CASEs without a SUITE parent — the "
+            "suite_authoring dispatch produced no SUITE node"
+        )
+    return StepResult(step_name="suite_authoring", deletions=0)
+
+
 # ── Step: case trace coverage (Phase 10) ─────────────────────────────────────
 
 
@@ -212,3 +268,72 @@ async def case_trace_coverage(flow: Any, phase: int) -> StepResult:
     flow._last_checked_case_ids = all_case_ids
 
     return StepResult(step_name="case_trace_coverage", deletions=removed)
+
+
+# ── Step: independent CASE-oracle validation (Phase 10, U9) ──────────────────
+
+
+async def oracle_check(flow: Any, phase: int) -> StepResult:
+    """Independent oracle validation of every CASE (specs/13 §Oracle validation).
+
+    An independent LLM judge validates each CASE against its traced
+    requirement and the owning module's CONTRACT record on three axes
+    (OUTCOME, CONTRACT, DISCRIMINATES). Chunked to
+    ``llm.quality_judge_batch_size``; PASS verdicts are sticky per
+    (case, content-hash) on the flow-scoped ``_oracle_verdict_cache`` (FAIL
+    is never cached — a repaired case is always re-judged). A failed axis
+    emits an ``INCONSISTENT_CONTENT`` repair gap dispatched before the phase
+    completes; an unjudged case raises ``UnjudgedQualityError`` through the
+    runner — oracle quality gates completion, silence never passes.
+    """
+    from backend.quality import oracle_check as oc  # noqa: PLC0415
+
+    forge_logger.emit("INFO", "PIPE ", f"Phase {phase} · step: oracle_check")
+    items = oc.collect_oracle_items(flow.graph)
+    if not items:
+        forge_logger.emit(
+            "INFO", "PIPE ",
+            f"Phase {phase} · oracle_check: no judgeable CASEs — nothing to validate",
+        )
+        return StepResult(step_name="oracle_check", deletions=0)
+
+    # Sticky PASS verdicts — the cache lives on the flow (initialised in
+    # ForgeFlow.__init__); AttributeError here is a missing precondition.
+    verdict_cache = flow._oracle_verdict_cache
+    pending = [it for it in items if oc.oracle_pass_key(it) not in verdict_cache]
+    if len(pending) < len(items):
+        forge_logger.emit(
+            "INFO", "ORCL ",
+            f"Phase {phase} · oracle_check: {len(items) - len(pending)} "
+            f"case(s) skipped via sticky PASS verdicts",
+        )
+    if not pending:
+        return StepResult(step_name="oracle_check", deletions=0)
+
+    from backend.agents.factory import build_llm  # noqa: PLC0415
+
+    checker = oc.create_oracle_checker(build_llm(flow.config, cacheable=True))
+    batch_size: int = flow.config.llm.quality_judge_batch_size
+    gaps = []
+    for start in range(0, len(pending), batch_size):
+        chunk = pending[start : start + batch_size]
+        chunk_gaps = await checker(chunk)  # UnjudgedQualityError propagates
+        # A returned result means every case in the chunk was fully judged.
+        # Stamp PASS per chunk so a later chunk's failure never discards
+        # evidence already paid for; FAIL is deliberately not cached.
+        failed_ids = {g.node_id for g in chunk_gaps}
+        for item in chunk:
+            if item.node_id not in failed_ids:
+                verdict_cache[oc.oracle_pass_key(item)] = "PASS"
+        gaps.extend(chunk_gaps)
+
+    forge_logger.emit(
+        "INFO", "ORCL ",
+        f"Phase {phase} · oracle_check: {len(gaps)} wrong-oracle CASE(s) "
+        f"across {len(pending)} judged",
+    )
+    for gap in gaps:
+        if flow.graph.node_sync(gap.node_id) is None:
+            continue
+        await flow._dispatch(gap)
+    return StepResult(step_name="oracle_check", deletions=0)
