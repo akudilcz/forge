@@ -32,9 +32,14 @@ Each CASE node contains:
 
 ## Dispatch Strategy
 
-**Structural dispatch.** Each untested requirement produces an independent gap
-and receives its own agent call. HLR and LLR cases are authored separately so
-each case stays focused on a single requirement.
+**Chunked batch dispatch.** `batch_phase10` presents untested HLRs and LLRs
+together with the SUITE strategy and existing CASEs, and the agent emits new
+cases via `multi_graph_write`. The untested-requirement list is processed in
+chunks of `LLMConfig.batch_author_chunk_size` (one agent call per chunk; the
+SUITE + existing-CASE snapshot is taken once and shared across chunks) so the
+authored case output never hits the provider output-token limit. Per-chunk
+retry; stragglers fall back to per-gap structural dispatch — one agent call
+per remaining requirement (see design/02 §Batch prompts).
 
 ## Context Provided to the Agent
 

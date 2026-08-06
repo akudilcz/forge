@@ -45,14 +45,27 @@ is only a markdown heading with less than 20 characters of body text.
 
 ## Dispatch Strategy
 
-**Batch dispatch.** All `UNCOVERED_PARA` gaps are presented in a single
-prompt alongside all existing HLRs. The agent sees the full picture and
-decides for each PARA whether to create a new HLR or re-parent an existing
-one.
+**Chunked batch dispatch.** `UNCOVERED_PARA` gaps are processed in chunks
+of `LLMConfig.batch_author_chunk_size` (default 20) — one LLM call per
+chunk. Every chunk call shares a byte-identical static prefix (the full
+HLR/LLR graph snapshot, taken once per step invocation) so the agent still
+sees the full picture for reuse/duplicate decisions and the provider prompt
+cache amortises the snapshot; only the chunk's PARA list varies.
 
-The batch step (`batch_phase3`) retries up to 3 times if gaps remain after
-the first pass. If still unresolved, it falls back to structural dispatch
-(one gap at a time).
+Chunking exists because a single whole-batch call must author HLRs for
+*every* uncovered PARA in one response; on large whitepapers the response
+hits the provider output-token limit and the last PARAs silently never get
+HLRs. Live evidence (trie wave-3 resume, `trace.1614841.jsonl`): 46+ PARAs
+→ 123 HLRs, all 3 whole-batch attempts truncated, and the phase halted
+`awaiting_approval` with `UNCOVERED_PARA` on PARA-0183/PARA-0185 without a
+single per-gap dispatch.
+
+The batch step (`batch_phase3`) retries each chunk up to 3 times with only
+that chunk's unresolved PARAs (per-chunk attempt counting). Any stragglers
+left after a chunk's attempts exhaust — or after a batch call raises — are
+guaranteed a per-gap structural dispatch: the step falls back to the
+structural loop (one gap at a time) instead of ending the phase with
+undispatched structural gaps.
 
 ---
 
@@ -109,7 +122,7 @@ The `derive_requirement` tool makes a targeted LLM call to produce:
 
 | Step | Function | What It Does |
 |------|----------|-------------|
-| 1 | `batch_phase3` | Batch dispatch: all uncovered PARAs + all HLRs |
+| 1 | `batch_phase3` | Chunked batch dispatch: uncovered PARAs in chunks of `batch_author_chunk_size`, shared static HLR/LLR snapshot; stragglers fall back to per-gap structural dispatch |
 | 2 | `quality_gaps` | Detect and dispatch deterministic graph-integrity gaps |
 | 3 | `combined_quality` | Single batched LLM call judges atomicity + EARS + title↔content match + title specificity across all HLRs |
 | 4 | `semantic` | Detect and remove semantic duplicate HLRs |

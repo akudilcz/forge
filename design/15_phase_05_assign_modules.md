@@ -24,9 +24,14 @@ All unassigned HLRs are collected into a single batch gap.
 
 ## Dispatch Strategy
 
-**Batch dispatch.** HLR-to-MODULE assignment is a global optimization problem: all
-HLRs compete for the same modules, and the agent must see the full picture to avoid
-fragmentation or duplication. One agent call processes the entire batch.
+**Chunked batch dispatch.** HLR-to-MODULE assignment is a global optimization
+problem: all HLRs compete for the same modules, and the agent must see the full
+picture to avoid fragmentation or duplication. Unassigned HLRs are processed in
+chunks of `LLMConfig.batch_author_chunk_size` (one agent call per chunk, static
+MODULE/CONTRACT/ARCHITECTURE snapshot shared across chunks) so the response
+never hits the provider output-token limit on large graphs. Per-chunk retry;
+stragglers fall back to per-gap structural dispatch (see design/02 §Batch
+prompts).
 
 ## Tools
 

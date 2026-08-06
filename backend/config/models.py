@@ -121,6 +121,14 @@ class LLMConfig(BaseModel):
     # 81 HLRs → 62 unjudged after retry). run_combined_quality_check chunks
     # candidates to this size — see design/01_architecture.md §7.4.
     quality_judge_batch_size: int = 25
+    # Maximum items authored per batch-phase LLM call. Batch authoring output
+    # scales with item count, and one call over the whole phase truncates at
+    # the provider output-token limit on large documents (live evidence:
+    # 46+ PARAs → 123 HLRs; the last PARAs never received HLRs and phase 3
+    # halted awaiting_approval). Batch steps chunk their item lists to this
+    # size with per-chunk retry — see design/02_context_management.md
+    # §"Batch prompts".
+    batch_author_chunk_size: int = 20
     options: LLMOptionsConfig = Field(default_factory=LLMOptionsConfig)
     # Per-agent model overrides; key = AgentRole.value, value = model name
     agents: dict[str, str] = Field(

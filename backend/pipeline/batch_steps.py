@@ -1,23 +1,29 @@
 """Batch step functions for phases with competing gaps.
 
 Instead of dispatching one gap at a time (which causes circular thrashing
-when gaps compete for shared resources), batch steps present ALL gaps to
-the agent in a single prompt. The agent sees the full picture and makes
-a globally optimal assignment in one pass.
+when gaps compete for shared resources), batch steps give the agent a full
+static graph snapshot so it makes globally consistent assignments.
 
-Each batch step follows a retry pattern:
-1. Collect gaps, build batch prompt
-2. Invoke agent
-3. Re-scan to check which gaps remain
-4. If gaps remain, retry with only the unresolved ones (up to _MAX_BATCH_ATTEMPTS)
-5. If still unresolved, fall back to individual structural dispatch
+Because batch authoring *output* scales with item count, a single call over
+the whole phase truncates at the provider output-token limit on large
+documents (design/02 §Batch prompts — live evidence trace.1614841.jsonl).
+Each batch step therefore chunks its item list to
+``LLMConfig.batch_author_chunk_size`` items per LLM call:
 
-Used by phases 3, 5, 7, 8. Other phases use the per-gap structural loop.
+1. Snapshot the static prompt prefix once (byte-identical across chunks).
+2. For each chunk: invoke the agent, re-scan, retry that chunk with only
+   its unresolved items (up to _MAX_BATCH_ATTEMPTS per chunk).
+3. Items still unresolved after a chunk's attempts exhaust are stragglers;
+   the step falls back to individual per-gap structural dispatch for them.
+
+Used by phases 3, 5, 7, 8 (naturally chunked per MODULE) and 10. Other
+phases use the per-gap structural loop.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from langchain_core.messages import HumanMessage
@@ -178,203 +184,274 @@ async def _fallback_structural(flow: Any, phase: int) -> StepResult:
     return await structural(flow, phase)
 
 
+def _chunked(ids: list[str], size: int) -> list[list[str]]:
+    """Split ``ids`` into consecutive chunks of at most ``size`` items."""
+    if size < 1:
+        raise ValueError(f"batch_author_chunk_size must be >= 1, got {size}")
+    return [ids[i : i + size] for i in range(0, len(ids), size)]
+
+
+async def _run_chunked_batch(
+    flow: Any,
+    phase: int,
+    gap_type: GapType,
+    collect_ids: Callable[[], list[str]],
+    prompt_for: Callable[[list[str]], str],
+    *,
+    allow_gap_types: list[GapType] | None = None,
+) -> set[str]:
+    """Drive chunked batch authoring: one agent call per chunk, per-chunk retry.
+
+    ``collect_ids`` returns the currently-unresolved item ids; ``prompt_for``
+    builds the chunk prompt (static prefix snapshotted by the caller, so it is
+    byte-identical across chunk calls — design/02 §Batch prompts). Returns the
+    ids still unresolved after every chunk's attempts (stragglers), which the
+    caller must hand to per-gap structural dispatch.
+    """
+    chunk_size = int(flow.config.llm.batch_author_chunk_size)
+    unresolved: set[str] = set()
+    chunks = _chunked(collect_ids(), chunk_size)
+    for index, chunk in enumerate(chunks, start=1):
+        label = f"chunk {index}/{len(chunks)}"
+        unresolved.update(
+            await _run_chunk_attempts(
+                flow, phase, gap_type, collect_ids, prompt_for, chunk, label,
+                allow_gap_types=allow_gap_types,
+            )
+        )
+    if unresolved:
+        forge_logger.emit(
+            "WARN", "BATCH",
+            f"Phase {phase} · {len(unresolved)} straggler(s) after chunk "
+            f"attempts — per-gap dispatch required",
+            phase=phase, stragglers=len(unresolved),
+        )
+    return unresolved
+
+
+async def _run_chunk_attempts(
+    flow: Any,
+    phase: int,
+    gap_type: GapType,
+    collect_ids: Callable[[], list[str]],
+    prompt_for: Callable[[list[str]], str],
+    chunk: list[str],
+    label: str,
+    *,
+    allow_gap_types: list[GapType] | None,
+) -> list[str]:
+    """Retry one chunk up to _MAX_BATCH_ATTEMPTS; return its unresolved ids."""
+    remaining = list(chunk)
+    for attempt in range(1, _MAX_BATCH_ATTEMPTS + 1):
+        forge_logger.emit(
+            "INFO", "BATCH",
+            f"Phase {phase} · {label} · attempt {attempt}/{_MAX_BATCH_ATTEMPTS}: "
+            f"{len(remaining)} item(s)",
+            phase=phase, attempt=attempt, items=len(remaining),
+        )
+        try:
+            await _run_batch_agent(
+                flow, gap_type, prompt_for(remaining), phase,
+                allow_gap_types=allow_gap_types,
+            )
+        except Exception as exc:  # noqa: BLE001
+            forge_logger.emit(
+                "WARN", "BATCH", f"Phase {phase} · {label} failed: {exc}", phase=phase,
+            )
+            break
+        live = set(collect_ids())
+        remaining = [i for i in remaining if i in live]
+        if not remaining:
+            break
+    return remaining
+
+
+def _gap_ids_collector(flow: Any, phase: int) -> Callable[[], list[str]]:
+    """Collector returning node ids of this phase's unresolved structural gaps."""
+
+    def collect() -> list[str]:
+        return [g.node_id for g in flow._collect_phase_gaps(phase, set())]
+
+    return collect
+
+
+def _node_dicts_for_ids(flow: Any, ids: list[str]) -> list[dict[str, Any]]:
+    """Resolve node ids to prompt dicts, skipping ids no longer in the graph."""
+    nodes = (flow.graph.node_sync(i) for i in ids)
+    return [_node_to_dict(n) for n in nodes if n]
+
+
 # ── Phase 3: UNCOVERED_PARA ─────────────────────────────────────────────────
 
 
 async def batch_phase3(flow: Any, phase: int) -> StepResult:
-    """Batch-assign HLRs to uncovered PARAs with retry on unresolved gaps."""
+    """Chunk-assign HLRs to uncovered PARAs with per-chunk retry.
+
+    Static prefix (all HLRs + LLRs) is snapshotted once so every chunk call
+    shares a byte-identical cacheable prefix; only the PARA list varies.
+    Stragglers fall through to per-gap structural dispatch.
+    """
     forge_logger.emit("INFO", "BATCH", f"Phase {phase} · batch: UNCOVERED_PARA")
     before_ids = _snapshot_node_ids(flow, "HLR")
 
-    for attempt in range(1, _MAX_BATCH_ATTEMPTS + 1):
-        gaps = flow._collect_phase_gaps(phase, set())
-        if not gaps:
-            break
+    all_nodes = flow.graph.all_nodes()
+    hlrs = [_node_to_dict(n) for n in all_nodes if n.node_type == "HLR"]
+    llrs = [_node_to_dict(n) for n in all_nodes if n.node_type == "LLR"]
 
-        all_nodes = flow.graph.all_nodes()
-        paras = [
-            _node_to_dict(flow.graph.node_sync(g.node_id))
-            for g in gaps
-            if flow.graph.node_sync(g.node_id)
-        ]
-        hlrs = [_node_to_dict(n) for n in all_nodes if n.node_type == "HLR"]
-        llrs = [_node_to_dict(n) for n in all_nodes if n.node_type == "LLR"]
+    def prompt_for(ids: list[str]) -> str:
+        return build_batch_phase3_prompt(_node_dicts_for_ids(flow, ids), hlrs, llrs)
 
-        prompt = build_batch_phase3_prompt(paras, hlrs, llrs)
-        forge_logger.emit(
-            "INFO",
-            "BATCH",
-            f"Phase {phase} · attempt {attempt}/{_MAX_BATCH_ATTEMPTS}: "
-            f"{len(paras)} PARAs, {len(hlrs)} HLRs",
-        )
+    unresolved = await _run_chunked_batch(
+        flow, phase, GapType.UNCOVERED_PARA,
+        _gap_ids_collector(flow, phase), prompt_for,
+    )
 
-        try:
-            await _run_batch_agent(flow, GapType.UNCOVERED_PARA, prompt, phase)
-        except Exception as exc:  # noqa: BLE001
-            forge_logger.emit("WARN", "BATCH", f"Batch failed: {exc}")
-            return await _fallback_structural(flow, phase)
-
+    result = StepResult(step_name="batch_phase3", deletions=0)
+    if unresolved:
+        result = await _fallback_structural(flow, phase)
     _track_new_nodes(flow, "HLR", before_ids)
-    return StepResult(step_name="batch_phase3", deletions=0)
+    return result
 
 
 # ── Phase 5: UNMODULARISED ──────────────────────────────────────────────────
 
 
 async def batch_phase5(flow: Any, phase: int) -> StepResult:
-    """Batch-assign HLRs to MODULEs with retry on unresolved gaps."""
+    """Chunk-assign HLRs to MODULEs with per-chunk retry.
+
+    Static context (MODULEs + CONTRACTs + ARCHITECTURE) is snapshotted once
+    and shared across chunk calls; only the unassigned-HLR list varies.
+    Stragglers fall through to per-gap structural dispatch.
+    """
     forge_logger.emit("INFO", "BATCH", f"Phase {phase} · batch: UNMODULARISED")
     before_ids = _snapshot_node_ids(flow, "MODULE")
 
-    for attempt in range(1, _MAX_BATCH_ATTEMPTS + 1):
-        gaps = flow._collect_phase_gaps(phase, set())
-        if not gaps:
-            break
+    all_nodes = flow.graph.all_nodes()
+    modules = [_node_to_dict(n) for n in all_nodes if n.node_type == "MODULE"]
+    contracts = [_node_to_dict(n) for n in all_nodes if n.node_type == "CONTRACT"]
+    arch = next((n for n in all_nodes if n.node_type == "ARCHITECTURE"), None)
+    arch_dict = _node_to_dict(arch) if arch else None
 
-        all_nodes = flow.graph.all_nodes()
-        unassigned = [
-            _node_to_dict(flow.graph.node_sync(g.node_id))
-            for g in gaps
-            if flow.graph.node_sync(g.node_id)
-        ]
-        modules = [_node_to_dict(n) for n in all_nodes if n.node_type == "MODULE"]
-        contracts = [_node_to_dict(n) for n in all_nodes if n.node_type == "CONTRACT"]
-        arch = next((n for n in all_nodes if n.node_type == "ARCHITECTURE"), None)
-
-        prompt = build_batch_phase5_prompt(
-            unassigned,
-            modules,
-            _node_to_dict(arch) if arch else None,
-            contracts,
-        )
-        forge_logger.emit(
-            "INFO",
-            "BATCH",
-            f"Phase {phase} · attempt {attempt}/{_MAX_BATCH_ATTEMPTS}: "
-            f"{len(unassigned)} HLRs, {len(modules)} MODULEs",
+    def prompt_for(ids: list[str]) -> str:
+        return build_batch_phase5_prompt(
+            _node_dicts_for_ids(flow, ids), modules, arch_dict, contracts,
         )
 
-        try:
-            await _run_batch_agent(flow, GapType.UNMODULARISED, prompt, phase)
-        except Exception as exc:  # noqa: BLE001
-            forge_logger.emit("WARN", "BATCH", f"Batch failed: {exc}")
-            return await _fallback_structural(flow, phase)
+    unresolved = await _run_chunked_batch(
+        flow, phase, GapType.UNMODULARISED,
+        _gap_ids_collector(flow, phase), prompt_for,
+    )
 
+    result = StepResult(step_name="batch_phase5", deletions=0)
+    if unresolved:
+        result = await _fallback_structural(flow, phase)
     _track_new_nodes(flow, "MODULE", before_ids)
-    return StepResult(step_name="batch_phase5", deletions=0)
+    return result
 
 
 # ── Phase 7: UNREFINED_HLR ──────────────────────────────────────────────────
 
 
 async def batch_phase7(flow: Any, phase: int) -> StepResult:
-    """Batch-derive LLRs from HLRs with retry on unresolved gaps."""
+    """Chunk-derive LLRs from HLRs with per-chunk retry.
+
+    Static context (all LLRs + MODULE/CONTRACT content) is snapshotted once
+    and shared across chunk calls; only the unrefined-HLR list varies.
+    Stragglers fall through to per-gap structural dispatch.
+    """
     forge_logger.emit("INFO", "BATCH", f"Phase {phase} · batch: UNREFINED_HLR")
     before_ids = _snapshot_node_ids(flow, "LLR")
 
-    for attempt in range(1, _MAX_BATCH_ATTEMPTS + 1):
-        gaps = flow._collect_phase_gaps(phase, set())
-        if not gaps:
-            break
+    all_nodes = flow.graph.all_nodes()
+    all_llrs = [_node_to_dict(n) for n in all_nodes if n.node_type == "LLR"]
+    mc = [_node_to_dict(n) for n in all_nodes if n.node_type in ("MODULE", "CONTRACT")]
 
-        all_nodes = flow.graph.all_nodes()
-        unrefined = [
-            _node_to_dict(flow.graph.node_sync(g.node_id))
-            for g in gaps
-            if flow.graph.node_sync(g.node_id)
-        ]
-        all_llrs = [_node_to_dict(n) for n in all_nodes if n.node_type == "LLR"]
-        mc = [_node_to_dict(n) for n in all_nodes if n.node_type in ("MODULE", "CONTRACT")]
+    def prompt_for(ids: list[str]) -> str:
+        return build_batch_phase7_prompt(_node_dicts_for_ids(flow, ids), all_llrs, mc)
 
-        prompt = build_batch_phase7_prompt(unrefined, all_llrs, mc)
-        forge_logger.emit(
-            "INFO",
-            "BATCH",
-            f"Phase {phase} · attempt {attempt}/{_MAX_BATCH_ATTEMPTS}: "
-            f"{len(unrefined)} HLRs, {len(all_llrs)} LLRs",
-        )
+    unresolved = await _run_chunked_batch(
+        flow, phase, GapType.UNREFINED_HLR,
+        _gap_ids_collector(flow, phase), prompt_for,
+    )
 
-        try:
-            await _run_batch_agent(flow, GapType.UNREFINED_HLR, prompt, phase)
-        except Exception as exc:  # noqa: BLE001
-            forge_logger.emit("WARN", "BATCH", f"Batch failed: {exc}")
-            return await _fallback_structural(flow, phase)
-
+    result = StepResult(step_name="batch_phase7", deletions=0)
+    if unresolved:
+        result = await _fallback_structural(flow, phase)
     _track_new_nodes(flow, "LLR", before_ids)
-    return StepResult(step_name="batch_phase7", deletions=0)
+    return result
 
 
 # ── Phase 10: UNTESTED_HLR + UNTESTED_LLR → CASE_HLR/CASE_LLR batch ─────────
 
 
 async def batch_phase10(flow: Any, phase: int) -> StepResult:
-    """Author every missing CASE_HLR + CASE_LLR in a single batched prompt.
+    """Author missing CASE_HLR + CASE_LLR in chunked batched prompts.
 
     Previously phase 10 ran the per-gap ``structural`` loop: 24+ untested
     requirements → 24+ sequential agent dispatches → 600s timeout. With
-    ``multi_graph_write`` exposed, one LLM turn can emit every new case.
+    ``multi_graph_write`` exposed, one LLM turn emits a chunk's cases; the
+    untested list is chunked so the authored output never truncates at the
+    provider output-token limit. Stragglers fall back to per-gap dispatch.
     """
     forge_logger.emit("INFO", "BATCH", f"Phase {phase} · batch: UNTESTED_HLR+LLR")
     before_cases = _snapshot_node_ids(flow, "CASE_HLR") | _snapshot_node_ids(flow, "CASE_LLR")
 
-    for attempt in range(1, _MAX_BATCH_ATTEMPTS + 1):
-        gaps = flow._collect_phase_gaps(phase, set())
-        if not gaps:
-            break
+    # Static context snapshotted once: SUITE + the CASEs existing at step start.
+    all_nodes = flow.graph.all_nodes()
+    suite = next((_node_to_dict(n) for n in all_nodes if n.node_type == "SUITE"), None)
+    cases = [_node_to_dict(n) for n in all_nodes if n.node_type in ("CASE_HLR", "CASE_LLR")]
 
-        all_nodes = flow.graph.all_nodes()
-        # Which HLRs / LLRs still need a case?
-        traced_hlr_ids: set[str] = set()
-        traced_llr_ids: set[str] = set()
-        cases: list[dict[str, Any]] = []
-        for n in all_nodes:
-            if n.node_type == "CASE_HLR":
-                traced_hlr_ids.update(n.trace_to or [])
-                cases.append(_node_to_dict(n))
-            elif n.node_type == "CASE_LLR":
-                traced_llr_ids.update(n.trace_to or [])
-                cases.append(_node_to_dict(n))
+    def collect_ids() -> list[str]:
+        if not flow._collect_phase_gaps(phase, set()):
+            return []
+        hlr_ids, llr_ids = _untested_requirement_ids(flow)
+        return hlr_ids + llr_ids
 
+    def prompt_for(ids: list[str]) -> str:
+        wanted = set(ids)
+        live = flow.graph.all_nodes()
         untested_hlrs = [
-            _node_to_dict(n)
-            for n in all_nodes
-            if n.node_type == "HLR" and n.node_id not in traced_hlr_ids
+            _node_to_dict(n) for n in live
+            if n.node_type == "HLR" and n.node_id in wanted
         ]
         untested_llrs = [
-            _node_to_dict(n)
-            for n in all_nodes
-            if n.node_type == "LLR" and n.node_id not in traced_llr_ids
+            _node_to_dict(n) for n in live
+            if n.node_type == "LLR" and n.node_id in wanted
         ]
-        suite = next((_node_to_dict(n) for n in all_nodes if n.node_type == "SUITE"), None)
+        return build_batch_phase10_prompt(untested_hlrs, untested_llrs, suite, cases)
 
-        if not untested_hlrs and not untested_llrs:
-            break
+    unresolved = await _run_chunked_batch(
+        flow, phase, GapType.UNTESTED_HLR, collect_ids, prompt_for,
+        allow_gap_types=[GapType.UNTESTED_HLR, GapType.UNTESTED_LLR],
+    )
 
-        prompt = build_batch_phase10_prompt(
-            untested_hlrs, untested_llrs, suite, cases,
-        )
-        forge_logger.emit(
-            "INFO",
-            "BATCH",
-            f"Phase {phase} · attempt {attempt}/{_MAX_BATCH_ATTEMPTS}: "
-            f"{len(untested_hlrs)} HLRs, {len(untested_llrs)} LLRs need CASEs",
-        )
-
-        try:
-            await _run_batch_agent(
-                flow,
-                GapType.UNTESTED_HLR,
-                prompt,
-                phase,
-                allow_gap_types=[GapType.UNTESTED_HLR, GapType.UNTESTED_LLR],
-            )
-        except Exception as exc:  # noqa: BLE001
-            forge_logger.emit("WARN", "BATCH", f"Batch failed: {exc}")
-            return await _fallback_structural(flow, phase)
-
+    result = StepResult(step_name="batch_phase10", deletions=0)
+    if unresolved:
+        result = await _fallback_structural(flow, phase)
     new_cases = (_snapshot_node_ids(flow, "CASE_HLR") | _snapshot_node_ids(flow, "CASE_LLR")) - before_cases
     flow._batch_new_node_ids = new_cases
-    return StepResult(step_name="batch_phase10", deletions=0)
+    return result
+
+
+def _untested_requirement_ids(flow: Any) -> tuple[list[str], list[str]]:
+    """HLR and LLR ids with no CASE tracing to them (live graph scan)."""
+    all_nodes = flow.graph.all_nodes()
+    traced_hlr_ids: set[str] = set()
+    traced_llr_ids: set[str] = set()
+    for n in all_nodes:
+        if n.node_type == "CASE_HLR":
+            traced_hlr_ids.update(n.trace_to or [])
+        elif n.node_type == "CASE_LLR":
+            traced_llr_ids.update(n.trace_to or [])
+    hlr_ids = [
+        n.node_id for n in all_nodes
+        if n.node_type == "HLR" and n.node_id not in traced_hlr_ids
+    ]
+    llr_ids = [
+        n.node_id for n in all_nodes
+        if n.node_type == "LLR" and n.node_id not in traced_llr_ids
+    ]
+    return hlr_ids, llr_ids
 
 
 # ── Phase 8: UNDESIGNED per MODULE ──────────────────────────────────────────
@@ -390,6 +467,7 @@ async def batch_phase8(flow: Any, phase: int) -> StepResult:
     forge_logger.emit("INFO", "BATCH", f"Phase {phase} · batch: UNDESIGNED")
     before_ids = _snapshot_node_ids(flow, "DESIGN")
 
+    gaps: list[Gap] = []
     for attempt in range(1, _MAX_BATCH_ATTEMPTS + 1):
         gaps = flow._collect_phase_gaps(phase, set())
         if not gaps:
@@ -430,8 +508,15 @@ async def batch_phase8(flow: Any, phase: int) -> StepResult:
         if total_calls == 0:
             return await _fallback_structural(flow, phase)
 
+    # Straggler fallback: batch attempts exhausted with gaps still open must
+    # not end the phase with undispatched structural gaps (design/02).
+    if gaps:
+        gaps = flow._collect_phase_gaps(phase, set())
+    result = StepResult(step_name="batch_phase8", deletions=0)
+    if gaps:
+        result = await _fallback_structural(flow, phase)
     _track_new_nodes(flow, "DESIGN", before_ids)
-    return StepResult(step_name="batch_phase8", deletions=0)
+    return result
 
 
 async def _run_fast_traces(flow: Any, gaps: list[Gap]) -> int:

@@ -69,7 +69,7 @@ Per-MODULE batch context:
 
 | Step | Purpose |
 |------|---------|
-| `batch_phase8` | Groups UNDESIGNED gaps by MODULE; dispatches one agent call per MODULE. |
+| `batch_phase8` | Groups UNDESIGNED gaps by MODULE; dispatches one agent call per MODULE. Gaps still unresolved after batch attempts exhaust fall back to per-gap structural dispatch. |
 | `quality_gaps` | Raises quality gaps on DESIGN nodes (see below). |
 | `semantic` | Validates semantic consistency between DESIGNs and their traced LLRs. |
 | `design_consolidation` | Merges DESIGN sprawl within each MODULE — if the agent created too many small DESIGNs, this step consolidates them into fewer, cohesive nodes. |

@@ -60,6 +60,7 @@ def _make_flow(
     flow.state.current_phase = 3
     flow.config.llm.model_for_phase.return_value = "test-model"
     flow.config.llm.context_window_for_model.return_value = 128000
+    flow.config.llm.batch_author_chunk_size = 20
 
     agent = AsyncMock()
 

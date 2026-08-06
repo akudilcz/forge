@@ -25,9 +25,14 @@ into a single batch gap.
 
 ## Dispatch Strategy
 
-**Batch dispatch.** LLRs from different HLRs can overlap -- two HLRs may decompose
-into the same low-level behaviour. The agent must see all unrefined HLRs and all
-existing LLRs simultaneously to avoid duplication and ensure completeness.
+**Chunked batch dispatch.** LLRs from different HLRs can overlap -- two HLRs may
+decompose into the same low-level behaviour. The prompt's static snapshot (all
+existing LLRs + MODULE/CONTRACT context) gives the agent the full picture, while
+the unrefined-HLR list is processed in chunks of
+`LLMConfig.batch_author_chunk_size` (one agent call per chunk) so the authored
+LLR output never hits the provider output-token limit. Per-chunk retry;
+stragglers fall back to per-gap structural dispatch (see design/02 §Batch
+prompts).
 
 ## Tools
 

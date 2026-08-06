@@ -144,6 +144,8 @@ def _make_flow(
     flow.state.current_phase = 3
     flow.config.llm.model_for_phase.return_value = "test-model"
     flow.config.llm.context_window_for_model.return_value = 128000
+    flow.config.llm.batch_author_chunk_size = 20
+    flow._run_structural_loop = AsyncMock()
 
     agent = AsyncMock()
 
@@ -568,6 +570,333 @@ async def test_run_batch_agent_uses_union_constraints_for_allow_gap_types() -> N
     mock_union.assert_called_once_with([GapType.UNTESTED_HLR, GapType.UNTESTED_LLR])
     mock_single.assert_not_called()
     mock_reset.assert_called_once_with(token)
+
+
+# ── Chunked batch authoring (design/02 §Batch prompts, design/13) ───────────
+#
+# Live defect: one whole-batch phase-3 call had to author HLRs for 46+ PARAs
+# in a single response; the response hit the provider output-token limit, the
+# last PARAs never got HLRs, and after _MAX_BATCH_ATTEMPTS the phase ended
+# awaiting_approval with UNCOVERED_PARA gaps and zero per-gap dispatches
+# (trace.1614841.jsonl: PARA-0183 / PARA-0185).
+
+
+def _para_gap(node_id: str) -> Gap:
+    from backend.analysis.gaps import Gap, GapPriority, GapType
+
+    return Gap(type=GapType.UNCOVERED_PARA, priority=GapPriority.REQUIREMENTS_HLR,
+               node_id=node_id, description="uncovered")
+
+
+def _chunking_flow(n_paras: int, chunk_size: int) -> tuple[MagicMock, set[str]]:
+    """Flow with ``n_paras`` uncovered PARAs whose gaps track ``pending``."""
+    paras = [
+        _mock_node(f"PARA-{i:04d}", "PARA", content=f"paragraph text {i}")
+        for i in range(n_paras)
+    ]
+    hlr = _mock_node("HLR-0001", "HLR", title="Existing",
+                     content="The system shall exist.", parent_id="PARA-9999")
+    flow = _make_flow(nodes=[*paras, hlr])
+    flow.config.llm.batch_author_chunk_size = chunk_size
+    pending = {p.node_id for p in paras}
+
+    def collect(phase: int, skipped: set[str]) -> list[Gap]:
+        return [_para_gap(pid) for pid in sorted(pending)]
+
+    flow._collect_phase_gaps.side_effect = collect
+    return flow, pending
+
+
+def _dynamic_para_ids(prompt: str, pending: set[str] | None = None) -> set[str]:
+    """PARA ids listed in the prompt's dynamic (chunk) section."""
+    dynamic = prompt.split("UNCOVERED PARAGRAPHS")[1]
+    universe = pending if pending is not None else {
+        part.split("]")[0] for part in dynamic.split("[")[1:] if part.startswith("PARA-")
+    }
+    return {pid for pid in universe if f"[{pid}]" in dynamic}
+
+
+@pytest.mark.asyncio
+async def test_batch_phase3_chunks_large_para_set_with_static_prefix() -> None:
+    """45 PARAs, chunk size 20 → 3 calls of ≤20 PARAs, identical static prefix."""
+    flow, pending = _chunking_flow(45, 20)
+    prompts: list[str] = []
+
+    async def fake_agent(*args: Any, **kwargs: Any) -> int:
+        prompt = args[2]
+        prompts.append(prompt)
+        pending.difference_update(_dynamic_para_ids(prompt, pending))
+        return 1
+
+    with patch(
+        "backend.pipeline.batch_steps._run_batch_agent",
+        new_callable=AsyncMock, side_effect=fake_agent,
+    ):
+        result = await batch_phase3(flow, 3)
+
+    assert result["step_name"] == "batch_phase3"
+    assert len(prompts) == 3
+    sizes = [len(_dynamic_para_ids(p)) for p in prompts]
+    assert sizes == [20, 20, 5]
+    static_prefixes = {p.split("UNCOVERED PARAGRAPHS")[0] for p in prompts}
+    assert len(static_prefixes) == 1  # byte-identical static prefix per design/02
+    flow._run_structural_loop.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_batch_phase3_chunk_failure_retries_only_that_chunk() -> None:
+    """A stuck chunk retries with only its own items; resolved chunks don't repeat."""
+    from backend.pipeline.batch_steps import _MAX_BATCH_ATTEMPTS
+
+    flow, pending = _chunking_flow(25, 20)
+    chunk1 = {f"PARA-{i:04d}" for i in range(20)}
+    chunk2 = {f"PARA-{i:04d}" for i in range(20, 25)}
+    calls: list[set[str]] = []
+
+    async def fake_agent(*args: Any, **kwargs: Any) -> int:
+        ids = _dynamic_para_ids(args[2], pending)
+        calls.append(ids)
+        # Only chunk-1 items ever resolve; chunk 2 stays stuck (truncation).
+        pending.difference_update(ids & chunk1)
+        return 1
+
+    with (
+        patch(
+            "backend.pipeline.batch_steps._run_batch_agent",
+            new_callable=AsyncMock, side_effect=fake_agent,
+        ),
+        patch(
+            "backend.pipeline.batch_steps._fallback_structural",
+            new_callable=AsyncMock,
+            return_value={"step_name": "structural", "deletions": 0},
+        ) as mock_fb,
+    ):
+        await batch_phase3(flow, 3)
+
+    assert len(calls) == 1 + _MAX_BATCH_ATTEMPTS
+    assert calls[0] == chunk1
+    for retry in calls[1:]:
+        assert retry == chunk2  # retries carry only the stuck chunk's items
+    mock_fb.assert_awaited_once_with(flow, 3)
+
+
+@pytest.mark.asyncio
+async def test_batch_phase3_stragglers_dispatch_per_gap() -> None:
+    """Attempts exhausted with unresolved gaps → per-gap structural dispatch."""
+    from backend.pipeline.batch_steps import _MAX_BATCH_ATTEMPTS
+
+    flow, _pending = _chunking_flow(5, 20)
+
+    with patch(
+        "backend.pipeline.batch_steps._run_batch_agent",
+        new_callable=AsyncMock, return_value=1,
+    ) as mock_run:
+        result = await batch_phase3(flow, 3)
+
+    assert mock_run.await_count == _MAX_BATCH_ATTEMPTS
+    # The per-gap structural dispatch path actually runs for the stragglers.
+    flow._run_structural_loop.assert_awaited_once_with(3, skip_approval=True)
+    assert result["step_name"] == "structural"
+
+
+@pytest.mark.asyncio
+async def test_batch_phase3_small_set_single_call_unchanged() -> None:
+    """A set below the chunk size is one call, no fallback — behaviour unchanged."""
+    flow, pending = _chunking_flow(3, 20)
+
+    async def fake_agent(*args: Any, **kwargs: Any) -> int:
+        pending.clear()
+        return 1
+
+    with patch(
+        "backend.pipeline.batch_steps._run_batch_agent",
+        new_callable=AsyncMock, side_effect=fake_agent,
+    ) as mock_run:
+        result = await batch_phase3(flow, 3)
+
+    assert mock_run.await_count == 1
+    assert result["step_name"] == "batch_phase3"
+    flow._run_structural_loop.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_batch_phase5_chunks_unassigned_hlrs() -> None:
+    """Phase 5 chunks its unassigned-HLR list; 25 HLRs, chunk 10 → 3 calls."""
+    from backend.analysis.gaps import Gap, GapPriority, GapType
+
+    hlrs = [
+        _mock_node(f"HLR-{i:04d}", "HLR", title=f"T{i}", content=f"The system shall {i}.")
+        for i in range(25)
+    ]
+    mod = _mock_node("MOD-1", "MODULE", title="Engine", content="class plan")
+    flow = _make_flow(nodes=[*hlrs, mod])
+    flow.config.llm.batch_author_chunk_size = 10
+    pending = {h.node_id for h in hlrs}
+
+    def collect(phase: int, skipped: set[str]) -> list[Gap]:
+        return [
+            Gap(type=GapType.UNMODULARISED, priority=GapPriority.MODULARISATION,
+                node_id=hid, description="unassigned")
+            for hid in sorted(pending)
+        ]
+
+    flow._collect_phase_gaps.side_effect = collect
+    batch_sizes: list[int] = []
+
+    def fake_build(unassigned: list[dict[str, Any]], *args: Any, **kwargs: Any) -> str:
+        batch_sizes.append(len(unassigned))
+        fake_build.last_ids = [h["node_id"] for h in unassigned]  # type: ignore[attr-defined]
+        return "PROMPT"
+
+    async def fake_agent(*args: Any, **kwargs: Any) -> int:
+        pending.difference_update(fake_build.last_ids)  # type: ignore[attr-defined]
+        return 1
+
+    with (
+        patch("backend.pipeline.batch_steps.build_batch_phase5_prompt", side_effect=fake_build),
+        patch(
+            "backend.pipeline.batch_steps._run_batch_agent",
+            new_callable=AsyncMock, side_effect=fake_agent,
+        ),
+    ):
+        result = await batch_phase5(flow, 5)
+
+    assert result["step_name"] == "batch_phase5"
+    assert batch_sizes == [10, 10, 5]
+
+
+@pytest.mark.asyncio
+async def test_batch_phase7_chunks_unrefined_hlrs() -> None:
+    """Phase 7 chunks its unrefined-HLR list; 12 HLRs, chunk 5 → 3 calls."""
+    from backend.analysis.gaps import Gap, GapPriority, GapType
+    from backend.pipeline.batch_steps import batch_phase7
+
+    hlrs = [
+        _mock_node(f"HLR-{i:04d}", "HLR", title=f"T{i}", content=f"The system shall {i}.")
+        for i in range(12)
+    ]
+    flow = _make_flow(nodes=list(hlrs))
+    flow.config.llm.batch_author_chunk_size = 5
+    pending = {h.node_id for h in hlrs}
+
+    def collect(phase: int, skipped: set[str]) -> list[Gap]:
+        return [
+            Gap(type=GapType.UNREFINED_HLR, priority=GapPriority.REQUIREMENTS_LLR,
+                node_id=hid, description="unrefined")
+            for hid in sorted(pending)
+        ]
+
+    flow._collect_phase_gaps.side_effect = collect
+    batch_sizes: list[int] = []
+
+    def fake_build(unrefined: list[dict[str, Any]], *args: Any, **kwargs: Any) -> str:
+        batch_sizes.append(len(unrefined))
+        fake_build.last_ids = [h["node_id"] for h in unrefined]  # type: ignore[attr-defined]
+        return "PROMPT"
+
+    async def fake_agent(*args: Any, **kwargs: Any) -> int:
+        pending.difference_update(fake_build.last_ids)  # type: ignore[attr-defined]
+        return 1
+
+    with (
+        patch("backend.pipeline.batch_steps.build_batch_phase7_prompt", side_effect=fake_build),
+        patch(
+            "backend.pipeline.batch_steps._run_batch_agent",
+            new_callable=AsyncMock, side_effect=fake_agent,
+        ),
+    ):
+        result = await batch_phase7(flow, 7)
+
+    assert result["step_name"] == "batch_phase7"
+    assert batch_sizes == [5, 5, 2]
+
+
+@pytest.mark.asyncio
+async def test_batch_phase10_chunks_untested_requirements() -> None:
+    """Phase 10 chunks untested HLRs/LLRs; 25 untested, chunk 10 → 3 calls."""
+    from backend.analysis.gaps import Gap, GapPriority, GapType
+
+    hlrs = [_mock_node(f"HLR-{i:04d}", "HLR", content=f"shall {i}") for i in range(25)]
+    suite = _mock_node("SUITE-1", "SUITE", content="strategy")
+    nodes: list[MagicMock] = [*hlrs, suite]
+    flow = _make_flow(nodes=nodes)
+    flow.graph.all_nodes.side_effect = lambda: list(nodes)
+    flow.config.llm.batch_author_chunk_size = 10
+    gap = Gap(type=GapType.UNTESTED_HLR, priority=GapPriority.TEST_HLR,
+              node_id="HLR-0000", description="untested")
+    flow._collect_phase_gaps.return_value = [gap]
+
+    batch_sizes: list[int] = []
+
+    def fake_build(
+        untested_hlrs: list[dict[str, Any]], untested_llrs: list[dict[str, Any]],
+        *args: Any, **kwargs: Any,
+    ) -> str:
+        batch_sizes.append(len(untested_hlrs) + len(untested_llrs))
+        fake_build.last_ids = [h["node_id"] for h in untested_hlrs]  # type: ignore[attr-defined]
+        return "PROMPT"
+
+    async def fake_agent(*args: Any, **kwargs: Any) -> int:
+        for hid in fake_build.last_ids:  # type: ignore[attr-defined]
+            nodes.append(_mock_node(f"CASE-{hid}", "CASE_HLR", trace_to=[hid]))
+        return 1
+
+    with (
+        patch("backend.pipeline.batch_steps.build_batch_phase10_prompt", side_effect=fake_build),
+        patch(
+            "backend.pipeline.batch_steps._run_batch_agent",
+            new_callable=AsyncMock, side_effect=fake_agent,
+        ),
+    ):
+        result = await batch_phase10(flow, 10)
+
+    assert result["step_name"] == "batch_phase10"
+    assert batch_sizes == [10, 10, 5]
+    assert len(flow._batch_new_node_ids) == 25
+
+
+@pytest.mark.asyncio
+async def test_batch_phase8_falls_back_when_attempts_exhaust_with_gaps() -> None:
+    """Phase 8: gaps remaining after all batch attempts → per-gap dispatch."""
+    from backend.analysis.gaps import Gap, GapPriority, GapType
+    from backend.pipeline.batch_steps import _MAX_BATCH_ATTEMPTS, batch_phase8
+
+    llr = _mock_node("LLR-1", "LLR", parent_id="HLR-1", content="spec")
+    mod = _mock_node("MOD-1", "MODULE", content="module plan")
+    gap = Gap(type=GapType.UNDESIGNED, priority=GapPriority.DESIGN,
+              node_id="LLR-1", description="undesigned")
+    flow = _make_flow(nodes=[llr, mod])
+    flow.graph.nodes_tracing_to = MagicMock(return_value=["MOD-1"])
+    flow.graph.children_sync.return_value = []
+    flow._collect_phase_gaps.return_value = [gap]  # never resolves
+
+    with (
+        patch(
+            "backend.pipeline.batch_steps._run_fast_traces",
+            new_callable=AsyncMock, return_value=0,
+        ),
+        patch(
+            "backend.pipeline.batch_steps._run_batch_agent",
+            new_callable=AsyncMock, return_value=1,  # non-zero: no zero-call path
+        ) as mock_run,
+        patch(
+            "backend.pipeline.batch_steps._fallback_structural",
+            new_callable=AsyncMock,
+            return_value={"step_name": "structural", "deletions": 0},
+        ) as mock_fb,
+    ):
+        result = await batch_phase8(flow, 8)
+
+    assert mock_run.await_count == _MAX_BATCH_ATTEMPTS
+    mock_fb.assert_awaited_once_with(flow, 8)
+    assert result["step_name"] == "structural"
+
+
+def test_llm_config_batch_author_chunk_size_default() -> None:
+    """LLMConfig exposes the batch authoring chunk size (design/02)."""
+    from backend.config.models import LLMConfig
+
+    assert LLMConfig().batch_author_chunk_size == 20
 
 
 # ── _node_to_dict ───────────────────────────────────────────────────────────

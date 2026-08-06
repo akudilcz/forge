@@ -236,8 +236,10 @@ class TestVandalMutator:
             flow.pool.get_agent_for_gap.return_value = agent
             await asyncio.wait_for(flow.run_phase(3), timeout=_WAIT)
 
-        # Three PARA gaps per batch attempt, bounded by _MAX_BATCH_ATTEMPTS.
-        assert len(agent.seen) == 3 * _MAX_BATCH_ATTEMPTS
+        # Three PARA gaps per batch attempt, bounded by _MAX_BATCH_ATTEMPTS;
+        # exhausted chunks then fall back to per-gap structural dispatch
+        # (design/02 §Batch prompts), itself bounded by _MAX_GAP_ATTEMPTS.
+        assert len(agent.seen) == 3 * _MAX_BATCH_ATTEMPTS + 3 * _MAX_GAP_ATTEMPTS
         assert phase_status(flow, 3) == "awaiting_approval"
         # Only the scripted victim changed — every bystander is untouched.
         after = _snapshot(graph)

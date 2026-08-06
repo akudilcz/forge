@@ -96,7 +96,15 @@ Threads are therefore scoped **per gap**:
 
 ## Batch prompts
 
-The four batch phases (3, 5, 7, 8) follow a `[static prefix] + [dynamic suffix]` structure where the static prefix is the large cacheable graph snapshot and the dynamic suffix is the attempt-specific set of unresolved gaps. Retries inside a batch step benefit from Anthropic's prompt cache on the static prefix. Full content everywhere — no `[:N]` slices anywhere in `batch_prompts.py`.
+The batch phases (3, 5, 7, 8, 10) follow a `[static prefix] + [dynamic suffix]` structure where the static prefix is the large cacheable graph snapshot and the dynamic suffix is the chunk-specific set of unresolved items. Retries inside a batch step benefit from Anthropic's prompt cache on the static prefix. Full content everywhere — no `[:N]` slices anywhere in `batch_prompts.py`.
+
+**Chunked batch authoring**: a single batch call whose *output* scales with item count truncates at the provider's output-token limit on large documents. Live evidence (trie wave-3 resume, `trace.1614841.jsonl`): 46+ PARAs → 123 HLRs; phase 3's single batch response hit the output cap, the last PARAs never received HLRs, all 3 batch attempts exhausted, and the phase halted `awaiting_approval` with `UNCOVERED_PARA` gaps for PARA-0183/PARA-0185 — zero per-gap dispatches in a 42-call trace. Same truncation economics already fixed for the combined judge (`quality_judge_batch_size`, commit 07aa75a).
+
+The fix mirrors the judge: the phases whose per-item output scales with item count — 3 (one+ HLR per PARA), 5 (one trace call per HLR), 7 (one+ LLR per HLR), 10 (one CASE per requirement) — split the unresolved item list into chunks of `LLMConfig.batch_author_chunk_size` (default **20**) and make one LLM call per chunk. Phase 8 is naturally chunked per-MODULE and keeps that grouping. Rules:
+
+* The **static prefix is snapshotted once per step invocation** and byte-identical across every chunk call and retry — only the dynamic item list varies, so provider caching keeps amortising the graph snapshot.
+* **Attempts are counted per chunk** (`_MAX_BATCH_ATTEMPTS = 3` per chunk), so one stubborn chunk cannot starve the others: a failed or truncated chunk retries with only its own unresolved items.
+* **Straggler fallback**: items still unresolved after a chunk's attempts exhaust are handed to the per-gap structural dispatch loop (`_fallback_structural` → `steps.structural`). A batch phase never ends with undispatched structural gaps.
 
 **Dedup judge alignment**: the semantic duplicate judge's pair prompt is likewise ordered `[system + SIBLINGS]` static prefix then `[TARGET]` dynamic suffix, so the prefix is shared across targets under one parent and across the byte-identical double-confirmation call (independence unaffected — see design/01 §7.4).
 
