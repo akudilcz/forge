@@ -305,11 +305,23 @@ def _run_bazel_tests(
             forge_logger.emit("WARN", "SCAN ", f"Bazel tests failed: {error_summary}")
             return [], LcovResult(), error_summary
 
-        lcov = _run_coverage_py(workspace)
-        cov_xml = workspace / "coverage-test-results.xml"
-        if cov_xml.exists():
-            cov_results = parse_junit_xml(cov_xml)
-            results = merge_test_results(results, cov_results)
+        # Coverage is REPORT-ONLY (specs/03, U10 gate rebalance): a failing
+        # coverage export must never discard fresh test evidence. Live
+        # evidence: 226/226 passing tests were erased by "No data to
+        # report", and the requirement-coverage gate then failed 0/119.
+        lcov = LcovResult()
+        try:
+            lcov = _run_coverage_py(workspace)
+            cov_xml = workspace / "coverage-test-results.xml"
+            if cov_xml.exists():
+                cov_results = parse_junit_xml(cov_xml)
+                results = merge_test_results(results, cov_results)
+        except Exception as exc:  # noqa: BLE001
+            forge_logger.emit(
+                "WARN", "SCAN ",
+                f"Coverage measurement failed ({exc}) — structural coverage "
+                "unavailable for this scan; test evidence is unaffected",
+            )
 
         cov_str = f"{lcov.line_pct:.0f}%" if lcov.line_pct is not None else "n/a"
         forge_logger.emit("INFO", "SCAN ", f"Parsed {len(results)} test result(s), coverage {cov_str}")

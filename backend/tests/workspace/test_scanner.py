@@ -1002,3 +1002,57 @@ def test_scanner_bazel_test_forces_reexecution() -> None:
 
     src = inspect.getsource(scanner._run_bazel_tests)
     assert "--nocache_test_results" in src
+
+
+# ── Coverage failure must not erase test evidence (live: trie pilot) ─────────
+
+
+def _write_passing_workspace(tmp_path: Path) -> Path:
+    """Workspace with one test file so the bazel branch is exercised."""
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_x.py").write_text("def test_x() -> None:\n    assert True\n")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "x.py").write_text("def f() -> int:\n    return 1\n")
+    return tmp_path
+
+
+def test_coverage_failure_preserves_bazel_test_results(tmp_path: Path) -> None:
+    """Coverage is report-only (U10): a failing lcov export must NOT discard
+    fresh passing test evidence. Live: trie pilot phase 12 saw 226/226 tests
+    pass, then 'coverage lcov export failed: No data to report' erased them
+    all and the requirement-coverage gate failed with 0/119."""
+    from backend.workspace import scanner
+
+    ws = _write_passing_workspace(tmp_path)
+    passing = [SingleTestResult("tests/test_x.py::test_x", "tests/test_x.py", "test_x", "passed")]
+
+    with patch.object(scanner, "init_bazel_workspace"), \
+            patch.object(scanner, "purge_stale_test_artifacts"), \
+            patch.object(scanner.subprocess, "run") as run, \
+            patch.object(scanner, "parse_bazel_testlogs", return_value=passing), \
+            patch.object(
+                scanner, "_run_coverage_py",
+                side_effect=RuntimeError("coverage lcov export failed (rc=1): No data to report."),
+            ):
+        run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        results, lcov, error = scanner._run_bazel_tests(ws)
+
+    assert [r.status for r in results] == ["passed"], "test evidence was discarded"
+    assert lcov.line_pct is None, "coverage must be absent, not fabricated"
+    assert error == "", "a coverage failure is not a test-run failure"
+
+
+def test_bazel_failure_with_no_results_still_reports_error(tmp_path: Path) -> None:
+    """Genuine test-run failures keep failing loudly with no evidence."""
+    from backend.workspace import scanner
+
+    ws = _write_passing_workspace(tmp_path)
+    with patch.object(scanner, "init_bazel_workspace"), \
+            patch.object(scanner, "purge_stale_test_artifacts"), \
+            patch.object(scanner.subprocess, "run") as run, \
+            patch.object(scanner, "parse_bazel_testlogs", return_value=[]):
+        run.return_value = MagicMock(returncode=1, stdout="BUILD FAILED", stderr="")
+        results, lcov, error = scanner._run_bazel_tests(ws)
+
+    assert results == []
+    assert error
