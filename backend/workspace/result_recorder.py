@@ -259,7 +259,7 @@ async def _purge_invalid_result_nodes(graph: Any) -> int:
             or parent.node_type != NodeType.TEST.value
         )
         if invalid:
-            await graph.delete_node(node.node_id, "result_recorder", "invalid test evidence")
+            await graph.delete_node(node.node_id)
             purged += 1
     if purged:
         forge_logger.emit(

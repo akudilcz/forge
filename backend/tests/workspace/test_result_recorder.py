@@ -846,13 +846,19 @@ async def test_recording_purges_invalid_legacy_result_nodes() -> None:
     graph.all_nodes.return_value = [case, test, legacy]
     graph.node_sync.side_effect = lambda nid: {"TEST-0065": test}.get(nid)
     graph.add_node = AsyncMock()
-    graph.delete_node = AsyncMock()
+    # A real async stub with ProjectGraph.delete_node's actual signature: a
+    # wrong arity fails here instead of at runtime in a live build (a
+    # MagicMock swallows any call shape — that is how the 3-arg bug shipped).
+    deleted: list[str] = []
+
+    async def _delete(node_id: str) -> None:
+        deleted.append(node_id)
+
+    graph.delete_node = _delete
 
     with patch(
         "backend.workspace.result_recorder.run_and_parse_tests", return_value=[tr],
     ):
         await record_results(workspace=MagicMock(), graph=graph)
 
-    deleted = [c.args[0] if c.args else c.kwargs.get("node_id")
-               for c in graph.delete_node.await_args_list]
     assert "RESULT-legacy-deadbeef" in deleted, "invalid legacy evidence must be purged"
