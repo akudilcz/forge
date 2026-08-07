@@ -235,6 +235,41 @@ def _resolve_requirement_traces(
     return list(dict.fromkeys(req_ids))  # dedupe, preserve order
 
 
+async def _purge_invalid_result_nodes(graph: Any) -> int:
+    """Delete RESULT nodes that can never serve as evidence.
+
+    Evidence is always parsed fresh, so a prior run's RESULTs must not linger
+    as current proof — and an invalid one (no function name, unknown status,
+    non-TEST parent: the pre-fix vacuous-runner shape) can never become valid.
+    Leaving them in place permanently blocks the phase-13 evidence-integrity
+    gate on a resumed graph. Returns the number purged.
+    """
+    from backend.analysis.evidence_integrity import VALID_RESULT_STATUSES  # noqa: PLC0415
+
+    purged = 0
+    for node in list(graph.all_nodes()):
+        if node.node_type != NodeType.RESULT.value:
+            continue
+        props = node.properties or {}
+        parent = graph.node_sync(node.parent_id) if node.parent_id else None
+        invalid = (
+            not str(props.get("function_name") or "").strip()
+            or str(props.get("status") or "") not in VALID_RESULT_STATUSES
+            or parent is None
+            or parent.node_type != NodeType.TEST.value
+        )
+        if invalid:
+            await graph.delete_node(node.node_id, "result_recorder", "invalid test evidence")
+            purged += 1
+    if purged:
+        forge_logger.emit(
+            "WARN", "SYNC ",
+            f"Purged {purged} RESULT node(s) that cannot serve as evidence "
+            "(no function name / bad status / non-TEST parent) before recording",
+        )
+    return purged
+
+
 async def record_results(workspace: Path, graph: Any) -> list[SingleTestResult]:
     """Record test RESULT nodes in the graph (phase 13, after TEST sync).
 
@@ -246,6 +281,7 @@ async def record_results(workspace: Path, graph: Any) -> list[SingleTestResult]:
             resolved — an invalid RESULT is never written.
     """
     forge_logger.emit("INFO", "SYNC ", "Recording test results as RESULT nodes...")
+    await _purge_invalid_result_nodes(graph)
 
     results = run_and_parse_tests(workspace)
 

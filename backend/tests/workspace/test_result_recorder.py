@@ -821,3 +821,38 @@ async def test_untraced_function_in_owned_file_is_skipped_loudly() -> None:
 
     assert results == [tr]
     graph.add_node.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_recording_purges_invalid_legacy_result_nodes() -> None:
+    """Evidence is always parsed fresh, so a prior run's RESULT nodes must not
+    linger as current proof. Invalid legacy evidence (e.g. the empty
+    function_name written by the pre-fix vacuous runner) can never become
+    valid, so recording deletes it — otherwise the evidence-integrity gate
+    permanently blocks phase 13 on a resumed graph (live: binary_search,
+    173 violations)."""
+    tr = SingleTestResult(
+        "tests/test_motion.py::test_plan", "tests/test_motion.py", "test_plan", "passed",
+    )
+    case = _make_node("CASE_LLR-0010", "CASE_LLR", trace_to=["LLR-001"], properties={
+        "file_path": "tests/test_motion.py",
+        "line_traces": [{"symbol": "test_plan", "start": 1, "end": 5, "llr_ids": []}],
+    })
+    test = _make_node("TEST-0065", "TEST", trace_to=["CASE_LLR-0010", "LLR-001"])
+    legacy = _make_node("RESULT-legacy-deadbeef", "RESULT", properties={
+        "file_path": "tests/test_motion.py", "function_name": "", "status": "passed",
+    })
+    graph = MagicMock()
+    graph.all_nodes.return_value = [case, test, legacy]
+    graph.node_sync.side_effect = lambda nid: {"TEST-0065": test}.get(nid)
+    graph.add_node = AsyncMock()
+    graph.delete_node = AsyncMock()
+
+    with patch(
+        "backend.workspace.result_recorder.run_and_parse_tests", return_value=[tr],
+    ):
+        await record_results(workspace=MagicMock(), graph=graph)
+
+    deleted = [c.args[0] if c.args else c.kwargs.get("node_id")
+               for c in graph.delete_node.await_args_list]
+    assert "RESULT-legacy-deadbeef" in deleted, "invalid legacy evidence must be purged"
