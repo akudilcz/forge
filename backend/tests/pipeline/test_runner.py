@@ -119,7 +119,7 @@ def test_get_steps_phase_13_records_results_after_sync() -> None:
     were parented to CASE nodes — 230 ORPHAN_NODE gaps in a live build.
     """
     names = [s.__name__ for s in get_steps(13)]
-    assert names == ["workspace_sync", "record_results_step"]
+    assert names == ["workspace_sync", "record_results_step", "evidence_integrity"]
 
 
 def test_get_steps_batch_for_phase_7() -> None:

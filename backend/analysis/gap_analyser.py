@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.analysis.evidence_integrity import check_result_integrity
 from backend.analysis.gap_analyser_integrity import (
     VALID_PARENT_TYPES as VALID_PARENT_TYPES,
 )
@@ -72,6 +73,9 @@ class GapAnalyser(
         gaps.extend(self._check_stale_suite(all_nodes))
         gaps.extend(self._check_stale_code(all_nodes))
         gaps.extend(self._check_design_contract_alignment(graph, all_nodes))
+        # Evidence integrity (specs/13 §Evidence integrity): a RESULT that
+        # names no test function is not proof, whichever run wrote it.
+        gaps.extend(check_result_integrity(graph))
 
         # Sort by Priority (ASC) then Node ID (ASC) for deterministic order
         sorted_gaps = sorted(gaps, key=lambda g: (g.priority, g.node_id))

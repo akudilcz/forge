@@ -26,11 +26,14 @@ from backend.analysis.gaps import GapType
 def test_gap_agent_mapping_covers_all_gap_types() -> None:
     # UNSYNCED_DESIGN/TEST are handled by workspace_sync (no agent)
     # EMPTY_TRACE/CIRCULAR_TRACE are structural validations (no agent)
+    # INVALID_TEST_EVIDENCE is evidence integrity — the only remedy is a real
+    # test run, never an LLM edit (specs/13 §Evidence integrity)
     programmatic = {
         GapType.UNSYNCED_DESIGN,
         GapType.UNSYNCED_TEST,
         GapType.EMPTY_TRACE,
         GapType.CIRCULAR_TRACE,
+        GapType.INVALID_TEST_EVIDENCE,
     }
     for gap_type in GapType:
         if gap_type in programmatic:

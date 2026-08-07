@@ -22,6 +22,7 @@ from backend.pipeline.steps import (
     combined_quality,
     design_consolidation,
     deterministic_parse,
+    evidence_integrity,
     oracle_check,
     quality_gaps,
     semantic,
@@ -93,8 +94,11 @@ PHASE_STEPS: dict[int, list[StepFn]] = {
         oracle_check,
     ],
     # RESULT recording runs after sync so every RESULT has a TEST parent
-    # (specs/03); the step also heals misparented RESULTs on resume.
-    13: [workspace_sync, record_results_step],
+    # (specs/03); the step also heals misparented RESULTs on resume. The
+    # evidence_integrity gate runs last: recorded evidence is only accepted
+    # once it is shown to be per-function, plausible, and well-formed
+    # (specs/13 §Evidence integrity).
+    13: [workspace_sync, record_results_step, evidence_integrity],
 }
 
 

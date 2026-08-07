@@ -63,6 +63,7 @@ class GapType(str, Enum):
     STALE_SUITE = "STALE_SUITE"                      # SUITE created before significant HLR/LLR population change — re-derive
     STALE_CODE = "STALE_CODE"                        # Code gen failed OR workspace file diverges from DESIGN spec
     MISSING_CODE = "MISSING_CODE"                    # DESIGN.file_path is set but workspace file is missing/unreadable
+    INVALID_TEST_EVIDENCE = "INVALID_TEST_EVIDENCE"  # RESULT node cannot serve as proof (no function name, bad status, wrong parent)
 
 
 class GapPriority(int, Enum):

@@ -272,7 +272,10 @@ The resulting `bazel-testlogs/*/test.xml` is real pytest output carrying one
 `name="test_fn"`), never Bazel's synthesized one-per-target stub. Per-function
 evidence is what makes the coverage rules below meaningful: an LLR counts as
 verified only when the specific traced test *function* passed, which cannot
-be established from target-level results.
+be established from target-level results. The evidence is itself validated
+before any gate is allowed to depend on it — see
+[13-quality-and-convergence-guarantees.md](13-quality-and-convergence-guarantees.md)
+§Evidence integrity.
 
 **13 — Workspace Sync.** Deterministic reconciliation of the workspace into
 the graph: a CODE node per generated source file (under its DESIGN), a TEST
@@ -282,7 +285,13 @@ node per test function (passed/failed/skipped/error), parsed from the
 per-function JUnit XML the Phase 12 targets emit. Re-runs refresh
 rather than duplicate; RESULT nodes have stable IDs and misparented RESULTs
 from interrupted runs are healed deterministically on resume. Test files no
-CASE owns are skipped with a warning — they are not evidence.
+CASE owns are skipped with a warning — they are not evidence. The phase then
+closes with the **evidence-integrity gate**: the recorded evidence must be
+per-function, plausible (a pass with neither recorded duration nor captured
+output did not run), and well-formed on every RESULT node, or the phase halts
+loudly with `INVALID_TEST_EVIDENCE` instead of completing — see
+[13-quality-and-convergence-guarantees.md](13-quality-and-convergence-guarantees.md)
+§Evidence integrity.
 
 **14 — Build Deliverables.** Deterministic packaging of
 `workspace/deliverables/` and `deliverables.zip`: a README manifest; seven

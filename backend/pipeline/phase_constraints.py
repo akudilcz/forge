@@ -57,6 +57,9 @@ PHASE_CREATE_ALLOWLIST: dict[GapType, frozenset[str]] = {
     GapType.STALE_SUITE: frozenset(),
     GapType.STALE_CODE: frozenset(),
     GapType.MISSING_CODE: frozenset(),
+    # INVALID_TEST_EVIDENCE: never agent-repairable — the only fix is a real
+    # test run (specs/13 §Evidence integrity).
+    GapType.INVALID_TEST_EVIDENCE: frozenset(),
     GapType.EMPTY_TRACE: frozenset(),
     GapType.CIRCULAR_TRACE: frozenset(),
 }

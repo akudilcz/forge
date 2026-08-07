@@ -32,7 +32,14 @@ PHASE_COMPLETION_CRITERIA: dict[int, frozenset[GapType]] = {
     10: frozenset({GapType.UNTESTED_HLR, GapType.UNTESTED_LLR}),
     11: frozenset(),  # Doco Render (no gap — deterministic render)
     12: frozenset(),  # Code Gen (LangGraph agents)
-    13: frozenset({GapType.UNSYNCED_DESIGN, GapType.UNSYNCED_TEST}),
+    # INVALID_TEST_EVIDENCE: phase 13 records the evidence every later gate
+    # reads, so it may not complete while any RESULT node is unusable as
+    # proof (specs/13 §Evidence integrity).
+    13: frozenset({
+        GapType.UNSYNCED_DESIGN,
+        GapType.UNSYNCED_TEST,
+        GapType.INVALID_TEST_EVIDENCE,
+    }),
 }
 
 NUM_PHASES = 14  # phases 0-13

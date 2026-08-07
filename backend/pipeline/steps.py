@@ -220,6 +220,57 @@ async def suite_authoring(flow: Any, phase: int) -> StepResult:
     return StepResult(step_name="suite_authoring", deletions=0)
 
 
+# ── Step: evidence integrity gate (Phase 13) ─────────────────────────────────
+
+
+async def evidence_integrity(flow: Any, phase: int) -> StepResult:
+    """Refuse vacuous or implausible test evidence (specs/13 §Evidence integrity).
+
+    Runs last in phase 13, after RESULT recording. Two deterministic
+    checks, both fail-loud:
+
+    * the freshly written ``bazel-testlogs`` XML must carry per-function
+      results with a known status, and passing results must show either
+      recorded duration or captured output (the plausibility floor);
+    * every RESULT node in the graph must be TEST-parented, name a test
+      function, and carry a known status — so a resumed graph reveals
+      evidence recorded before this guard existed.
+
+    Raises:
+        EvidenceIntegrityError: on any violation. The runner marks the
+            phase ``awaiting_approval`` and re-raises; a build never
+            advances on evidence it cannot trust.
+    """
+    from backend.analysis.evidence_integrity import (  # noqa: PLC0415
+        EvidenceIntegrityError,
+        check_result_integrity,
+    )
+    from backend.quality.evidence_plausibility import (  # noqa: PLC0415
+        check_evidence_plausibility,
+        collect_evidence,
+    )
+
+    forge_logger.emit("INFO", "PIPE ", f"Phase {phase} · step: evidence_integrity")
+    records = collect_evidence(flow._workspace)
+    problems = check_evidence_plausibility(records)
+    problems.extend(gap.description for gap in check_result_integrity(flow.graph))
+
+    if problems:
+        for problem in problems:
+            forge_logger.emit("ERROR", "SYNC ", problem, phase=phase)
+        raise EvidenceIntegrityError(
+            f"Phase {phase} evidence integrity: {len(problems)} violation(s) — "
+            f"{problems[0]}"
+        )
+
+    forge_logger.emit(
+        "INFO", "SYNC ",
+        f"Evidence integrity OK — {len(records)} per-function result(s) verified",
+        phase=phase,
+    )
+    return StepResult(step_name="evidence_integrity", deletions=0)
+
+
 # ── Step: case trace coverage (Phase 10) ─────────────────────────────────────
 
 

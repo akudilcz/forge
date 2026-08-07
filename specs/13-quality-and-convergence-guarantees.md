@@ -198,6 +198,48 @@ case authoring receives the contract record for the symbol under test and
 must encode one case per `raises` entry (If–then EARS shape) and one per
 stated postcondition.
 
+## Evidence integrity
+
+Every gate above the test runner — requirement coverage, oracle
+validation, the mutation round, the phase auditor — reads test evidence
+and trusts it. None of them can see a runner that reported success
+without running anything. A live build proved the risk real: Bazel
+targets with no `main` executed each test file as a plain script (exit 0,
+nothing run), and Bazel **synthesized** a `test.xml` naming the target
+"PASSED" — 226/226 green while the real suite held 10 failures. FORGE
+therefore validates the evidence itself, deterministically, before it may
+count as proof:
+
+- **Per-function evidence only.** A RESULT is proof of a *test function*
+  running, so it must carry a non-empty `function_name`. A result with an
+  empty function name is the signature of Bazel's synthesized fallback
+  XML: it is never valid proof for per-function requirement coverage, and
+  it raises a loud `INVALID_TEST_EVIDENCE` gap naming the file. Silently
+  discounting it is not permitted — an uncountable result must be visible.
+- **Plausibility floor.** Real pytest output records a nonzero time per
+  testcase and leaves a summary in the target's `test.log`; the
+  synthesized stub records `duration="0" time="0"` and an empty log. A
+  suite claiming N passing results where *every* pass has both zero
+  recorded duration and zero captured output did not execute, and is
+  rejected as no evidence at all.
+- **RESULT-node integrity.** Every RESULT must (a) be parented to a TEST
+  node (also enforced at write time), (b) carry a `function_name`
+  property, and (c) carry a status from the known set
+  (`passed`/`failed`/`skipped`/`error`). Each violation becomes one
+  precise `INVALID_TEST_EVIDENCE` gap carrying the file and the
+  remediation, so a resumed or legacy graph *reveals* fake evidence
+  instead of inheriting it as green.
+
+Wiring: the graph-side check runs inside the Gap Analyser, so every
+analysis and every phase audit sees it; `INVALID_TEST_EVIDENCE` is a
+phase-13 completion criterion, so phase 13 cannot report complete while
+any unusable RESULT exists. Phase 13's final step (`evidence_integrity`)
+applies the plausibility floor to the freshly written `bazel-testlogs`
+XML and the RESULT-node checks to the graph, and raises
+`EvidenceIntegrityError` on any violation — the phase goes
+`awaiting_approval` rather than passing on fiction. The gap is deliberately
+**not** agent-repairable: the only remedy is a real test run.
+
 ## Resolution certificates
 
 A gap is declared resolved only when it is **proven** resolved: after each
