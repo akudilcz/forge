@@ -235,7 +235,7 @@ def _discover_py_files(directory: Path) -> list[Path]:
         return []
     return [
         p for p in sorted(directory.rglob("*.py"))
-        if p.name not in ("__init__.py", "conftest.py")
+        if p.name not in ("__init__.py", "conftest.py", "pytest_runner.py")
         and "__pycache__" not in p.parts
     ]
 
@@ -387,15 +387,41 @@ def _run_coverage_py(workspace: Path) -> LcovResult:
     return parse_lcov_file(lcov_path)
 
 
+def _ensure_workspace_pytest_config(workspace: Path) -> Path:
+    """Write (once) and return the workspace's own minimal pytest config.
+
+    Generated workspaces must run hermetically wherever they live — see the
+    -c rationale in :func:`_run_coverage_with_progress`.
+    """
+    cfg_path = workspace / "pytest.ini"
+    if not cfg_path.exists():
+        cfg_path.write_text(
+            "[pytest]\n"
+            "# Minimal, hermetic config for the generated workspace: pins\n"
+            "# pytest's rootdir here so no ancestor project's addopts apply.\n"
+            "testpaths = tests\n",
+            encoding="utf-8",
+        )
+    return cfg_path
+
+
 def _run_coverage_with_progress(
     coverage_bin: str, workspace: Path, env: dict[str, str],
 ) -> subprocess.CompletedProcess[str]:
     """Run coverage with pytest, logging progress per test file."""
 
     xml_path = workspace / "coverage-test-results.xml"
+    cfg_path = _ensure_workspace_pytest_config(workspace)
     cmd = [
         coverage_bin, "run", "--branch", "--source=src",
-        "-m", "pytest", "tests/", "--maxfail=5", "-v", "--no-header", "--timeout=10",
+        # -c pins the workspace's own config: pytest otherwise walks UP the
+        # tree and adopts an ancestor project's addopts. A parent repo using
+        # pytest-cov starts a second collector inside this `coverage run`,
+        # which aborts collection ("No data to report") and destroys the
+        # per-function test evidence the requirement gate depends on.
+        "-m", "pytest",
+        "-c", str(cfg_path),
+        "tests/", "--maxfail=5", "-v", "--no-header", "--timeout=10",
         f"--junitxml={xml_path}",
     ]
     proc = subprocess.Popen(

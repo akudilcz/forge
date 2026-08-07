@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -1028,7 +1029,7 @@ def test_coverage_failure_preserves_bazel_test_results(tmp_path: Path) -> None:
 
     with patch.object(scanner, "init_bazel_workspace"), \
             patch.object(scanner, "purge_stale_test_artifacts"), \
-            patch.object(scanner.subprocess, "run") as run, \
+            patch("backend.workspace.scanner.subprocess.run") as run, \
             patch.object(scanner, "parse_bazel_testlogs", return_value=passing), \
             patch.object(
                 scanner, "_run_coverage_py",
@@ -1049,10 +1050,46 @@ def test_bazel_failure_with_no_results_still_reports_error(tmp_path: Path) -> No
     ws = _write_passing_workspace(tmp_path)
     with patch.object(scanner, "init_bazel_workspace"), \
             patch.object(scanner, "purge_stale_test_artifacts"), \
-            patch.object(scanner.subprocess, "run") as run, \
+            patch("backend.workspace.scanner.subprocess.run") as run, \
             patch.object(scanner, "parse_bazel_testlogs", return_value=[]):
         run.return_value = MagicMock(returncode=1, stdout="BUILD FAILED", stderr="")
         results, lcov, error = scanner._run_bazel_tests(ws)
 
     assert results == []
     assert error
+
+
+def test_coverage_run_is_hermetic_from_ancestor_pytest_config(tmp_path: Path) -> None:
+    """A generated workspace may live anywhere — including inside a repo whose
+    pyproject.toml carries pytest addopts. pytest walks UP for config, so an
+    ancestor's --cov flags would start a second coverage collector inside our
+    `coverage run` (live: nested-collector AssertionError -> 'No data to
+    report' -> zero test evidence). The invocation must pin its own config."""
+    from backend.workspace import scanner
+
+    captured: dict[str, list[str]] = {}
+
+    class _Proc:
+        returncode = 0
+        stdout = io.StringIO("")
+
+        def wait(self, timeout: int | None = None) -> int:
+            return 0
+
+    def fake_popen(cmd: list[str], **kwargs: object) -> _Proc:
+        captured["cmd"] = cmd
+        return _Proc()
+
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_a.py").write_text("def test_a() -> None:\n    assert True\n")
+
+    with patch("backend.workspace.scanner.subprocess.Popen", fake_popen):
+        scanner._run_coverage_with_progress("coverage", tmp_path, {})
+
+    cmd = captured["cmd"]
+    assert "-c" in cmd, "coverage pytest run must pin an explicit config file"
+    # -c must land in PYTEST's argument space, not coverage's own.
+    assert cmd.index("-c") > cmd.index("pytest"), "-c must follow '-m pytest'"
+    cfg = Path(cmd[cmd.index("-c") + 1])
+    assert cfg.exists(), f"pinned pytest config must exist: {cfg}"
+    assert "--cov" not in cfg.read_text(), "workspace config must not enable pytest-cov"

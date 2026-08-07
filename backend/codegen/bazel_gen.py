@@ -113,6 +113,7 @@ def init_bazel_workspace(workspace: Path) -> None:
     _write_root_build(workspace)
     _write_requirements(workspace)
     _write_conftest(workspace)
+    _write_pytest_runner(workspace)
     _write_tracing_package(workspace)
     _write_src_build(workspace)
     _write_tests_build(workspace)
@@ -272,29 +273,95 @@ def _write_requirements(workspace: Path) -> None:
     )
 
 
-def _write_conftest(workspace: Path) -> None:
-    """Write tests/conftest.py that directs JUnit XML to bazel's output.
+PYTEST_RUNNER_NAME = "pytest_runner.py"
 
-    Bazel sets XML_OUTPUT_FILE for each test target. This conftest hooks
-    pytest to write per-function JUnit XML there, so bazel-testlogs
-    contains granular results instead of one-per-target stubs.
+_CONFTEST_SOURCE = '''\
+"""Shared pytest configuration for the generated test suite.
+
+JUnit XML is written by pytest_runner.py (the ``main`` of every generated
+py_test target), which passes ``--junitxml=$XML_OUTPUT_FILE``. Do not add a
+second XML mechanism here — bazel consumes exactly one report per target.
+"""
+'''
+
+_PYTEST_RUNNER_SOURCE = '''\
+"""Bazel py_test entry point — runs pytest over the files named in argv.
+
+Bazel executes a ``py_test`` target as a plain script. A bare pytest module
+only *defines* its ``test_*`` functions when executed that way, so the target
+would exit 0 without running a single assertion. Every generated target
+therefore sets ``main = "pytest_runner.py"`` and passes its own test file(s)
+in ``args``; this runner invokes pytest on them, writes per-function JUnit XML
+to the path bazel supplies in ``XML_OUTPUT_FILE``, and propagates pytest's
+exit code so a failing test fails the target.
+"""
+
+import os
+import sys
+from pathlib import Path
+
+import pytest
+
+
+def main():
+    """Run pytest on the test files named in argv; return pytest's exit code."""
+    # .absolute() rather than .resolve(): the runfiles tree is a symlink farm
+    # into the source tree, and resolving would run pytest outside the sandbox.
+    here = Path(__file__).absolute().parent
+    names = sys.argv[1:]
+    if not names:
+        raise SystemExit("pytest_runner: no test file given in args")
+
+    targets = []
+    for name in names:
+        target = here / name
+        if not target.exists():
+            raise SystemExit(f"pytest_runner: test file not found: {target}")
+        targets.append(str(target))
+
+    # rootdir is pinned to the workspace root so pytest node IDs — and hence
+    # the JUnit classname — are "tests.test_x", the form the FORGE scanner
+    # matches against tests/ files on disk.
+    args = [f"--rootdir={here.parent}", "-p", "no:cacheprovider", "-v", *targets]
+    xml_path = os.environ.get("XML_OUTPUT_FILE")
+    if xml_path:
+        args = [f"--junitxml={xml_path}", *args]
+    return int(pytest.main(args))
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+'''
+
+
+def _write_conftest(workspace: Path) -> None:
+    """Write tests/conftest.py, retiring the legacy XML-writing hook.
+
+    Earlier versions redirected JUnit XML by setting ``config.option.xmlpath``
+    from ``pytest_configure``. That duty now belongs solely to
+    :data:`_PYTEST_RUNNER_SOURCE`, so a conftest still carrying the old hook is
+    rewritten to keep exactly one mechanism. Any other existing conftest
+    (agent-authored fixtures) is left alone.
     """
     tests_dir = workspace / "tests"
     if not tests_dir.exists():
         return
     path = tests_dir / "conftest.py"
-    if path.exists():
+    if path.exists() and "config.option.xmlpath" not in path.read_text(encoding="utf-8"):
         return
-    path.write_text(
-        "import os\n"
-        "\n"
-        "\n"
-        "def pytest_configure(config):\n"
-        '    xml_path = os.environ.get("XML_OUTPUT_FILE")\n'
-        "    if xml_path and not config.option.xmlpath:\n"
-        "        config.option.xmlpath = xml_path\n",
-        encoding="utf-8",
-    )
+    path.write_text(_CONFTEST_SOURCE, encoding="utf-8")
+
+
+def _write_pytest_runner(workspace: Path) -> None:
+    """Write tests/pytest_runner.py — the ``main`` of every py_test target.
+
+    Always regenerated so a stale copy can never silently disable the
+    suite; it is infrastructure, never agent-authored content.
+    """
+    tests_dir = workspace / "tests"
+    if not tests_dir.exists():
+        return
+    (tests_dir / PYTEST_RUNNER_NAME).write_text(_PYTEST_RUNNER_SOURCE, encoding="utf-8")
 
 
 def _write_tracing_package(workspace: Path) -> None:
@@ -384,7 +451,7 @@ def _write_tests_build(workspace: Path) -> None:
     lines = ['load("@rules_python//python:defs.bzl", "py_test")\n']
 
     for tf in test_files:
-        srcs = [tf.name]
+        srcs = [tf.name, PYTEST_RUNNER_NAME]
         if has_conftest:
             srcs.append("conftest.py")
         srcs_str = ", ".join(f'"{s}"' for s in srcs)
@@ -406,6 +473,8 @@ def _write_tests_build(workspace: Path) -> None:
             f"\npy_test(\n"
             f'    name = "{tf.stem}",\n'
             f"    srcs = [{srcs_str}],\n"
+            f'    main = "{PYTEST_RUNNER_NAME}",\n'
+            f'    args = ["{tf.name}"],\n'
             f"    timeout = \"short\",\n"
             f"    deps = [\n"
             f"{deps_str},\n"

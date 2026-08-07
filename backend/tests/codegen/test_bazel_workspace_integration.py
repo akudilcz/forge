@@ -664,13 +664,18 @@ def test_nested_package_scanned(tmp_path: Path) -> None:
 
 
 def test_conftest_and_init_excluded(tmp_path: Path) -> None:
-    """__init__.py and conftest.py should not appear in scan results."""
+    """__init__.py, conftest.py and pytest_runner.py stay out of scan results.
+
+    pytest_runner.py is bazel test harness infrastructure, not agent output —
+    scanning it would report its ``main()`` as an untraced function.
+    """
     _build_workspace(tmp_path)
 
     # Add a conftest.py in tests/
     (tmp_path / "tests" / "conftest.py").write_text(
         "def pytest_configure(config):\n    pass\n"
     )
+    assert (tmp_path / "tests" / "pytest_runner.py").exists()
 
     source_files, test_files = scan_files(tmp_path)
 
@@ -680,6 +685,9 @@ def test_conftest_and_init_excluded(tmp_path: Path) -> None:
     )
     assert not any("conftest" in p for p in all_paths), (
         f"conftest.py should be excluded: {all_paths}"
+    )
+    assert not any("pytest_runner" in p for p in all_paths), (
+        f"pytest_runner.py should be excluded: {all_paths}"
     )
 
 
@@ -743,4 +751,92 @@ def test_bazel_test_passes(tmp_path: Path) -> None:
 
     assert result.returncode == 0, (
         f"bazel test failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    )
+
+
+_FAILING_TEST = '''\
+"""A test that must fail — the regression guard for vacuous py_test targets."""
+
+from src.calculator import Calculator
+from tracing import traces
+
+
+@traces("LLR-0001", case="CASE_LLR-0001")
+def test_add_is_deliberately_wrong():
+    """2 + 3 is not 99; bazel MUST report this target as FAILED."""
+    calc = Calculator()
+    assert calc.add(2.0, 3.0).value == 99.0
+'''
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not _has_bazel(), reason="bazel not available")
+def test_bazel_discriminates_pass_from_fail(tmp_path: Path) -> None:
+    """A failing test function must fail its bazel target, with per-function XML.
+
+    Regression guard for the defect where generated ``py_test`` rules had no
+    ``main``: bazel ran each test module as a script, nothing executed, and
+    every target passed while the assertions inside were false.
+    """
+    _build_workspace(tmp_path)
+    (tmp_path / "tests" / "test_broken.py").write_text(_FAILING_TEST)
+    init_bazel_workspace(tmp_path)
+
+    result = subprocess.run(
+        ["bazel", "test", "//tests/...", "--test_output=errors"],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+
+    combined = result.stdout + result.stderr
+    assert result.returncode != 0, f"failing test did not fail bazel:\n{combined}"
+    assert "//tests:test_calculator" in combined
+    assert "//tests:test_broken" in combined
+    assert "FAILED" in combined
+    # The passing target must still pass — the fix must not fail everything.
+    assert "//tests:test_calculator" in [
+        line.split()[0] for line in combined.splitlines()
+        if line.startswith("//tests:") and "PASSED" in line
+    ], f"passing target was not reported PASSED:\n{combined}"
+
+    # Real pytest ran: the failure text is in the log, not an empty stub.
+    log = (tmp_path / "bazel-testlogs" / "tests" / "test_broken" / "test.log").read_text()
+    assert "test_add_is_deliberately_wrong" in log
+    assert "assert" in log
+
+    # JUnit XML carries per-FUNCTION testcase names, not the target name.
+    xml = (tmp_path / "bazel-testlogs" / "tests" / "test_broken" / "test.xml").read_text()
+    assert 'name="test_add_is_deliberately_wrong"' in xml
+    assert 'classname="tests.test_broken"' in xml
+    assert "<failure" in xml
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not _has_bazel(), reason="bazel not available")
+def test_bazel_testlogs_parse_to_per_function_results(tmp_path: Path) -> None:
+    """parse_bazel_testlogs turns the real XML into per-function results.
+
+    This is the evidence chain that ``compute_requirement_coverage_detail``
+    depends on: a passing LLR needs a *named function* that passed.
+    """
+    from backend.workspace.test_reports import parse_bazel_testlogs
+
+    _build_workspace(tmp_path)
+    (tmp_path / "tests" / "test_broken.py").write_text(_FAILING_TEST)
+    init_bazel_workspace(tmp_path)
+
+    subprocess.run(
+        ["bazel", "test", "//tests/..."],
+        cwd=str(tmp_path), capture_output=True, text=True, timeout=600,
+    )
+
+    results = parse_bazel_testlogs(tmp_path)
+    by_id = {r.test_id: r for r in results}
+
+    assert by_id["tests/test_calculator.py::test_add_positive_numbers"].status == "passed"
+    assert by_id["tests/test_broken.py::test_add_is_deliberately_wrong"].status == "failed"
+    assert all(r.function_name for r in results), (
+        f"every result must name a function: {[r.test_id for r in results]}"
     )

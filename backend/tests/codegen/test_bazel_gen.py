@@ -96,7 +96,7 @@ def test_regenerates_src_build_on_rerun(tmp_path: Path) -> None:
 
 
 def test_init_creates_conftest(tmp_path: Path) -> None:
-    """Should create tests/conftest.py that hooks XML_OUTPUT_FILE."""
+    """Should create tests/conftest.py without a second XML mechanism."""
     tests = tmp_path / "tests"
     tests.mkdir()
     (tests / "test_x.py").write_text("")
@@ -106,8 +106,109 @@ def test_init_creates_conftest(tmp_path: Path) -> None:
     conftest = tests / "conftest.py"
     assert conftest.exists()
     text = conftest.read_text()
-    assert "XML_OUTPUT_FILE" in text
-    assert "pytest_configure" in text
+    assert "config.option.xmlpath" not in text, (
+        "JUnit XML must be produced only by pytest_runner.py"
+    )
+
+
+def test_legacy_xml_conftest_is_replaced(tmp_path: Path) -> None:
+    """A conftest carrying the legacy xmlpath hook is rewritten."""
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("")
+    (tests / "conftest.py").write_text(
+        "import os\n\n\ndef pytest_configure(config):\n"
+        '    config.option.xmlpath = os.environ.get("XML_OUTPUT_FILE")\n',
+        encoding="utf-8",
+    )
+
+    init_bazel_workspace(tmp_path)
+
+    assert "config.option.xmlpath" not in (tests / "conftest.py").read_text()
+
+
+def test_agent_authored_conftest_is_preserved(tmp_path: Path) -> None:
+    """A conftest without the legacy hook keeps its fixtures."""
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("")
+    (tests / "conftest.py").write_text(
+        "import pytest\n\n\n@pytest.fixture\ndef widget():\n    return 1\n",
+        encoding="utf-8",
+    )
+
+    init_bazel_workspace(tmp_path)
+
+    assert "def widget()" in (tests / "conftest.py").read_text()
+
+
+# ── pytest_runner: the mechanism that makes py_test targets real ────────────
+
+
+def test_init_creates_pytest_runner(tmp_path: Path) -> None:
+    """tests/pytest_runner.py must invoke pytest, honour XML_OUTPUT_FILE, exit code."""
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("")
+
+    init_bazel_workspace(tmp_path)
+
+    runner = tests / "pytest_runner.py"
+    assert runner.exists()
+    text = runner.read_text()
+    assert "import pytest" in text
+    assert "pytest.main(" in text
+    assert 'os.environ.get("XML_OUTPUT_FILE")' in text
+    assert "--junitxml=" in text
+    assert "sys.exit(main())" in text, "must propagate pytest's exit code"
+
+
+def test_pytest_runner_is_regenerated(tmp_path: Path) -> None:
+    """A stale runner must never survive — it would silently disable the suite."""
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("")
+    (tests / "pytest_runner.py").write_text("# stale no-op\n", encoding="utf-8")
+
+    init_bazel_workspace(tmp_path)
+
+    assert "stale no-op" not in (tests / "pytest_runner.py").read_text()
+
+
+def test_pytest_runner_source_is_importable_python(tmp_path: Path) -> None:
+    """The generated runner must parse — it is executed by every target."""
+    import ast
+
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("")
+
+    init_bazel_workspace(tmp_path)
+
+    ast.parse((tests / "pytest_runner.py").read_text())
+
+
+def test_py_test_rule_runs_pytest(tmp_path: Path) -> None:
+    """Each py_test must set main=pytest_runner.py and pass its test file in args.
+
+    Without ``main``, bazel executes the test module as a script: the
+    ``test_*`` functions are merely defined, the process exits 0, and the
+    target passes vacuously.
+    """
+    (tmp_path / "src").mkdir()
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_alpha.py").write_text("def test_it(): assert True\n")
+    (tests / "test_beta.py").write_text("def test_it(): assert True\n")
+
+    init_bazel_workspace(tmp_path)
+
+    text = (tests / "BUILD.bazel").read_text()
+    assert text.count('main = "pytest_runner.py"') == 2
+    assert 'args = ["test_alpha.py"]' in text
+    assert 'args = ["test_beta.py"]' in text
+    assert '"pytest_runner.py"' in text
+    assert '"@pip//pytest"' in text
 
 
 def test_tests_build_includes_conftest(tmp_path: Path) -> None:
