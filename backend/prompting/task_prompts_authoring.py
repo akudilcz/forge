@@ -126,6 +126,12 @@ IMPLEMENTABLE_SPEC_LITMUS = (
 CASE_CONTRACT_ENCODING = (
     "CONTRACT-ENCODING RULES — acceptance criteria must make a wrong\n"
     "implementation FAIL, not merely exercise the topic:\n"
+    "  • Prohibition requirements ('must not use X', 'without library\n"
+    "    Y'): state them as CONTRACT prohibited_constructs, which FORGE\n"
+    "    verifies deterministically by AST at phase 12. NEVER write a\n"
+    "    case that scans source text for banned names: a substring scan\n"
+    "    false-positives on comments, docstrings and on the very module\n"
+    "    that implements the prohibition (it must name what it forbids).\n"
     "  • Exception cases: assert the exception's base class too (e.g. 'is\n"
     "    caught by except ValueError') and any required attributes or\n"
     "    message wording.\n"

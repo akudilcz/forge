@@ -222,3 +222,19 @@ def test_batch_phase10_prompt_without_properties_still_renders() -> None:
         contract_records=[],
     )
     assert "HLR-0001" in prompt
+
+
+def test_case_encoding_forbids_substring_prohibition_scans() -> None:
+    """Prohibition requirements must be verified structurally, never by
+    grepping source text. Live (interval_tree): a generated CASE scanned every
+    src file for banned library names and failed on the very module that
+    IMPLEMENTS the prohibition (it lists those names in a _PROHIBITED tuple).
+    The mission agent then burned all four passes 'fixing' correct code.
+    FORGE already verifies prohibitions deterministically via the CONTRACT's
+    prohibited_constructs gate."""
+    from backend.prompting.task_prompts_authoring import CASE_CONTRACT_ENCODING
+
+    text = CASE_CONTRACT_ENCODING.lower()
+    assert "prohibition" in text, "must give a rule for prohibition requirements"
+    assert "prohibited_constructs" in text, "must point at the contract mechanism"
+    assert "substring" in text or "grep" in text, "must forbid text scanning"
