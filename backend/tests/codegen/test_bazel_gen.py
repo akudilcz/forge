@@ -536,3 +536,19 @@ def test_report_unresolved_deps_silent_for_future(
 
     warn_msgs = [m for lv, _, m in logged if lv == "WARN"]
     assert not any("Unresolved" in m for m in warn_msgs)
+
+
+def test_pytest_runner_disables_class_collection(tmp_path: Path) -> None:
+    """Generated tests import production classes; pytest auto-collects any
+    imported ``Test*`` class, inventing 'test functions' no CASE traces
+    (live: src/tests.py::TestBaseCases turned into TestBaseCases::test_origin
+    in the evidence and halted phase 13). FORGE's unit of verification is the
+    traced test FUNCTION, so class collection is disabled at the runner."""
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_x.py").write_text("")
+
+    init_bazel_workspace(tmp_path)
+
+    runner = (tests / "pytest_runner.py").read_text()
+    assert "python_classes=" in runner, "runner must disable pytest class collection"

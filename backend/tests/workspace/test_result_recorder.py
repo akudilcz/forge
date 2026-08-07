@@ -172,8 +172,16 @@ def test_find_trace_targets_unowned_file_returns_empty() -> None:
     assert _find_trace_targets("test_plan", "tests/test_motion.py", graph) == []
 
 
-def test_find_trace_targets_owned_file_untraced_function_raises() -> None:
-    """A CASE owns the file but not this function: loud error (real bug)."""
+def test_find_trace_targets_owned_file_untraced_function_skips() -> None:
+    """A CASE owns the file but not this function: skipped, not fatal.
+
+    Contract changed deliberately (live: pytest collected an imported
+    production class as TestBaseCases::test_origin and one stray function
+    halted phase 13). Untraced test functions are surfaced by their own gap,
+    and the evidence-integrity guards stop unproven evidence from counting —
+    so recording skips them loudly instead of bricking the phase. A CASE-owned,
+    line-traced function whose CASE has no TEST node still raises (real sync bug).
+    """
     case = _make_node("CASE_LLR-001", "CASE_LLR", properties={
         "file_path": "tests/test_motion.py",
         "line_traces": [{"symbol": "test_other", "start": 1, "end": 5, "llr_ids": []}],
@@ -181,8 +189,7 @@ def test_find_trace_targets_owned_file_untraced_function_raises() -> None:
     graph = MagicMock()
     graph.all_nodes.return_value = [case]
 
-    with pytest.raises(RuntimeError, match="line_traces"):
-        _find_trace_targets("test_plan", "tests/test_motion.py", graph)
+    assert _find_trace_targets("test_plan", "tests/test_motion.py", graph) == []
 
 
 def test_find_trace_targets_file_level_match() -> None:
@@ -678,9 +685,10 @@ async def test_record_results_skips_auxiliary_file_no_case_owns() -> None:
 
 
 @pytest.mark.asyncio
-async def test_record_results_raises_when_owned_file_function_untraced() -> None:
+async def test_record_results_skips_owned_file_untraced_function() -> None:
     """A CASE owns the file but the function is not in its line_traces:
-    that is a real traceability bug — raise, never skip."""
+    skipped with a WARN, no RESULT written, phase continues (see
+    test_find_trace_targets_owned_file_untraced_function_skips)."""
     tr = SingleTestResult(
         "tests/test_motion.py::test_untraced", "tests/test_motion.py",
         "test_untraced", "passed",
@@ -695,9 +703,10 @@ async def test_record_results_raises_when_owned_file_function_untraced() -> None
 
     with patch(
         "backend.workspace.result_recorder.run_and_parse_tests", return_value=[tr],
-    ), pytest.raises(RuntimeError, match="line_traces"):
-        await record_results(workspace=MagicMock(), graph=graph)
+    ):
+        results = await record_results(workspace=MagicMock(), graph=graph)
 
+    assert results == [tr]
     graph.add_node.assert_not_called()
 
 
@@ -783,3 +792,32 @@ def test_bazel_test_forces_reexecution_no_cached_results() -> None:
 
     src = inspect.getsource(result_recorder.run_and_parse_tests)
     assert "--nocache_test_results" in src
+
+
+@pytest.mark.asyncio
+async def test_untraced_function_in_owned_file_is_skipped_loudly() -> None:
+    """A CASE owns the file but this function is in no line_traces (live:
+    pytest collected an imported production class, inventing
+    TestBaseCases::test_origin). One stray collected function must not brick
+    phase 13 — it is skipped with a loud WARN and no RESULT is written.
+    Untraced test functions are already surfaced as their own gap, and the
+    evidence-integrity guards prevent anything unproven from counting."""
+    tr = SingleTestResult(
+        "tests/test_motion.py::test_stray", "tests/test_motion.py", "test_stray", "passed",
+    )
+    case = _make_node("CASE_LLR-0010", "CASE_LLR", trace_to=["LLR-001"], properties={
+        "file_path": "tests/test_motion.py",
+        "line_traces": [{"symbol": "test_plan", "start": 1, "end": 5, "llr_ids": []}],
+    })
+    test = _make_node("TEST-0065", "TEST", trace_to=["CASE_LLR-0010", "LLR-001"])
+    graph = MagicMock()
+    graph.all_nodes.return_value = [case, test]
+    graph.add_node = AsyncMock()
+
+    with patch(
+        "backend.workspace.result_recorder.run_and_parse_tests", return_value=[tr],
+    ):
+        results = await record_results(workspace=MagicMock(), graph=graph)
+
+    assert results == [tr]
+    graph.add_node.assert_not_called()

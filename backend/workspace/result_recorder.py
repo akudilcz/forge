@@ -193,12 +193,18 @@ def _find_trace_targets(
             # Auxiliary test file (specs/03): no CASE owns this file at
             # all — it is infrastructure, not traceability evidence.
             return []
-        raise RuntimeError(
-            f"No CASE node owns test function {func_name!r} in {file_path!r} — "
-            "cannot record a RESULT without a TEST parent. The file belongs to "
-            "CASE(s) but this function is missing from their line_traces; fix "
-            "the CASE line_traces before recording evidence."
+        # The file is owned, but this function is in no CASE's line_traces:
+        # collateral collection (e.g. pytest picking up an imported class) or
+        # an untraced test the agent added. One stray function must not brick
+        # the phase — skip it loudly and write no RESULT. Untraced test
+        # functions are surfaced as their own gap, and the evidence-integrity
+        # guards stop anything unproven from counting as coverage.
+        forge_logger.emit(
+            "WARN", "SYNC ",
+            f"Test function {func_name!r} in {file_path!r} is in no CASE's "
+            "line_traces — no RESULT recorded (not traceability evidence)",
         )
+        return []
 
     # Step 2: find TEST nodes tracing to those CASEs
     test_ids: list[str] = []

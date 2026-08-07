@@ -322,7 +322,15 @@ def main():
     # rootdir is pinned to the workspace root so pytest node IDs — and hence
     # the JUnit classname — are "tests.test_x", the form the FORGE scanner
     # matches against tests/ files on disk.
-    args = [f"--rootdir={here.parent}", "-p", "no:cacheprovider", "-v", *targets]
+    # python_classes= disables class collection: generated tests import
+    # production classes, and pytest would otherwise collect any imported
+    # ``Test*`` class as tests, inventing functions no CASE traces (live:
+    # src/tests.py::TestBaseCases -> TestBaseCases::test_origin halted
+    # phase 13). FORGE verifies traced test FUNCTIONS.
+    args = [
+        f"--rootdir={here.parent}", "-p", "no:cacheprovider",
+        "-o", "python_classes=", "-v", *targets,
+    ]
     xml_path = os.environ.get("XML_OUTPUT_FILE")
     if xml_path:
         args = [f"--junitxml={xml_path}", *args]
