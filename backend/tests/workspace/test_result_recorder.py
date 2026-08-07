@@ -769,3 +769,17 @@ async def test_heal_result_parents_raises_when_no_test_exists() -> None:
     ]
     with pytest.raises(RuntimeError, match="TEST"):
         await heal_result_parents(graph)
+
+
+def test_bazel_test_forces_reexecution_no_cached_results() -> None:
+    """purge_stale_test_artifacts deletes prior test.xml files, but a CACHED
+    bazel test pass skips execution and regenerates nothing — the parser then
+    finds zero fresh results and the phase-12 gate refuses good code (live:
+    trie pilot, 226 passing tests judged as 'no tests executed'). The bazel
+    invocation must force re-execution."""
+    import inspect
+
+    from backend.workspace import result_recorder
+
+    src = inspect.getsource(result_recorder.run_and_parse_tests)
+    assert "--nocache_test_results" in src

@@ -118,7 +118,11 @@ def run_and_parse_tests(workspace: Path) -> list[SingleTestResult]:
 
     proc = subprocess.run(
         ["bazel", "test", "//tests/...",
-         "--test_output=all"],
+         "--test_output=all",
+         # Fresh-evidence invariant: purge deletes prior test.xml files, and a
+         # CACHED pass would skip execution and regenerate nothing — forcing
+         # re-execution guarantees the parser always sees fresh results.
+         "--nocache_test_results"],
         cwd=str(workspace),
         capture_output=True,
         text=True,

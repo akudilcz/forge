@@ -991,3 +991,14 @@ def test_analyse_file_syntax_error_yields_no_raise_facts(tmp_path: Path) -> None
     state = _analyse_file(f, "src/bad.py")
     assert state.class_bases == {}
     assert state.raised_names == {}
+
+
+def test_scanner_bazel_test_forces_reexecution() -> None:
+    """Same purge/cache interaction as result_recorder: the scanner's bazel
+    run must force re-execution so fresh test.xml evidence always exists."""
+    import inspect
+
+    from backend.workspace import scanner
+
+    src = inspect.getsource(scanner._run_bazel_tests)
+    assert "--nocache_test_results" in src

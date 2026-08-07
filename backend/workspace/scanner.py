@@ -288,7 +288,10 @@ def _run_bazel_tests(
         proc = subprocess.run(
             ["bazel", "test", "//tests/...",
              "--test_output=all", "--verbose_failures",
-             "--test_timeout=30"],
+             "--test_timeout=30",
+             # Force re-execution: cached passes regenerate no test.xml after
+             # the fresh-evidence purge (see result_recorder).
+             "--nocache_test_results"],
             cwd=str(workspace),
             capture_output=True, text=True, timeout=600,
         )
