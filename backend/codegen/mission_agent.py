@@ -174,7 +174,7 @@ def create_mission_agent(
     # History compaction: the mission thread runs 100+ sequential LLM
     # calls, so an unbounded conversation dominates build cost (measured
     # 52k→250k-token prompts). The hook enforces llm.mission_token_budget
-    # with the preservation rule in specs/03 §History Compaction.
+    # with the escalation in specs/13 §"Phase 12 mission history".
     return create_react_agent(
         model=llm,
         tools=tools,

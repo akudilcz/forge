@@ -222,7 +222,40 @@ build halts loudly instead of spending indefinitely:
 | Phase 12 mutation rounds per completion attempt | 1 | Surviving mutants on traced lines become `WEAK_CASE` gaps ("write a test case this diff fails") with one remediation pass; the round is never repeated |
 | Phase 12 mutation round runtime | 300 s (and 20 mutants/file) | Remaining mutants skipped with a loud WARN — a skip never blocks completion and is never a silent pass |
 | Conversation history per dispatch | `llm.dispatch_token_budget` (24k tokens) | Oldest messages trimmed deterministically |
-| Phase 12 mission history per call | `llm.mission_token_budget` (60k tokens) | Oldest tool output pruned; recent turns preserved |
+| Phase 12 mission history per call | `llm.mission_token_budget` (60k tokens) | Compaction escalates until the history fits (below) |
+
+### Phase 12 mission history
+
+The mission thread runs one continuous conversation for up to 200 tool calls,
+so its prompt is compacted before every LLM call. `llm.mission_token_budget` is
+a **binding** cap, not a target: a preserved message is excerpted rather than
+sent whole when that is what fitting the budget requires. Messages are never
+dropped or reordered — every tool call keeps its matching result — so only
+message *contents* change, and every step is deterministic.
+
+Compaction escalates only as far as the budget demands:
+
+1. **Stub old tool results.** Non-preserved tool outputs, oldest first, are
+   replaced by a one-line note saying the tool can be re-run.
+2. **Truncate preserved tool results.** Preserved outputs become a head+tail
+   excerpt carrying a marker that names how many characters were elided and
+   that the tool can be re-run. Excerpt sizes are a max-min fair split of the
+   budget left after everything undroppable is counted, so the biggest outputs
+   (a full test-suite log, a whole-file read) give up the most and small ones
+   stay verbatim. The latest `evaluate_progress` result — the agent's
+   current-state signal — is served first and yields **last**, only once every
+   other preserved output is already at its minimum useful excerpt.
+3. **Shrink the preserved window.** If four preserved turns cannot all keep a
+   usable excerpt, the window drops to 2, then 1, re-running steps 1-2 at each
+   size. The most recent turn is always preserved.
+4. **Cut the initial mission context** back to its first 4k tokens.
+
+The system prompt and the initial context's first 4k tokens are the floor and
+are never removed. If the floor plus the undroppable message envelopes still
+exceed the budget, the history is sent over budget and an **ERROR** names the
+floor's composition — that is a configuration problem the operator must fix
+(raise the budget, shrink the system prompt or mission context, or lower the
+tool-calls-per-pass bound), never a silent overrun.
 
 Cost efficiency inside the bounds: small same-family fixes (title and
 requirement-wording repairs) are batched into one LLM call per family when
